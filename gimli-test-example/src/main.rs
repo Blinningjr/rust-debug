@@ -6,7 +6,8 @@ use std::{borrow, env, fs};
 use probe_rs::{Probe, Core};
 
 use gimli::{EndianSlice, Evaluation, EvaluationResult, Format, LittleEndian, Value};
-
+use gimli::RunTimeEndian;
+use gimli::RangeIter;
 
 fn main() {
     probe_rs_stuff().unwrap();
@@ -89,65 +90,54 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
     
         // Iterate over all of this compilation unit's entries.
         let mut entries = unit.entries();
+        let mut ents: Vec<gimli::DebuggingInformationEntry<'_, '_, EndianSlice<'_, gimli::RunTimeEndian>, usize>> = vec!();
         while let Some((_, entry)) = entries.next_dfs()? {
-            if entry.tag() == gimli::DW_TAG_variable {
+            if entry.tag() == gimli::DW_TAG_compile_unit {
                 let mut attrs = entry.attrs();
+                while let Some(attr) = attrs.next().unwrap() {
+                    if attr.name() == gimli::DW_AT_ranges {
+                        ents.push(entry.clone());
+//                        println!(
+//                            "{: <30} | {:<?}",
+//                            attr.name().static_string().unwrap(),
+//                            attr.value()
+//                        );
+
+                        let d_ranges = dwarf.ranges;
+                    }
+                }
+            }
+        }
+        for e in ents {
+            if in_range(pc, &mut dwarf.die_ranges(&unit, &e).unwrap()) {
                 println!(
                     "{:<30} | {:<}",
                     "Name", "Value"
                 );
                 println!("----------------------------------------------------------------");
+                let mut attrs = e.attrs();
                 while let Some(attr) = attrs.next().unwrap() {
-                   // println!(
-                   //     "{: <30} | {:<?}",
-                   //     attr.name().static_string().unwrap(),
-                   //     attr.value()
-                   // );
-
-                    if attr.name() == gimli::DW_AT_location {
-                        println!(
-                            "{: <30} | {:<?}",
-                            attr.name().static_string().unwrap(),
-                            attr.value()
-                        );
-                        if let Some(expr) = attr.exprloc_value() {
-                            let mut eval = expr.evaluation(unit.encoding());
-                            let mut result = eval.evaluate().unwrap();
-                            if result != EvaluationResult::Complete {
-                                match result {
-                                    EvaluationResult::RequiresRegister { register, base_type } => {
-                                        let reg_num = match register { gimli::Register(v) => v, _ => panic!("err"),};
-                                        let offset = match base_type { gimli::UnitOffset(v) => v, _ => panic!("err"),};
-                                        println!("{:?} | {:?}", reg_num, offset);
-                                        if let Ok(v) = core.read_core_reg(reg_num) {
-                                            println!("{:#02x}", v);
-                                            result = eval.resume_with_register(gimli::Value::U32(v)).unwrap();
-                                        } else {
-                                            panic!("Err");
-                                        }
-
-                                        return Ok(());
-                                    },
-                                    //EvaluationResult::RequiresFrameBase => {
-                                    //    let frame_base = get_frame_base();
-                                    //    result = eval.resume_with_frame_base(frame_base).unwrap();
-                                    //},
-                                    _ => (),
-                                    //_ => unimplemented!(),
-                                }; 
-                            }
-                            //let result = eval.result();
-                            //println!("{:?}", result);
-                        }
-                    } 
+                    println!(
+                        "{: <30} | {:<?}",
+                        attr.name().static_string().unwrap(),
+                        attr.value()
+                    );
                 }
-
-                println!("\n\n");
-//                return Ok(());
+                println!("\n");
             }
         }
     }
 
+
     Ok(())
+}
+
+fn in_range(pc: u32, rang: &mut RangeIter<EndianSlice<'_, RunTimeEndian>>) -> bool { 
+    while let Ok(Some(range)) = rang.next() {
+                if range.begin <= pc as u64 && range.end >= pc as u64 {
+                    return true;
+                }               
+    }
+    return false;
 }
 
