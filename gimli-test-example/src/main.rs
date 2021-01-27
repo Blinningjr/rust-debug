@@ -1,9 +1,17 @@
 //! A simple example of parsing `.debug_info`.
 
 
-use object::{Object, ObjectSection};
 use std::{borrow, env, fs};
+use std::path::Path;
+
 use probe_rs::{Probe, Core};
+use probe_rs::flashing::{
+    Format,
+    download_file,
+};
+use core::time::Duration;
+
+use object::{Object, ObjectSection};
 
 use gimli::{
     EndianSlice,
@@ -13,6 +21,7 @@ use gimli::{
     Dwarf,
     Error,
     DebuggingInformationEntry,
+    EvaluationResult,
 };
 
 
@@ -31,10 +40,20 @@ fn probe_rs_stuff() -> Result<(), &'static str> {
     // Attach to a chip.
     let mut session = probe.attach_under_reset("STM32F411RETx").map_err(|_| "Failed to attach probe to target")?;
 
-    let mut core = session.core(0).unwrap();
 
 //    println!("{:#?}", core.registers().PC());
 //    println!("{:#?}", core.registers().program_counter().address);
+    let path_str = env::args().skip(1).next().unwrap();
+    let path = Path::new(&path_str);
+    println!("{:#?}", path);
+    
+    download_file(&mut session, &path, Format::Elf);
+    
+    let mut core = session.core(0).unwrap();
+
+    core.reset().map_err(|_| "Faild to reset")?;
+
+    core.wait_for_core_halted(Duration::new(5, 0)).map_err(|_| "Core never halted");
 
     let pc_value: u32 = core
         .read_core_reg(core.registers().program_counter())
@@ -42,27 +61,25 @@ fn probe_rs_stuff() -> Result<(), &'static str> {
 
     println!("{:#02x}", pc_value);
 
-    read_dwarf(pc_value, &mut core);
+    read_dwarf(pc_value, &mut core, path);
     Ok(())
 }
 
 
-fn read_dwarf(pc: u32, core: &mut Core) {
-    for path in env::args().skip(1) {
-        let file = fs::File::open(&path).unwrap();
-        let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
-        let object = object::File::parse(&*mmap).unwrap();
-        let endian = if object.is_little_endian() {
-            gimli::RunTimeEndian::Little
-        } else {
-            gimli::RunTimeEndian::Big
-        };
-        dump_file(&object, endian, pc, core).unwrap();
-    }
+fn read_dwarf(pc: u32, core: &mut Core, path: &Path) {
+    let file = fs::File::open(&path).unwrap();
+    let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
+    let object = object::File::parse(&*mmap).unwrap();
+    let endian = if object.is_little_endian() {
+        gimli::RunTimeEndian::Little
+    } else {
+        gimli::RunTimeEndian::Big
+    };
+    dump_file(&object, endian, pc, core).unwrap();
 }
 
 
-fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, _core: &mut Core) -> Result<(), gimli::Error> {
+fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core: &mut Core) -> Result<(), gimli::Error> {
     // Load a section and return as `Cow<[u8]>`.
     let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
         match object.section_by_name(id.name()) {
@@ -91,10 +108,59 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, _core
 
     let unit = get_current_unit(&dwarf, pc)?;
     let dies = get_current_dies(&dwarf, &unit, pc)?;
-    println!("{:#?}", dies.len());
+//    println!("{:#?}", dies.iter().map(|d| d.tag().static_string()).collect::<Vec<_>>());
+
+    for die in dies.iter() {
+        let mut attrs = die.attrs();
+        println!(
+            "{:<30} | {:<}",
+            "Name", "Value"
+        );
+        println!("----------------------------------------------------------------");
+        while let Some(attr) = attrs.next().unwrap() {
+
+            if let Some(expr) = attr.exprloc_value() {
+                let mut eval = expr.evaluation(unit.encoding());
+                let mut result = eval.evaluate().unwrap();
+                if result != EvaluationResult::Complete {
+                    match result {
+                        EvaluationResult::RequiresRegister { register, base_type } => {
+                            let reg_num = match register { gimli::Register(v) => v, _ => panic!("err"),};
+                            let offset = match base_type { gimli::UnitOffset(v) => v, _ => panic!("err"),};
+                            println!("{:?} | {:?}", reg_num, offset);
+                            if let Ok(v) = core.read_core_reg(reg_num) {
+                                println!("{:#02x}", v);
+                                result = eval.resume_with_register(gimli::Value::U32(v)).unwrap();
+                            } else {
+                                panic!("Err");
+                            }
+
+                            return Ok(());
+                        },
+                        //EvaluationResult::RequiresFrameBase => {
+                        //    let frame_base = get_frame_base();
+                        //    result = eval.resume_with_frame_base(frame_base).unwrap();
+                        //},
+                        _ => (),
+                        //_ => unimplemented!(),
+                    }; 
+                }
+            }
 
 
-    Ok(())
+            println!(
+                "{: <30} | {:<?}",
+                attr.name().static_string().unwrap(),
+                attr.value()
+            );
+        }
+        println!("\n");
+//        if die.tag() == gimli::DW_TAG_compile_unit {
+//            println!("hej");
+//        }
+    }
+
+    return Ok(());
 }
 
 
@@ -102,6 +168,7 @@ fn get_current_unit<'a>(
         dwarf: &Dwarf<EndianSlice<'a, RunTimeEndian>>,
         pc: u32
     ) -> Result<Unit<EndianSlice<'a, RunTimeEndian>, usize>, Error> {
+    // TODO: Maby return a vec of units
     
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {        
