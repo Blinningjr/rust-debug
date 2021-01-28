@@ -22,6 +22,11 @@ use gimli::{
     Error,
     DebuggingInformationEntry,
     EvaluationResult,
+    AttributeValue::{
+        DebugStrRef,
+        UnitRef,
+    },
+    Attribute,
 };
 
 
@@ -47,7 +52,7 @@ fn probe_rs_stuff() -> Result<(), &'static str> {
     let path = Path::new(&path_str);
     println!("{:#?}", path);
     
-    download_file(&mut session, &path, Format::Elf);
+    download_file(&mut session, &path, Format::Elf).map_err(|_| "Failed to flash target");
     
     let mut core = session.core(0).unwrap();
 
@@ -118,49 +123,41 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
         );
         println!("----------------------------------------------------------------");
         while let Some(attr) = attrs.next().unwrap() {
-
-            if let Some(expr) = attr.exprloc_value() {
-                let mut eval = expr.evaluation(unit.encoding());
-                let mut result = eval.evaluate().unwrap();
-                if result != EvaluationResult::Complete {
-                    match result {
-                        EvaluationResult::RequiresRegister { register, base_type } => {
-                            let reg_num = match register { gimli::Register(v) => v, _ => panic!("err"),};
-                            let offset = match base_type { gimli::UnitOffset(v) => v, _ => panic!("err"),};
-                            println!("{:?} | {:?}", reg_num, offset);
-                            if let Ok(v) = core.read_core_reg(reg_num) {
-                                println!("{:#02x}", v);
-                                result = eval.resume_with_register(gimli::Value::U32(v)).unwrap();
-                            } else {
-                                panic!("Err");
-                            }
-
-                            return Ok(());
-                        },
-                        //EvaluationResult::RequiresFrameBase => {
-                        //    let frame_base = get_frame_base();
-                        //    result = eval.resume_with_frame_base(frame_base).unwrap();
-                        //},
-                        _ => (),
-                        //_ => unimplemented!(),
-                    }; 
-                }
-            }
-
+            let val = match attr.value() {
+                DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
+                _ => format!("{:?}", attr.value()),
+            };
 
             println!(
                 "{: <30} | {:<?}",
                 attr.name().static_string().unwrap(),
-                attr.value()
+                val
             );
+            evaluate(&dwarf, &unit, attr, pc);
+            if let UnitRef(offset) = attr.value() {
+                println!("{:?}", unit.entry(offset).unwrap().tag().static_string());
+            }
         }
         println!("\n");
-//        if die.tag() == gimli::DW_TAG_compile_unit {
-//            println!("hej");
-//        }
     }
 
     return Ok(());
+}
+
+
+fn evaluate<'a>(
+        dwarf: &Dwarf<EndianSlice<'a, RunTimeEndian>>,
+        unit: &'a Unit<EndianSlice<'a, RunTimeEndian>, usize>,
+        attr: Attribute<EndianSlice<'_, RunTimeEndian>>,
+        pc: u32
+    ) {
+    if let Some(expr) = attr.value().exprloc_value() {
+        let mut eval = expr.evaluation(unit.encoding());
+        let mut result = eval.evaluate().unwrap();
+
+        let result = eval.result();
+        println!("{:#?}", result);
+    }
 }
 
 
@@ -173,7 +170,6 @@ fn get_current_unit<'a>(
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {        
         let unit = dwarf.unit(header)?;
-
         if in_range(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
             return Ok(unit);
         }
@@ -199,7 +195,9 @@ fn get_current_dies<'a>(
 
 
 fn in_range(pc: u32, rang: &mut RangeIter<EndianSlice<'_, RunTimeEndian>>) -> bool { 
+    let mut is_true = false;
     while let Ok(Some(range)) = rang.next() {
+//        println!("range: {:?}", range);
         if range.begin <= pc as u64 && range.end >= pc as u64 {
             return true;
         }               
