@@ -25,6 +25,7 @@ use gimli::{
     AttributeValue::{
         DebugStrRef,
         UnitRef,
+        DebugLineRef,
     },
     Attribute,
 };
@@ -111,52 +112,122 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
     // Create `EndianSlice`s for all of the sections.
     let dwarf = dwarf_cow.borrow(&borrow_section);
 
+
     let unit = get_current_unit(&dwarf, pc)?;
-    let dies = get_current_dies(&dwarf, &unit, pc)?;
-//    println!("{:#?}", dies.iter().map(|d| d.tag().static_string()).collect::<Vec<_>>());
 
-    for die in dies.iter() {
-        let mut attrs = die.attrs();
-        println!(
-            "{:<30} | {:<}",
-            "Name", "Value"
-        );
-        println!("----------------------------------------------------------------");
-        while let Some(attr) = attrs.next().unwrap() {
-            let val = match attr.value() {
-                DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
-                _ => format!("{:?}", attr.value()),
-            };
 
-            println!(
-                "{: <30} | {:<?}",
-                attr.name().static_string().unwrap(),
-                val
-            );
-            evaluate(&dwarf, &unit, attr, pc);
-            if let UnitRef(offset) = attr.value() {
-                println!("{:?}", unit.entry(offset).unwrap().tag().static_string());
+    let mut tree = unit.entries_tree(None)?;
+    let root = tree.root()?;
+    process_tree(root, &dwarf, &unit, pc)?;
+    
+    fn process_tree<R>(mut node: gimli::EntriesTreeNode<R>,
+                        dwarf: &Dwarf<EndianSlice<'_, RunTimeEndian>>,
+                        unit: &'_ Unit<EndianSlice<'_, RunTimeEndian>, usize>,
+                        pc: u32
+                       ) -> gimli::Result<()>
+        where R: gimli::Reader<Offset = usize>
+    {
+        {
+            
+            if let Some(value) = node.entry().attr_value(gimli::DW_AT_name).unwrap() {
+                let name = match value {
+                    DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
+                    _ => format!("{:?}", value),
+                };
+                if name == "\"my_num\"" {
+                    check_die(dwarf, unit, node.entry(), pc);
+                    //println!("{:?}", node.entry().tag().to_string());
+                    //println!("{:?}", name);
+                }
             }
+            //// Examine the entry attributes.
+            //let mut attrs = node.entry().attrs();
+            //while let Some(attr) = attrs.next()? {
+            //    println!(
+            //        "{: <30} | {:<?}",
+            //        attr.name().static_string().unwrap(),
+            //        attr.value()
+            //    );
+            //}
         }
-        println!("\n");
+        let mut children = node.children();
+        while let Some(child) = children.next()? {
+            // Recursively process a child.
+            process_tree(child, dwarf, unit, pc)?;
+        }
+        Ok(())
     }
+//    println!("{:?}", unit.name.unwrap().to_string());
+//
+//
+//    let dies = get_current_dies(&dwarf, &unit, pc)?;
+//    println!("{:#?}", dies.iter().map(|d| d.tag().static_string()).collect::<Vec<_>>());
+//
+//    for die in dies.iter() {
+//        check_die(&dwarf, &unit, die, pc);
+//    }
 
     return Ok(());
 }
 
 
-fn evaluate<'a>(
+fn check_die<R>(
+        dwarf: &Dwarf<EndianSlice<'_, RunTimeEndian>>,
+        unit: &'_ Unit<EndianSlice<'_, RunTimeEndian>, usize>,
+        die: &gimli::DebuggingInformationEntry<'_, '_, R, usize>, //&DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>, usize>,
+        pc: u32
+    )
+        where R: gimli::Reader<Offset = usize>
+{
+    let mut found_dies: Vec<DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>, usize>> = vec!();
+
+    let mut attrs = die.attrs();
+    println!("{:?}", die.tag().static_string());
+    println!(
+        "{:<30} | {:<}",
+        "Name", "Value"
+    );
+    println!("----------------------------------------------------------------");
+    while let Some(attr) = attrs.next().unwrap() {
+        let val = match attr.value() {
+            DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
+            _ => format!("{:?}", attr.value()),
+        };
+
+        println!(
+            "{: <30} | {:<?}",
+            attr.name().static_string().unwrap(),
+            val
+        );
+        evaluate(&dwarf, &unit, attr, pc);
+        //if let UnitRef(offset) = attr.value() {
+        //    found_dies.push(unit.entry(offset).unwrap());
+        //    //println!("{:?}", unit.entry(offset).unwrap().tag().static_string());
+        //}
+    }
+    println!("\n");
+
+//    for die in found_dies.iter() {
+//        check_die(dwarf, unit, die, pc);
+//    }
+}
+
+
+fn evaluate<'a, R>(
         dwarf: &Dwarf<EndianSlice<'a, RunTimeEndian>>,
         unit: &'a Unit<EndianSlice<'a, RunTimeEndian>, usize>,
-        attr: Attribute<EndianSlice<'_, RunTimeEndian>>,
+        attr: Attribute<R>,
         pc: u32
-    ) {
+    )
+        where R: gimli::Reader<Offset = usize>
+{
     if let Some(expr) = attr.value().exprloc_value() {
         let mut eval = expr.evaluation(unit.encoding());
         let mut result = eval.evaluate().unwrap();
 
-        let result = eval.result();
         println!("{:#?}", result);
+        //let result = eval.result();
+        //println!("{:#?}", result);
     }
 }
 
@@ -166,9 +237,9 @@ fn get_current_unit<'a>(
         pc: u32
     ) -> Result<Unit<EndianSlice<'a, RunTimeEndian>, usize>, Error> {
     // TODO: Maby return a vec of units
-    
+
     let mut iter = dwarf.units();
-    while let Some(header) = iter.next()? {        
+    while let Some(header) = iter.next()? {
         let unit = dwarf.unit(header)?;
         if in_range(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
             return Ok(unit);
@@ -186,6 +257,7 @@ fn get_current_dies<'a>(
     let mut entries = unit.entries();
     let mut dies: Vec<DebuggingInformationEntry<'a, 'a, EndianSlice<'a, RunTimeEndian>, usize>> = vec!();
     while let Some((_, entry)) = entries.next_dfs()? {
+//        println!("{:#?}", entry.tag().static_string());
         if in_range(pc, &mut dwarf.die_ranges(unit, entry)?) {
             dies.push(entry.clone());
         }
