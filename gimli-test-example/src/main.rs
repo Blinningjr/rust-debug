@@ -57,6 +57,8 @@ use gimli::{
     Register,
     Value,
     DwAte,
+    Expression,
+    Piece,
 };
 
 
@@ -156,15 +158,17 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
 
     let mut tree = unit.entries_tree(None)?;
     let root = tree.root()?;
-    process_tree(root, &dwarf, &unit, pc, false)?;
+    process_tree(core, root, &dwarf, &unit, pc, false)?;
     
-    fn process_tree<R>(mut node: EntriesTreeNode<R>,
-                        dwarf: &Dwarf<R>,
-                        unit: &'_ Unit<R>,
-                        pc: u32,
-                        prev_in_range: bool
-                       ) -> gimli::Result<()>
-        where R: Reader<Offset = usize>
+    fn process_tree<R>(
+            core: &mut Core,
+            mut node: EntriesTreeNode<R>,
+            dwarf: &Dwarf<R>,
+            unit: &'_ Unit<R>,
+            pc: u32,
+            prev_in_range: bool
+        ) -> gimli::Result<()>
+            where R: Reader<Offset = usize>
     {
         {
             
@@ -198,12 +202,12 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
             _ => (),
         };
         println!("in_r: {:?}", in_r);
-        check_die(dwarf, unit, die, pc);
+        check_die(core, dwarf, unit, die, pc);
         if in_r {
             let mut children = node.children();
             while let Some(child) = children.next()? {
                 // Recursively process a child.
-                process_tree(child, dwarf, unit, pc, in_r)?;
+                process_tree(core, child, dwarf, unit, pc, in_r)?;
             }
         }
         Ok(())
@@ -214,8 +218,9 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
 
 
 fn check_die<R>(
+        core: &mut Core,
         dwarf: &Dwarf<R>,
-        unit: &'_ Unit<R>,
+        unit: &Unit<R>,
         die: &DebuggingInformationEntry<'_, '_, R>, //&DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>, usize>,
         pc: u32
     )
@@ -241,7 +246,9 @@ fn check_die<R>(
             attr.name().static_string().unwrap(),
             val
         );
-        evaluate(&dwarf, &unit, attr, pc);
+        if let Some(expr) = attr.value().exprloc_value() {
+            new_evaluate(core, dwarf, unit, expr, pc);
+        }
         //if let UnitRef(offset) = attr.value() {
         //    found_dies.push(unit.entry(offset).unwrap());
         //    //println!("{:?}", unit.entry(offset).unwrap().tag().static_string());
@@ -354,37 +361,49 @@ fn new_evaluate<R>(
         core: &mut Core,
         dwarf: &Dwarf<R>,
         unit: &Unit<R>,
-        attr: Attribute<R>,
+        expr: Expression<R>,
         pc: u32
-    )
+    ) -> Value
         where R: Reader<Offset = usize>
 {
-    if let Some(expr) = attr.value().exprloc_value() {
-        let mut eval = expr.evaluation(unit.encoding());
-        let mut result = eval.evaluate().unwrap();
+    let mut eval = expr.evaluation(unit.encoding());
+    let mut result = eval.evaluate().unwrap();
 
-        println!("{:#?}", result);
-        loop {
-            match result {
-                Complete => break,
-                RequiresMemory{address, size, space, base_type} =>
-                    resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
-                RequiresRegister{register, base_type} => resolve_requires_reg(core, unit, &mut eval, &mut result, register, base_type),
-                RequiresFrameBase => resolve_requires_frame_base(),
-                RequiresTls(_tls) => unimplemented!(),
-                RequiresCallFrameCfa => unimplemented!(),
-                RequiresAtLocation(_dir_ref) => unimplemented!(),
-                RequiresEntryValue(_expr) => unimplemented!(),
-                RequiresParameterRef(_unit_offset) => unimplemented!(),
-                RequiresRelocatedAddress(_num) => unimplemented!(),
-                RequiresIndexedAddress{index, relocate} => unimplemented!(),
-                RequiresBaseType(_unit_offset) => unimplemented!(),
-                _ => unimplemented!(),
-            };
-        }
-        let result = eval.result();
-        println!("{:#?}", result);
+    println!("{:#?}", result);
+    loop {
+        match result {
+            Complete => break,
+            RequiresMemory{address, size, space, base_type} =>
+                resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
+            RequiresRegister{register, base_type} => resolve_requires_reg(core, unit, &mut eval, &mut result, register, base_type),
+            RequiresFrameBase => resolve_requires_frame_base(),
+            RequiresTls(_tls) => unimplemented!(), //TODO
+            RequiresCallFrameCfa => unimplemented!(), //TODO
+            RequiresAtLocation(_dir_ref) => unimplemented!(), //TODO
+            RequiresEntryValue(e) =>
+              result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc)).unwrap(),
+            RequiresParameterRef(_unit_offset) => unimplemented!(), //TODO
+            RequiresRelocatedAddress(num) =>
+                result = eval.resume_with_relocated_address(num).unwrap(), //TODO
+            RequiresIndexedAddress{index, relocate} => unimplemented!(), // TODO
+            RequiresBaseType(unit_offset) => 
+                result = eval.resume_with_base_type(
+                    parse_base_type(unit, 0, unit_offset).value_type()).unwrap(),
+        };
     }
+
+    eval_pieces(eval.result())
+    // TODO: Return Value
+}
+
+fn eval_pieces<R>(
+        pieces: Vec<Piece<R>>
+    ) -> Value
+        where R: Reader<Offset = usize>
+{
+    println!("{:?}", pieces);
+    // TODO: Implement
+    return Value::I32(10);
 }
 
 fn parse_base_type<R>(
