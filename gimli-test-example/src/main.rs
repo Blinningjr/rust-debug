@@ -4,7 +4,11 @@
 use std::{borrow, env, fs};
 use std::path::Path;
 
-use probe_rs::{Probe, Core};
+use probe_rs::{
+    Probe,
+    Core,
+    MemoryInterface,
+};
 use probe_rs::flashing::{
     Format,
     download_file,
@@ -21,7 +25,20 @@ use gimli::{
     Dwarf,
     Error,
     DebuggingInformationEntry,
-    EvaluationResult,
+    EvaluationResult::{
+        Complete,
+        RequiresMemory,
+        RequiresRegister,
+        RequiresFrameBase,
+        RequiresTls,
+        RequiresCallFrameCfa,
+        RequiresAtLocation,
+        RequiresEntryValue,
+        RequiresParameterRef,
+        RequiresRelocatedAddress,
+        RequiresIndexedAddress,
+        RequiresBaseType,
+    },
     AttributeValue::{
         DebugStrRef,
         UnitRef,
@@ -31,6 +48,10 @@ use gimli::{
     Attribute,
     ReaderOffset,
     Reader,
+    EntriesTreeNode,
+    Evaluation,
+    EvaluationResult,
+    UnitOffset,
 };
 
 
@@ -117,57 +138,70 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
 
 
     let unit = get_current_unit(&dwarf, pc)?;
-
-
-//    let mut tree = unit.entries_tree(None)?;
-//    let root = tree.root()?;
-//    process_tree(root, &dwarf, &unit, pc)?;
-//    
-//    fn process_tree<R>(mut node: gimli::EntriesTreeNode<R>,
-//                        dwarf: &Dwarf<EndianSlice<'_, RunTimeEndian>>,
-//                        unit: &'_ Unit<EndianSlice<'_, RunTimeEndian>, usize>,
-//                        pc: u32
-//                       ) -> gimli::Result<()>
-//        where R: gimli::Reader<Offset = usize>
-//    {
-//        {
-//            
-//            if let Some(value) = node.entry().attr_value(gimli::DW_AT_name).unwrap() {
-//                let name = match value {
-//                    DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
-//                    _ => format!("{:?}", value),
-//                };
-//                if name == "\"my_num\"" {
-//                    check_die(dwarf, unit, node.entry(), pc);
-//                    //println!("{:?}", node.entry().tag().to_string());
-//                    //println!("{:?}", name);
-//                }
-//            }
-//            //// Examine the entry attributes.
-//            //let mut attrs = node.entry().attrs();
-//            //while let Some(attr) = attrs.next()? {
-//            //    println!(
-//            //        "{: <30} | {:<?}",
-//            //        attr.name().static_string().unwrap(),
-//            //        attr.value()
-//            //    );
-//            //}
-//        }
-//        let mut children = node.children();
-//        while let Some(child) = children.next()? {
-//            // Recursively process a child.
-//            process_tree(child, dwarf, unit, pc)?;
-//        }
-//        Ok(())
-//    }
     println!("{:?}", unit.name.unwrap().to_string());
 
 
-    let dies = get_current_dies(&dwarf, &unit, pc)?;
-    println!("{:#?}", dies.iter().map(|d| d.tag().static_string()).collect::<Vec<_>>());
+//    let dies = get_current_dies(&dwarf, &unit, pc)?;
+//    println!("{:#?}", dies.iter().map(|d| d.tag().static_string()).collect::<Vec<_>>());
+//
+//    for die in dies.iter() {
+//        check_die(&dwarf, &unit, die, pc);
+//    }
 
-    for die in dies.iter() {
-        check_die(&dwarf, &unit, die, pc);
+
+    let mut tree = unit.entries_tree(None)?;
+    let root = tree.root()?;
+    process_tree(root, &dwarf, &unit, pc, false)?;
+    
+    fn process_tree<R>(mut node: EntriesTreeNode<R>,
+                        dwarf: &Dwarf<R>,
+                        unit: &'_ Unit<R>,
+                        pc: u32,
+                        prev_in_range: bool
+                       ) -> gimli::Result<()>
+        where R: Reader<Offset = usize>
+    {
+        {
+            
+            //if let Some(value) = node.entry().attr_value(gimli::DW_AT_name).unwrap() {
+            //    let name = match value {
+            //        DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
+            //        _ => format!("{:?}", value),
+            //    };
+            //    if name == "\"my_num\"" {
+            //        //check_die(dwarf, unit, node.entry(), pc);
+            //        println!("{:?}", node.entry().tag().to_string());
+            //        println!("{:?}", name);
+            //    }
+            //}
+            //// Examine the entry attributes.
+            //let mut attrs = node.entry().attrs();
+            //while let Some(attr) = attrs.next()? {
+            //    println!(
+            //        "{: <30} | {:<?}",
+            //        attr.name().static_string().unwrap(),
+            //        attr.value()
+            //    );
+            //}
+        }
+        let die = node.entry();
+        let in_range = die_in_range(dwarf, unit, die, pc);
+        let mut in_r = true;
+        match (in_range, prev_in_range) {
+            (Some(false), _ ) => in_r = false, //return Ok(()),
+            (None, false) => in_r = false, //return Ok(()),
+            _ => (),
+        };
+        println!("in_r: {:?}", in_r);
+        check_die(dwarf, unit, die, pc);
+        if in_r {
+            let mut children = node.children();
+            while let Some(child) = children.next()? {
+                // Recursively process a child.
+                process_tree(child, dwarf, unit, pc, in_r)?;
+            }
+        }
+        Ok(())
     }
 
     return Ok(());
@@ -229,8 +263,13 @@ fn evaluate<'a, R>(
         let mut result = eval.evaluate().unwrap();
 
         println!("{:#?}", result);
-        //let result = eval.result();
-        //println!("{:#?}", result);
+        match result {
+            gimli::EvaluationResult::Complete => {
+                let result = eval.result();
+                println!("{:#?}", result);
+            },
+            _ => (),
+        };
     }
 }
 
@@ -246,7 +285,7 @@ fn get_current_unit<'a, R>(
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {
         let unit = dwarf.unit(header)?;
-        if in_range(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
+        if Some(true) == in_range(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
             return Ok(unit);
         }
     }
@@ -265,7 +304,7 @@ fn get_current_dies<'a, R>(
     let mut dies: Vec<DebuggingInformationEntry<R>> = vec!();
     while let Some((_, entry)) = entries.next_dfs()? {
 //        println!("{:#?}", entry.tag().static_string());
-        if in_range(pc, &mut dwarf.die_ranges(unit, entry)?) {
+        if Some(true) == in_range(pc, &mut dwarf.die_ranges(unit, entry)?) {
             dies.push(entry.clone());
         }
     }
@@ -273,17 +312,21 @@ fn get_current_dies<'a, R>(
 }
 
 
-fn in_range<R>(pc: u32, rang: &mut RangeIter<R>) -> bool
+fn in_range<R>(pc: u32, rang: &mut RangeIter<R>) -> Option<bool>
         where R: Reader<Offset = usize>
 { 
-    let mut is_true = false;
+    let mut no_range = true;
     while let Ok(Some(range)) = rang.next() {
 //        println!("range: {:?}", range);
         if range.begin <= pc as u64 && range.end >= pc as u64 {
-            return true;
-        }               
+            return Some(true);
+        }
+        no_range = false;
     }
-    return false;
+    if no_range {
+        return None;
+    }
+    return Some(false);
 }
 
 
@@ -296,8 +339,79 @@ fn die_in_range<'a, R>(
         where R: Reader<Offset = usize>
 {
     match dwarf.die_ranges(unit, die) {
-        Ok(mut range) => Some(in_range(pc, &mut range)),
+        Ok(mut range) => in_range(pc, &mut range),
         Err(_) => None,
     }
+}
+
+
+fn new_evaluate<R>(
+        core: &mut Core,
+        dwarf: &Dwarf<R>,
+        unit: &Unit<R>,
+        attr: Attribute<R>,
+        pc: u32
+    )
+        where R: Reader<Offset = usize>
+{
+    if let Some(expr) = attr.value().exprloc_value() {
+        let mut eval = expr.evaluation(unit.encoding());
+        let mut result = eval.evaluate().unwrap();
+
+        println!("{:#?}", result);
+        loop {
+            match result {
+                Complete => break,
+                RequiresMemory{address, size, space, base_type} =>
+                    resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
+                RequiresRegister{register, base_type} => unimplemented!(),
+                RequiresFrameBase => unimplemented!(),
+                RequiresTls(_tls) => unimplemented!(),
+                RequiresCallFrameCfa => unimplemented!(),
+                RequiresAtLocation(_dir_ref) => unimplemented!(),
+                RequiresEntryValue(_expr) => unimplemented!(),
+                RequiresParameterRef(_unit_offset) => unimplemented!(),
+                RequiresRelocatedAddress(_num) => unimplemented!(),
+                RequiresIndexedAddress{index, relocate} => unimplemented!(),
+                RequiresBaseType(_unit_offset) => unimplemented!(),
+                _ => unimplemented!(),
+            };
+        }
+        let result = eval.result();
+        println!("{:#?}", result);
+    }
+}
+
+/*
+ * Resolves requires memory when evaluating a die.
+ * TODO: Test and fix this function.
+ */
+fn resolve_requires_mem<R>(
+        core: &mut Core,
+        unit: &Unit<R>,
+        eval: &mut Evaluation<R>,
+        result: &mut EvaluationResult<R>,
+        address: u64,
+        size: u8,
+        _space: Option<u64>,
+        base_type: UnitOffset<usize>
+    )
+        where R: Reader<Offset = usize>
+{
+    let mut data = vec![0u32; size as usize];
+    core.read_32(address as u32, &mut data);
+
+    let die = unit.entry(base_type).unwrap();
+
+    // I think that the die returnd must be a base type tag.
+    if die.tag() != gimli::DW_TAG_base_type {
+        println!("{:?}", die.tag().static_string());
+        panic!("die tag not base type");
+    }
+    
+    unimplemented!()
+    // TODO: Parse the type of the value.
+    // let value = TODO;
+    // eval.resume_with_memory(value);
 }
 
