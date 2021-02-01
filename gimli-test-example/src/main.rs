@@ -44,6 +44,8 @@ use gimli::{
         UnitRef,
         DebugLineRef,
         RangeListsRef,
+        Udata,
+        Encoding,
     },
     Attribute,
     ReaderOffset,
@@ -52,6 +54,9 @@ use gimli::{
     Evaluation,
     EvaluationResult,
     UnitOffset,
+    Register,
+    Value,
+    DwAte,
 };
 
 
@@ -364,8 +369,8 @@ fn new_evaluate<R>(
                 Complete => break,
                 RequiresMemory{address, size, space, base_type} =>
                     resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
-                RequiresRegister{register, base_type} => unimplemented!(),
-                RequiresFrameBase => unimplemented!(),
+                RequiresRegister{register, base_type} => resolve_requires_reg(core, unit, &mut eval, &mut result, register, base_type),
+                RequiresFrameBase => resolve_requires_frame_base(),
                 RequiresTls(_tls) => unimplemented!(),
                 RequiresCallFrameCfa => unimplemented!(),
                 RequiresAtLocation(_dir_ref) => unimplemented!(),
@@ -382,9 +387,51 @@ fn new_evaluate<R>(
     }
 }
 
+fn parse_base_type<R>(
+        unit: &Unit<R>,
+        data: u32,
+        base_type: UnitOffset<usize>
+    ) -> Value
+        where R: Reader<Offset = usize>
+{
+    if base_type.0 == 0 {
+        return Value::Generic(data as u64);
+    }
+    let die = unit.entry(base_type).unwrap();
+
+    // I think that the die returnd must be a base type tag.
+    if die.tag() != gimli::DW_TAG_base_type {
+        println!("{:?}", die.tag().static_string());
+        panic!("die tag not base type");
+    }
+
+    let encoding = match die.attr_value(gimli::DW_AT_encoding) {
+        Ok(Some(Encoding(dwate))) => dwate,
+        _ => panic!("expected Encoding"),
+    };
+    let byte_size = match die.attr_value(gimli::DW_AT_byte_size) {
+        Ok(Some(Udata(v))) => v,
+        _ => panic!("expected Udata"),
+    };
+    
+    // Check dwarf doc for the codes.
+    match (encoding, byte_size) {
+        (DwAte(7), 1) => Value::U8(data as u8),     // (unsigned, 8)
+        (DwAte(7), 2) => Value::U16(data as u16),   // (unsigned, 16)
+        (DwAte(7), 4) => Value::U32(data as u32),   // (unsigned, 32)
+        (DwAte(7), 8) => Value::U64(data as u64),   // (unsigned, 64) TODO: Fix
+        
+        (DwAte(5), 1) => Value::I8(data as i8),     // (signed, 8)
+        (DwAte(5), 2) => Value::I16(data as i16),   // (signed, 16)
+        (DwAte(5), 4) => Value::I32(data as i32),   // (signed, 32)
+        (DwAte(5), 8) => Value::I64(data as i64),   // (signed, 64) TODO: Fix
+        _ => unimplemented!(),
+    }
+}
+
 /*
  * Resolves requires memory when evaluating a die.
- * TODO: Test and fix this function.
+ * TODO: Test.
  */
 fn resolve_requires_mem<R>(
         core: &mut Core,
@@ -398,20 +445,36 @@ fn resolve_requires_mem<R>(
     )
         where R: Reader<Offset = usize>
 {
-    let mut data = vec![0u32; size as usize];
-    core.read_32(address as u32, &mut data);
+    let data = core.read_word_32(address as u32).unwrap();
+    let value = parse_base_type(unit, data, base_type);
+    *result = eval.resume_with_memory(value).unwrap();    
+}
 
-    let die = unit.entry(base_type).unwrap();
+/*
+ * Resolves requires register when evaluating a die.
+ * TODO: Test
+ */
+fn resolve_requires_reg<R>(
+        core: &mut Core,
+        unit: &Unit<R>,
+        eval: &mut Evaluation<R>,
+        result: &mut EvaluationResult<R>,
+        reg: Register, base_type: UnitOffset<usize>) 
+        where R: Reader<Offset = usize>
+{
+    let data = core.read_core_reg(reg.0).unwrap();
+    let value = parse_base_type(unit, data, base_type);
+    *result = eval.resume_with_register(value).unwrap();    
+}
 
-    // I think that the die returnd must be a base type tag.
-    if die.tag() != gimli::DW_TAG_base_type {
-        println!("{:?}", die.tag().static_string());
-        panic!("die tag not base type");
-    }
-    
-    unimplemented!()
-    // TODO: Parse the type of the value.
-    // let value = TODO;
-    // eval.resume_with_memory(value);
+/*
+ * Resolves requires frame base when evaluating a die.
+ * TODO: Test and fix this function.
+ */
+fn resolve_requires_frame_base() 
+{
+    unimplemented!();
+    // TODO: Get the frame base of the current function.
+    // result = eval.resume_with_frame_base(frame_base);
 }
 
