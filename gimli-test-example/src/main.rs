@@ -59,6 +59,7 @@ use gimli::{
     DwAte,
     Expression,
     Piece,
+    Location,
 };
 
 
@@ -363,7 +364,7 @@ fn new_evaluate<R>(
         unit: &Unit<R>,
         expr: Expression<R>,
         pc: u32
-    ) -> Value
+    ) -> Result<Value, &'static str>
         where R: Reader<Offset = usize>
 {
     let mut eval = expr.evaluation(unit.encoding());
@@ -381,7 +382,7 @@ fn new_evaluate<R>(
             RequiresCallFrameCfa => unimplemented!(), //TODO
             RequiresAtLocation(_dir_ref) => unimplemented!(), //TODO
             RequiresEntryValue(e) =>
-              result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc)).unwrap(),
+              result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc)?).unwrap(),
             RequiresParameterRef(_unit_offset) => unimplemented!(), //TODO
             RequiresRelocatedAddress(num) =>
                 result = eval.resume_with_relocated_address(num).unwrap(), //TODO
@@ -392,18 +393,38 @@ fn new_evaluate<R>(
         };
     }
 
-    eval_pieces(eval.result())
+    let value = eval_pieces(core, eval.result());
+    println!("Value: {:?}", value);
+    value
     // TODO: Return Value
 }
 
 fn eval_pieces<R>(
+        core: &mut Core,
         pieces: Vec<Piece<R>>
-    ) -> Value
+    ) -> Result<Value, &'static str>
         where R: Reader<Offset = usize>
 {
-    println!("{:?}", pieces);
-    // TODO: Implement
-    return Value::I32(10);
+    return eval_piece(core, &pieces[0]);
+}
+
+fn eval_piece<R>(
+        core: &mut Core,
+        piece: &Piece<R>
+    ) -> Result<Value, &'static str>
+    where R: Reader<Offset = usize>
+{
+    // TODO: Handle size_in_bits and bit_offset
+    match &piece.location {
+        Location::Empty => return Err("Optimized out"),
+        Location::Register { register } => // TODO
+            return Ok(Value::U32(core.read_core_reg(register.0).unwrap())),
+        Location::Address { address } =>  // TODO
+            return Ok(Value::U32(core.read_word_32(*address as u32).map_err(|e| "Read error")?)),
+        Location::Value { value } => return Ok(value.clone()),
+        Location::Bytes { value } => unimplemented!(),
+        Location::ImplicitPointer { value, byte_offset } => unimplemented!(),
+    };
 }
 
 fn parse_base_type<R>(
@@ -478,7 +499,8 @@ fn resolve_requires_reg<R>(
         unit: &Unit<R>,
         eval: &mut Evaluation<R>,
         result: &mut EvaluationResult<R>,
-        reg: Register, base_type: UnitOffset<usize>) 
+        reg: Register,
+        base_type: UnitOffset<usize>) 
         where R: Reader<Offset = usize>
 {
     let data = core.read_core_reg(reg.0).unwrap();
