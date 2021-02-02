@@ -1,4 +1,4 @@
-//! A simple example of parsing `.debug_info`.
+//! Testing how to parse and evaluate dwarf information.
 
 
 use std::{borrow, env, fs};
@@ -171,29 +171,6 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
         ) -> gimli::Result<()>
             where R: Reader<Offset = usize>
     {
-        {
-            
-            //if let Some(value) = node.entry().attr_value(gimli::DW_AT_name).unwrap() {
-            //    let name = match value {
-            //        DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
-            //        _ => format!("{:?}", value),
-            //    };
-            //    if name == "\"my_num\"" {
-            //        //check_die(dwarf, unit, node.entry(), pc);
-            //        println!("{:?}", node.entry().tag().to_string());
-            //        println!("{:?}", name);
-            //    }
-            //}
-            //// Examine the entry attributes.
-            //let mut attrs = node.entry().attrs();
-            //while let Some(attr) = attrs.next()? {
-            //    println!(
-            //        "{: <30} | {:<?}",
-            //        attr.name().static_string().unwrap(),
-            //        attr.value()
-            //    );
-            //}
-        }
         let die = node.entry();
         let in_range = die_in_range(dwarf, unit, die, pc);
         let mut in_r = true;
@@ -396,7 +373,6 @@ fn new_evaluate<R>(
     let value = eval_pieces(core, eval.result());
     println!("Value: {:?}", value);
     value
-    // TODO: Return Value
 }
 
 fn eval_pieces<R>(
@@ -405,6 +381,10 @@ fn eval_pieces<R>(
     ) -> Result<Value, &'static str>
         where R: Reader<Offset = usize>
 {
+    // TODO: What should happen if more then one piece is given?
+    if pieces.len() > 1 {
+        panic!("Found more then one piece");
+    }
     return eval_piece(core, &pieces[0]);
 }
 
@@ -422,8 +402,8 @@ fn eval_piece<R>(
         Location::Address { address } =>  // TODO
             return Ok(Value::U32(core.read_word_32(*address as u32).map_err(|e| "Read error")?)),
         Location::Value { value } => return Ok(value.clone()),
-        Location::Bytes { value } => unimplemented!(),
-        Location::ImplicitPointer { value, byte_offset } => unimplemented!(),
+        Location::Bytes { value } => unimplemented!(), // TODO
+        Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
     };
 }
 
