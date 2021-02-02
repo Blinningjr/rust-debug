@@ -159,7 +159,7 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
 
     let mut tree = unit.entries_tree(None)?;
     let root = tree.root()?;
-    process_tree(core, root, &dwarf, &unit, pc, false)?;
+    process_tree(core, root, &dwarf, &unit, pc, false, None)?;
     
     fn process_tree<R>(
             core: &mut Core,
@@ -167,7 +167,8 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
             dwarf: &Dwarf<R>,
             unit: &'_ Unit<R>,
             pc: u32,
-            prev_in_range: bool
+            prev_in_range: bool,
+            mut frame_base: Option<u64>
         ) -> gimli::Result<()>
             where R: Reader<Offset = usize>
     {
@@ -180,12 +181,14 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
             _ => (),
         };
         println!("in_r: {:?}", in_r);
-        check_die(core, dwarf, unit, die, pc);
+        if let Some(fb) = check_die(core, dwarf, unit, die, pc, frame_base) {
+            frame_base = Some(fb);
+        }
         if in_r {
             let mut children = node.children();
             while let Some(child) = children.next()? {
                 // Recursively process a child.
-                process_tree(core, child, dwarf, unit, pc, in_r)?;
+                process_tree(core, child, dwarf, unit, pc, in_r, frame_base)?;
             }
         }
         Ok(())
@@ -200,8 +203,9 @@ fn check_die<R>(
         dwarf: &Dwarf<R>,
         unit: &Unit<R>,
         die: &DebuggingInformationEntry<'_, '_, R>, //&DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>, usize>,
-        pc: u32
-    )
+        pc: u32,
+        mut frame_base: Option<u64>
+    ) -> Option<u64>
         where R: Reader<Offset = usize>
 {
     let mut found_dies: Vec<DebuggingInformationEntry<'_, '_, R>> = vec!();
@@ -225,7 +229,15 @@ fn check_die<R>(
             val
         );
         if let Some(expr) = attr.value().exprloc_value() {
-            new_evaluate(core, dwarf, unit, expr, pc);
+            if attr.name() == gimli::DW_AT_frame_base {
+                frame_base = match new_evaluate(core, dwarf, unit, expr, pc, frame_base).unwrap() {
+                    Value::U64(v) => Some(v),
+                    Value::U32(v) => Some(v as u64),
+                    _ => frame_base,
+                };
+            } else {
+                new_evaluate(core, dwarf, unit, expr, pc, frame_base);
+            }
         }
         //if let UnitRef(offset) = attr.value() {
         //    found_dies.push(unit.entry(offset).unwrap());
@@ -237,6 +249,7 @@ fn check_die<R>(
 //    for die in found_dies.iter() {
 //        check_die(dwarf, unit, die, pc);
 //    }
+    return frame_base;
 }
 
 
@@ -340,7 +353,8 @@ fn new_evaluate<R>(
         dwarf: &Dwarf<R>,
         unit: &Unit<R>,
         expr: Expression<R>,
-        pc: u32
+        pc: u32,
+        frame_base: Option<u64>
     ) -> Result<Value, &'static str>
         where R: Reader<Offset = usize>
 {
@@ -348,21 +362,23 @@ fn new_evaluate<R>(
     let mut result = eval.evaluate().unwrap();
 
     println!("{:#?}", result);
+    println!("fb: {:?}", frame_base);
     loop {
         match result {
             Complete => break,
             RequiresMemory{address, size, space, base_type} =>
                 resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
             RequiresRegister{register, base_type} => resolve_requires_reg(core, unit, &mut eval, &mut result, register, base_type),
-            RequiresFrameBase => resolve_requires_frame_base(),
-            RequiresTls(_tls) => unimplemented!(), //TODO
-            RequiresCallFrameCfa => unimplemented!(), //TODO
-            RequiresAtLocation(_dir_ref) => unimplemented!(), //TODO
+            RequiresFrameBase => // TODO
+                result = eval.resume_with_frame_base(frame_base.unwrap()).unwrap(),
+            RequiresTls(_tls) => unimplemented!(), // TODO
+            RequiresCallFrameCfa => unimplemented!(), // TODO
+            RequiresAtLocation(_dir_ref) => unimplemented!(), // TODO
             RequiresEntryValue(e) =>
-              result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc)?).unwrap(),
-            RequiresParameterRef(_unit_offset) => unimplemented!(), //TODO
+              result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc, frame_base)?).unwrap(),
+            RequiresParameterRef(_unit_offset) => unimplemented!(), // TODO
             RequiresRelocatedAddress(num) =>
-                result = eval.resume_with_relocated_address(num).unwrap(), //TODO
+                result = eval.resume_with_relocated_address(num).unwrap(), // TODO
             RequiresIndexedAddress{index, relocate} => unimplemented!(), // TODO
             RequiresBaseType(unit_offset) => 
                 result = eval.resume_with_base_type(
@@ -385,6 +401,7 @@ fn eval_pieces<R>(
     if pieces.len() > 1 {
         panic!("Found more then one piece");
     }
+    println!("{:?}", pieces);
     return eval_piece(core, &pieces[0]);
 }
 
@@ -397,9 +414,9 @@ fn eval_piece<R>(
     // TODO: Handle size_in_bits and bit_offset
     match &piece.location {
         Location::Empty => return Err("Optimized out"),
-        Location::Register { register } => // TODO
+        Location::Register { register } => // TODO Always return U32?
             return Ok(Value::U32(core.read_core_reg(register.0).unwrap())),
-        Location::Address { address } =>  // TODO
+        Location::Address { address } =>  // TODO Always return U32?
             return Ok(Value::U32(core.read_word_32(*address as u32).map_err(|e| "Read error")?)),
         Location::Value { value } => return Ok(value.clone()),
         Location::Bytes { value } => unimplemented!(), // TODO
@@ -486,16 +503,5 @@ fn resolve_requires_reg<R>(
     let data = core.read_core_reg(reg.0).unwrap();
     let value = parse_base_type(unit, data, base_type);
     *result = eval.resume_with_register(value).unwrap();    
-}
-
-/*
- * Resolves requires frame base when evaluating a die.
- * TODO: Test and fix this function.
- */
-fn resolve_requires_frame_base() 
-{
-    unimplemented!();
-    // TODO: Get the frame base of the current function.
-    // result = eval.resume_with_frame_base(frame_base);
 }
 
