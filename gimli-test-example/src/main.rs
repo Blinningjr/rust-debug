@@ -528,38 +528,43 @@ fn resolve_requires_at_location<R>(
     ) -> Result<(), &'static str>
         where R: Reader<Offset = usize>
 {
+    fn help_at_location<R>(
+            core: &mut Core,
+            dwarf: &Dwarf<R>,
+            unit: &Unit<R>,
+            eval: &mut Evaluation<R>,
+            result: &mut EvaluationResult<R>,
+            pc: u32,
+            frame_base: Option<u64>,
+            unit_offset: UnitOffset<usize>
+        ) -> Result<(), &'static str>
+            where R: Reader<Offset = usize>
+    {
+        let die = unit.entry(unit_offset).unwrap();
+        if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
+
+            let val = new_evaluate(core, dwarf, &unit, expr, pc, frame_base);
+            unimplemented!(); // TODO: Add a value enum
+//            eval.resume_with_at_location(val.bytes); // val need to be of type bytes: R
+        }
+        else {
+            return Err("die has no at location");
+        }
+    }
+
     match die_ref {
         DieReference::UnitRef(unit_offset) => {
-            let die = unit.entry(unit_offset).unwrap();
-            if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
-
-                let val = new_evaluate(core, dwarf, unit, expr, pc, frame_base);
-                unimplemented!(); // TODO: Add a value enum
-//                eval.resume_with_at_location(val.bytes); // val need to be of type bytes: R
-            }
-            else {
-                return Err("die has no at location");
-            }
+            return help_at_location(core, dwarf, unit, eval, result, pc, frame_base, unit_offset);
         },
         DieReference::DebugInfoRef(debug_info_offset) => {
             let unit_header = dwarf.debug_info.header_from_offset(debug_info_offset).map_err(|_| "Can't find debug info header")?;
             if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                 let new_unit = dwarf.unit(unit_header).map_err(|_| "Can't find unit using unit header")?;
-                let die = new_unit.entry(unit_offset).unwrap();
-                if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
-
-                    let val = new_evaluate(core, dwarf, &new_unit, expr, pc, frame_base);
-                    unimplemented!(); // TODO: Add a value enum
-//                    eval.resume_with_at_location(val.bytes); // val need to be of type bytes: R
-                }
-            else {
-                return Err("die has no at location");
-            }
+                return help_at_location(core, dwarf, &new_unit, eval, result, pc, frame_base, unit_offset);
             } else {
-                return Err("can't find unit offset");
-            }
+                return Err("Could not find at location");
+            }    
         },
     };
-    return Ok(());
 }
 
