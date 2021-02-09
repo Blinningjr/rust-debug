@@ -63,6 +63,273 @@ use gimli::{
     DieReference,
 };
 
+struct Debugger<'a, R: Reader<Offset = usize>> {
+    core: Core<'a>,
+    dwarf: Dwarf<R>,
+    unit: &'a Unit<R>,
+    pc: u32,
+}
+
+impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
+    pub fn new(core: Core<'a>,
+               dwarf: Dwarf<R>,
+               unit: &'a Unit<R>,
+               pc: u32) -> Debugger<'a, R> {
+        Debugger{
+            core: core,
+            dwarf: dwarf,
+            unit: unit,
+            pc: pc,
+        }
+    }
+
+    pub fn process_tree(&mut self, 
+            mut node: EntriesTreeNode<R>,
+            prev_in_range: bool,
+            mut frame_base: Option<u64>
+        ) -> gimli::Result<bool>
+    {
+        let die = node.entry();
+        let in_range = die_in_range(&self.dwarf, &self.unit, die, self.pc);
+        let mut in_r = true;
+        match (in_range, prev_in_range) {
+            (Some(false), _ ) => in_r = false, //return Ok(()),
+            (None, false) => in_r = false, //return Ok(()),
+            _ => (),
+        };
+        println!("in_r: {:?}", in_r);
+        if let Some(fb) = self.check_die(die, frame_base) {
+            frame_base = Some(fb);
+        }
+//        if die.tag() == gimli::DW_TAG_variable {
+//            if let Some(name) =  die.attr_value(gimli::DW_AT_name)? {
+//                if let DebugStrRef(offset) = name  {
+//                    if dwarf.string(offset).unwrap().to_string().unwrap() == "my_num" {
+//                        return Ok(true);
+//                    }
+//                }
+//            }
+//        }
+        if in_r {
+            let mut children = node.children();
+            while let Some(child) = children.next()? {
+                // Recursively process a child.
+                if self.process_tree(child, in_r, frame_base)? {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn check_die(&mut self,
+                     die: &DebuggingInformationEntry<'_, '_, R>,
+                     mut frame_base: Option<u64>
+        ) -> Option<u64>
+    {
+    
+        let mut attrs = die.attrs();
+        println!("{:?}", die.tag().static_string());
+        println!(
+            "{:<30} | {:<}",
+            "Name", "Value"
+        );
+        println!("----------------------------------------------------------------");
+        while let Some(attr) = attrs.next().unwrap() {
+            let val = match attr.value() {
+                DebugStrRef(offset) => format!("{:?}", self.dwarf.string(offset).unwrap().to_string().unwrap()),
+                _ => format!("{:?}", attr.value()),
+            };
+    
+            println!(
+                "{: <30} | {:<?}",
+                attr.name().static_string().unwrap(),
+                val
+            );
+            if let Some(expr) = attr.value().exprloc_value() {
+                if attr.name() == gimli::DW_AT_frame_base {
+                    frame_base = match self.new_evaluate(&self.unit, expr, frame_base).unwrap() {
+                        Value::U64(v) => Some(v),
+                        Value::U32(v) => Some(v as u64),
+                        _ => frame_base,
+                    };
+                } else {
+                    self.new_evaluate(self.unit, expr, frame_base);
+                }
+            }
+        }
+        println!("\n");
+    
+        return frame_base;
+    }
+
+    pub fn new_evaluate(&mut self,
+                        unit: &Unit<R>,
+                        expr: Expression<R>,
+                        frame_base: Option<u64>
+                    ) -> Result<Value, &'static str>
+    {
+        let mut eval = expr.evaluation(self.unit.encoding());
+        let mut result = eval.evaluate().unwrap();
+    
+        println!("fb: {:?}", frame_base);
+        loop {
+            println!("{:#?}", result);
+            match result {
+                Complete => break,
+                RequiresMemory{address, size, space, base_type} =>
+                    self.resolve_requires_mem(unit, &mut eval, &mut result, address, size, space, base_type),
+                RequiresRegister{register, base_type} => self.resolve_requires_reg(unit, &mut eval, &mut result, register, base_type),
+                RequiresFrameBase => 
+                    result = eval.resume_with_frame_base(frame_base.unwrap()).unwrap(), // TODO: Check and test if correct.
+                RequiresTls(_tls) => unimplemented!(), // TODO
+                RequiresCallFrameCfa => unimplemented!(), // TODO
+                RequiresAtLocation(die_ref) => self.resolve_requires_at_location(unit, &mut eval, &mut result, frame_base, die_ref)?,
+                RequiresEntryValue(e) =>
+                  result = eval.resume_with_entry_value(self.new_evaluate(unit, e, frame_base)?).unwrap(),
+                RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
+                    {
+                        let die = unit.entry(unit_offset).unwrap();
+                        let expr = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
+                        let value = self.new_evaluate(unit, expr, frame_base).unwrap();
+                        if let Value::U64(val) = value {
+                            result = eval.resume_with_parameter_ref(val).unwrap();
+                        } else {
+                            return Err("could not find parameter");
+                        }
+                    },
+                RequiresRelocatedAddress(num) =>
+                    result = eval.resume_with_relocated_address(num).unwrap(), // TODO: Check and test if correct.
+                RequiresIndexedAddress {index, relocate} => //unimplemented!(), // TODO: Check and test if correct. Also handle rolocate flag
+                    result = eval.resume_with_indexed_address(self.dwarf.address(unit, index).unwrap()).unwrap(),
+                RequiresBaseType(unit_offset) => 
+                    result = eval.resume_with_base_type(
+                        parse_base_type(unit, 0, unit_offset).value_type()).unwrap(),
+            };
+        }
+    
+        let value = self.eval_pieces(eval.result());
+        println!("Value: {:?}", value);
+        value
+    }
+
+
+    fn eval_pieces(&mut self,
+                   pieces: Vec<Piece<R>>
+                   ) -> Result<Value, &'static str>
+    {
+        // TODO: What should happen if more then one piece is given?
+        if pieces.len() > 1 {
+            panic!("Found more then one piece");
+        }
+        println!("{:?}", pieces);
+        return self.eval_piece(&pieces[0]);
+    }
+    
+    fn eval_piece(&mut self,
+                  piece: &Piece<R>
+                  ) -> Result<Value, &'static str>
+    {
+        // TODO: Handle size_in_bits and bit_offset
+        match &piece.location {
+            Location::Empty => return Err("Optimized out"),
+            Location::Register { register } => // TODO Always return U32?
+                return Ok(Value::U32(self.core.read_core_reg(register.0).unwrap())),
+            Location::Address { address } =>  // TODO Always return U32?
+                return Ok(Value::U32(self.core.read_word_32(*address as u32).map_err(|e| "Read error")?)),
+            Location::Value { value } => return Ok(value.clone()),
+            Location::Bytes { value } => unimplemented!(), // TODO
+            Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
+        };
+    }
+
+    /*
+     * Resolves requires memory when evaluating a die.
+     * TODO: Check and test if correct.
+     */
+    fn resolve_requires_mem(&mut self,
+            unit: &Unit<R>,
+            eval: &mut Evaluation<R>,
+            result: &mut EvaluationResult<R>,
+            address: u64,
+            size: u8,
+            _space: Option<u64>,
+            base_type: UnitOffset<usize>
+        )
+            where R: Reader<Offset = usize>
+    {
+        let data = self.core.read_word_32(address as u32).unwrap();
+        let value = parse_base_type(unit, data, base_type);
+        *result = eval.resume_with_memory(value).unwrap();    
+    }
+
+
+    /*
+     * Resolves requires register when evaluating a die.
+     * TODO: Check and test if correct.
+     */
+    fn resolve_requires_reg(&mut self,
+            unit: &Unit<R>,
+            eval: &mut Evaluation<R>,
+            result: &mut EvaluationResult<R>,
+            reg: Register,
+            base_type: UnitOffset<usize>
+        ) 
+            where R: Reader<Offset = usize>
+    {
+        let data = self.core.read_core_reg(reg.0).unwrap();
+        let value = parse_base_type(unit, data, base_type);
+        *result = eval.resume_with_register(value).unwrap();    
+    }
+
+    fn resolve_requires_at_location(&mut self,
+            unit: &Unit<R>,
+            eval: &mut Evaluation<R>,
+            result: &mut EvaluationResult<R>,
+            frame_base: Option<u64>,
+            die_ref: DieReference<usize>
+        ) -> Result<(), &'static str>
+            where R: Reader<Offset = usize>
+    { 
+        match die_ref {
+            DieReference::UnitRef(unit_offset) => {
+                return self.help_at_location(unit, eval, result, frame_base, unit_offset);
+            },
+            DieReference::DebugInfoRef(debug_info_offset) => {
+                let unit_header = self.dwarf.debug_info.header_from_offset(debug_info_offset).map_err(|_| "Can't find debug info header")?;
+                if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
+                    let new_unit = self.dwarf.unit(unit_header).map_err(|_| "Can't find unit using unit header")?;
+                    return self.help_at_location(&new_unit, eval, result, frame_base, unit_offset);
+                } else {
+                    return Err("Could not find at location");
+                }    
+            },
+        };
+    }
+
+
+    fn help_at_location(&mut self,
+            unit: &Unit<R>,
+            eval: &mut Evaluation<R>,
+            result: &mut EvaluationResult<R>,
+            frame_base: Option<u64>,
+            unit_offset: UnitOffset<usize>
+        ) -> Result<(), &'static str>
+            where R: Reader<Offset = usize>
+    {
+        let die = unit.entry(unit_offset).unwrap();
+        if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
+    
+            let val = self.new_evaluate(&unit, expr, frame_base);
+            unimplemented!(); // TODO: Add a value enum
+    //          eval.resume_with_at_location(val.bytes); // val need to be of type bytes: R
+        }
+        else {
+            return Err("die has no at location");
+        }
+    }
+
+}
 
 fn main() {
     probe_rs_stuff().unwrap();
@@ -100,12 +367,12 @@ fn probe_rs_stuff() -> Result<(), &'static str> {
 
     println!("{:#02x}", pc_value);
 
-    read_dwarf(pc_value, &mut core, path);
+    read_dwarf(pc_value, core, path);
     Ok(())
 }
 
 
-fn read_dwarf(pc: u32, core: &mut Core, path: &Path) {
+fn read_dwarf(pc: u32, core: Core, path: &Path) {
     let file = fs::File::open(&path).unwrap();
     let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
     let object = object::File::parse(&*mmap).unwrap();
@@ -114,11 +381,11 @@ fn read_dwarf(pc: u32, core: &mut Core, path: &Path) {
     } else {
         gimli::RunTimeEndian::Big
     };
-    dump_file(&object, endian, pc, core).unwrap();
+    dump_file(object, endian, pc, core).unwrap();
 }
 
 
-fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core: &mut Core) -> Result<(), gimli::Error> {
+fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: Core) -> Result<(), gimli::Error> {
     // Load a section and return as `Cow<[u8]>`.
     let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
         match object.section_by_name(id.name()) {
@@ -137,9 +404,9 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
     let dwarf_cow = gimli::Dwarf::load(&loader, &sup_loader)?;
 
     // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
-    let borrow_section: &dyn for<'a> Fn(
-        &'a borrow::Cow<[u8]>,
-    ) -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
+    let borrow_section: &dyn for<'b> Fn(
+        &'b borrow::Cow<[u8]>,
+    ) -> gimli::EndianSlice<'b, gimli::RunTimeEndian> =
         &|section| gimli::EndianSlice::new(&*section, endian);
 
     // Create `EndianSlice`s for all of the sections.
@@ -158,132 +425,12 @@ fn dump_file(object: &object::File, endian: gimli::RunTimeEndian, pc: u32, core:
 
     let mut tree = unit.entries_tree(None)?;
     let root = tree.root()?;
-    process_tree(core, root, &dwarf, &unit, pc, false, None)?;
+
+    let mut debugger = Debugger::new(core, dwarf, &unit, pc);
+    debugger.process_tree(root, false, None)?; 
     
-    fn process_tree<R>(
-            core: &mut Core,
-            mut node: EntriesTreeNode<R>,
-            dwarf: &Dwarf<R>,
-            unit: &'_ Unit<R>,
-            pc: u32,
-            prev_in_range: bool,
-            mut frame_base: Option<u64>
-        ) -> gimli::Result<bool>
-            where R: Reader<Offset = usize>
-    {
-        let die = node.entry();
-        let in_range = die_in_range(dwarf, unit, die, pc);
-        let mut in_r = true;
-        match (in_range, prev_in_range) {
-            (Some(false), _ ) => in_r = false, //return Ok(()),
-            (None, false) => in_r = false, //return Ok(()),
-            _ => (),
-        };
-        println!("in_r: {:?}", in_r);
-        if let Some(fb) = check_die(core, dwarf, unit, die, pc, frame_base) {
-            frame_base = Some(fb);
-        }
-//        if die.tag() == gimli::DW_TAG_variable {
-//            if let Some(name) =  die.attr_value(gimli::DW_AT_name)? {
-//                if let DebugStrRef(offset) = name  {
-//                    if dwarf.string(offset).unwrap().to_string().unwrap() == "my_num" {
-//                        return Ok(true);
-//                    }
-//                }
-//            }
-//        }
-        if in_r {
-            let mut children = node.children();
-            while let Some(child) = children.next()? {
-                // Recursively process a child.
-                if process_tree(core, child, dwarf, unit, pc, in_r, frame_base)? {
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    }
 
     return Ok(());
-}
-
-
-fn check_die<R>(
-        core: &mut Core,
-        dwarf: &Dwarf<R>,
-        unit: &Unit<R>,
-        die: &DebuggingInformationEntry<'_, '_, R>, //&DebuggingInformationEntry<'_, '_, EndianSlice<'_, RunTimeEndian>, usize>,
-        pc: u32,
-        mut frame_base: Option<u64>
-    ) -> Option<u64>
-        where R: Reader<Offset = usize>
-{
-    let mut found_dies: Vec<DebuggingInformationEntry<'_, '_, R>> = vec!();
-
-    let mut attrs = die.attrs();
-    println!("{:?}", die.tag().static_string());
-    println!(
-        "{:<30} | {:<}",
-        "Name", "Value"
-    );
-    println!("----------------------------------------------------------------");
-    while let Some(attr) = attrs.next().unwrap() {
-        let val = match attr.value() {
-            DebugStrRef(offset) => format!("{:?}", dwarf.string(offset).unwrap().to_string().unwrap()),
-            _ => format!("{:?}", attr.value()),
-        };
-
-        println!(
-            "{: <30} | {:<?}",
-            attr.name().static_string().unwrap(),
-            val
-        );
-        if let Some(expr) = attr.value().exprloc_value() {
-            if attr.name() == gimli::DW_AT_frame_base {
-                frame_base = match new_evaluate(core, dwarf, unit, expr, pc, frame_base).unwrap() {
-                    Value::U64(v) => Some(v),
-                    Value::U32(v) => Some(v as u64),
-                    _ => frame_base,
-                };
-            } else {
-                new_evaluate(core, dwarf, unit, expr, pc, frame_base);
-            }
-        }
-        //if let UnitRef(offset) = attr.value() {
-        //    found_dies.push(unit.entry(offset).unwrap());
-        //    //println!("{:?}", unit.entry(offset).unwrap().tag().static_string());
-        //}
-    }
-    println!("\n");
-
-//    for die in found_dies.iter() {
-//        check_die(dwarf, unit, die, pc);
-//    }
-    return frame_base;
-}
-
-
-fn evaluate<'a, R>(
-        dwarf: &'a Dwarf<R>,
-        unit: &'a Unit<R>,
-        attr: Attribute<R>,
-        pc: u32
-    )
-        where R: Reader<Offset = usize>
-{
-    if let Some(expr) = attr.value().exprloc_value() {
-        let mut eval = expr.evaluation(unit.encoding());
-        let mut result = eval.evaluate().unwrap();
-
-        println!("{:#?}", result);
-        match result {
-            gimli::EvaluationResult::Complete => {
-                let result = eval.result();
-                println!("{:#?}", result);
-            },
-            _ => (),
-        };
-    }
 }
 
 
@@ -293,7 +440,7 @@ fn get_current_unit<'a, R>(
     ) -> Result<Unit<R>, Error>
         where R: Reader<Offset = usize>
 {
-    // TODO: Maby return a vec of units
+    // TODO: Maybe return a Vec of units
 
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {
@@ -357,94 +504,6 @@ fn die_in_range<'a, R>(
     }
 }
 
-
-fn new_evaluate<R>(
-        core: &mut Core,
-        dwarf: &Dwarf<R>,
-        unit: &Unit<R>,
-        expr: Expression<R>,
-        pc: u32,
-        frame_base: Option<u64>
-    ) -> Result<Value, &'static str>
-        where R: Reader<Offset = usize>
-{
-    let mut eval = expr.evaluation(unit.encoding());
-    let mut result = eval.evaluate().unwrap();
-
-    println!("fb: {:?}", frame_base);
-    loop {
-        println!("{:#?}", result);
-        match result {
-            Complete => break,
-            RequiresMemory{address, size, space, base_type} =>
-                resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
-            RequiresRegister{register, base_type} => resolve_requires_reg(core, unit, &mut eval, &mut result, register, base_type),
-            RequiresFrameBase => 
-                result = eval.resume_with_frame_base(frame_base.unwrap()).unwrap(), // TODO: Check and test if correct.
-            RequiresTls(_tls) => unimplemented!(), // TODO
-            RequiresCallFrameCfa => unimplemented!(), // TODO
-            RequiresAtLocation(die_ref) => resolve_requires_at_location(core, dwarf, unit, &mut eval, &mut result, pc, frame_base, die_ref)?,
-            RequiresEntryValue(e) =>
-              result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc, frame_base)?).unwrap(),
-            RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
-                {
-                    let die = unit.entry(unit_offset).unwrap();
-                    let expr = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
-                    let value = new_evaluate(core, dwarf, unit, expr, pc, frame_base).unwrap();
-                    if let Value::U64(val) = value {
-                        result = eval.resume_with_parameter_ref(val).unwrap();
-                    } else {
-                        return Err("could not find parameter");
-                    }
-                },
-            RequiresRelocatedAddress(num) =>
-                result = eval.resume_with_relocated_address(num).unwrap(), // TODO: Check and test if correct.
-            RequiresIndexedAddress {index, relocate} => //unimplemented!(), // TODO: Check and test if correct. Also handle rolocate flag
-                result = eval.resume_with_indexed_address(dwarf.address(unit, index).unwrap()).unwrap(),
-            RequiresBaseType(unit_offset) => 
-                result = eval.resume_with_base_type(
-                    parse_base_type(unit, 0, unit_offset).value_type()).unwrap(),
-        };
-    }
-
-    let value = eval_pieces(core, eval.result());
-    println!("Value: {:?}", value);
-    value
-}
-
-fn eval_pieces<R>(
-        core: &mut Core,
-        pieces: Vec<Piece<R>>
-    ) -> Result<Value, &'static str>
-        where R: Reader<Offset = usize>
-{
-    // TODO: What should happen if more then one piece is given?
-    if pieces.len() > 1 {
-        panic!("Found more then one piece");
-    }
-    println!("{:?}", pieces);
-    return eval_piece(core, &pieces[0]);
-}
-
-fn eval_piece<R>(
-        core: &mut Core,
-        piece: &Piece<R>
-    ) -> Result<Value, &'static str>
-    where R: Reader<Offset = usize>
-{
-    // TODO: Handle size_in_bits and bit_offset
-    match &piece.location {
-        Location::Empty => return Err("Optimized out"),
-        Location::Register { register } => // TODO Always return U32?
-            return Ok(Value::U32(core.read_core_reg(register.0).unwrap())),
-        Location::Address { address } =>  // TODO Always return U32?
-            return Ok(Value::U32(core.read_word_32(*address as u32).map_err(|e| "Read error")?)),
-        Location::Value { value } => return Ok(value.clone()),
-        Location::Bytes { value } => unimplemented!(), // TODO
-        Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
-    };
-}
-
 fn parse_base_type<R>(
         unit: &Unit<R>,
         data: u32,
@@ -457,7 +516,7 @@ fn parse_base_type<R>(
     }
     let die = unit.entry(base_type).unwrap();
 
-    // I think that the die returnd must be a base type tag.
+    // I think that the die returned must be a base type tag.
     if die.tag() != gimli::DW_TAG_base_type {
         println!("{:?}", die.tag().static_string());
         panic!("die tag not base type");
@@ -485,97 +544,5 @@ fn parse_base_type<R>(
         (DwAte(5), 8) => Value::I64(data as i64),   // (signed, 64) TODO: Fix
         _ => unimplemented!(),
     }
-}
-
-/*
- * Resolves requires memory when evaluating a die.
- * TODO: Check and test if correct.
- */
-fn resolve_requires_mem<R>(
-        core: &mut Core,
-        unit: &Unit<R>,
-        eval: &mut Evaluation<R>,
-        result: &mut EvaluationResult<R>,
-        address: u64,
-        size: u8,
-        _space: Option<u64>,
-        base_type: UnitOffset<usize>
-    )
-        where R: Reader<Offset = usize>
-{
-    let data = core.read_word_32(address as u32).unwrap();
-    let value = parse_base_type(unit, data, base_type);
-    *result = eval.resume_with_memory(value).unwrap();    
-}
-
-/*
- * Resolves requires register when evaluating a die.
- * TODO: Check and test if correct.
- */
-fn resolve_requires_reg<R>(
-        core: &mut Core,
-        unit: &Unit<R>,
-        eval: &mut Evaluation<R>,
-        result: &mut EvaluationResult<R>,
-        reg: Register,
-        base_type: UnitOffset<usize>
-    ) 
-        where R: Reader<Offset = usize>
-{
-    let data = core.read_core_reg(reg.0).unwrap();
-    let value = parse_base_type(unit, data, base_type);
-    *result = eval.resume_with_register(value).unwrap();    
-}
-
-fn resolve_requires_at_location<R>(
-        core: &mut Core,
-        dwarf: &Dwarf<R>,
-        unit: &Unit<R>,
-        eval: &mut Evaluation<R>,
-        result: &mut EvaluationResult<R>,
-        pc: u32,
-        frame_base: Option<u64>,
-        die_ref: DieReference<usize>
-    ) -> Result<(), &'static str>
-        where R: Reader<Offset = usize>
-{
-    fn help_at_location<R>(
-            core: &mut Core,
-            dwarf: &Dwarf<R>,
-            unit: &Unit<R>,
-            eval: &mut Evaluation<R>,
-            result: &mut EvaluationResult<R>,
-            pc: u32,
-            frame_base: Option<u64>,
-            unit_offset: UnitOffset<usize>
-        ) -> Result<(), &'static str>
-            where R: Reader<Offset = usize>
-    {
-        let die = unit.entry(unit_offset).unwrap();
-        if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
-
-            let val = new_evaluate(core, dwarf, &unit, expr, pc, frame_base);
-            unimplemented!(); // TODO: Add a value enum
-//            eval.resume_with_at_location(val.bytes); // val need to be of type bytes: R
-        }
-        else {
-            return Err("die has no at location");
-        }
-    }
-
-    match die_ref {
-        DieReference::UnitRef(unit_offset) => {
-            return help_at_location(core, dwarf, unit, eval, result, pc, frame_base, unit_offset);
-        },
-        DieReference::DebugInfoRef(debug_info_offset) => {
-            let unit_header = dwarf.debug_info.header_from_offset(debug_info_offset).map_err(|_| "Can't find debug info header")?;
-            if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
-                let new_unit = dwarf.unit(unit_header).map_err(|_| "Can't find unit using unit header")?;
-                return help_at_location(core, dwarf, &new_unit, eval, result, pc, frame_base, unit_offset);
-            } else {
-                return Err("Could not find at location");
-            }    
-        },
-    };
 }
 
