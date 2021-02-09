@@ -2,9 +2,11 @@ use super::{
     Debugger,
 };
 
+
 use probe_rs::{
     MemoryInterface,
 };
+
 
 use gimli::{
     Unit,
@@ -38,6 +40,7 @@ use gimli::{
     Location,
     DieReference,
 };
+
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn new_evaluate(&mut self,
@@ -79,7 +82,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     result = eval.resume_with_relocated_address(num).unwrap(), // TODO: Check and test if correct.
                 RequiresIndexedAddress {index, relocate} => //unimplemented!(), // TODO: Check and test if correct. Also handle rolocate flag
                     result = eval.resume_with_indexed_address(self.dwarf.address(unit, index).unwrap()).unwrap(),
-                RequiresBaseType(unit_offset) => 
+                RequiresBaseType(unit_offset) => // TODO: Check and test if correct
                     result = eval.resume_with_base_type(
                         parse_base_type(unit, 0, unit_offset).value_type()).unwrap(),
             };
@@ -89,6 +92,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         println!("Value: {:?}", value);
         value
     }
+
 
 
     fn eval_pieces(&mut self,
@@ -102,23 +106,43 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         println!("{:?}", pieces);
         return self.eval_piece(&pieces[0]);
     }
-    
+   
+
     fn eval_piece(&mut self,
                   piece: &Piece<R>
                   ) -> Result<Value, &'static str>
     {
-        // TODO: Handle size_in_bits and bit_offset
+        fn parse_value(data: u32,
+                       size_in_bits: Option<u64>,
+                       bit_offset: Option<u64>) -> Result<Value, &'static str>
+        {
+            let mut mask: u32 = u32::MAX;
+            if let Some(bits) = size_in_bits {
+                if bits > 32 {
+                    return Err("not enough bits");
+                }
+                mask = mask >> (32 - bits);
+            }
+            if let Some(offset) = bit_offset {
+                if offset >= 32 {
+                    return Err("not enough bits");
+                }
+                mask = mask << offset;
+            }
+            return Ok(Value::U32(data & mask)); // TODO: Always return U32?
+        }
         match &piece.location {
             Location::Empty => return Err("Optimized out"),
-            Location::Register { register } => // TODO Always return U32?
-                return Ok(Value::U32(self.core.read_core_reg(register.0).unwrap())),
+            Location::Register { register } => 
+                return parse_value(self.core.read_core_reg(register.0).unwrap(), piece.size_in_bits, piece.bit_offset),
             Location::Address { address } =>  // TODO Always return U32?
-                return Ok(Value::U32(self.core.read_word_32(*address as u32).map_err(|e| "Read error")?)),
-            Location::Value { value } => return Ok(value.clone()),
+                return parse_value(self.core.read_word_32(*address as u32).map_err(|e| "Read error")?, piece.size_in_bits, piece.bit_offset),
+            Location::Value { value } => return Ok(value.clone()), // TODO: Handle size_in_bits and bit_offset
             Location::Bytes { value } => unimplemented!(), // TODO
             Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
         };
     }
+
 
     /*
      * Resolves requires memory when evaluating a die.
@@ -129,7 +153,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             eval: &mut Evaluation<R>,
             result: &mut EvaluationResult<R>,
             address: u64,
-            size: u8,
+            size: u8, // TODO: Handle size
             _space: Option<u64>,
             base_type: UnitOffset<usize>
         )
@@ -158,6 +182,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let value = parse_base_type(unit, data, base_type);
         *result = eval.resume_with_register(value).unwrap();    
     }
+
 
     fn resolve_requires_at_location(&mut self,
             unit: &Unit<R>,
@@ -205,9 +230,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             return Err("die has no at location");
         }
     }
-
 }
-
 
 
 
