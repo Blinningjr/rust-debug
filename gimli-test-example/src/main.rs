@@ -371,25 +371,36 @@ fn new_evaluate<R>(
     let mut eval = expr.evaluation(unit.encoding());
     let mut result = eval.evaluate().unwrap();
 
-    println!("{:#?}", result);
     println!("fb: {:?}", frame_base);
     loop {
+        println!("{:#?}", result);
         match result {
             Complete => break,
             RequiresMemory{address, size, space, base_type} =>
                 resolve_requires_mem(core, unit, &mut eval, &mut result, address, size, space, base_type),
             RequiresRegister{register, base_type} => resolve_requires_reg(core, unit, &mut eval, &mut result, register, base_type),
-            RequiresFrameBase => // TODO
-                result = eval.resume_with_frame_base(frame_base.unwrap()).unwrap(),
+            RequiresFrameBase => 
+                result = eval.resume_with_frame_base(frame_base.unwrap()).unwrap(), // TODO: Check and test if correct.
             RequiresTls(_tls) => unimplemented!(), // TODO
             RequiresCallFrameCfa => unimplemented!(), // TODO
-            RequiresAtLocation(die_ref) => resolve_requires_at_location(core, dwarf, unit, &mut eval, &mut result, pc, frame_base, die_ref)?, // TODO
+            RequiresAtLocation(die_ref) => resolve_requires_at_location(core, dwarf, unit, &mut eval, &mut result, pc, frame_base, die_ref)?,
             RequiresEntryValue(e) =>
               result = eval.resume_with_entry_value(new_evaluate(core, dwarf, unit, e, pc, frame_base)?).unwrap(),
-            RequiresParameterRef(_unit_offset) => unimplemented!(), // TODO
+            RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
+                {
+                    let die = unit.entry(unit_offset).unwrap();
+                    let expr = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
+                    let value = new_evaluate(core, dwarf, unit, expr, pc, frame_base).unwrap();
+                    if let Value::U64(val) = value {
+                        result = eval.resume_with_parameter_ref(val).unwrap();
+                    } else {
+                        return Err("could not find parameter");
+                    }
+                },
             RequiresRelocatedAddress(num) =>
-                result = eval.resume_with_relocated_address(num).unwrap(), // TODO
-            RequiresIndexedAddress{index, relocate} => unimplemented!(), // TODO
+                result = eval.resume_with_relocated_address(num).unwrap(), // TODO: Check and test if correct.
+            RequiresIndexedAddress {index, relocate} => //unimplemented!(), // TODO: Check and test if correct. Also handle rolocate flag
+                result = eval.resume_with_indexed_address(dwarf.address(unit, index).unwrap()).unwrap(),
             RequiresBaseType(unit_offset) => 
                 result = eval.resume_with_base_type(
                     parse_base_type(unit, 0, unit_offset).value_type()).unwrap(),
@@ -478,7 +489,7 @@ fn parse_base_type<R>(
 
 /*
  * Resolves requires memory when evaluating a die.
- * TODO: Test.
+ * TODO: Check and test if correct.
  */
 fn resolve_requires_mem<R>(
         core: &mut Core,
@@ -499,7 +510,7 @@ fn resolve_requires_mem<R>(
 
 /*
  * Resolves requires register when evaluating a die.
- * TODO: Test
+ * TODO: Check and test if correct.
  */
 fn resolve_requires_reg<R>(
         core: &mut Core,
