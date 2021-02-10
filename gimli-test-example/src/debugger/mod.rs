@@ -1,5 +1,9 @@
 mod evaluate;
 
+use evaluate::{
+    DebuggerValue,
+};
+
 use super::{
     in_range,
 };
@@ -40,8 +44,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
     }
 
+
     pub fn process_tree(&mut self, 
-            mut node: EntriesTreeNode<R>,
+            node: EntriesTreeNode<R>,
             prev_in_range: bool,
             mut frame_base: Option<u64>
         ) -> gimli::Result<bool>
@@ -79,6 +84,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         Ok(false)
     }
 
+
     pub fn check_die(&mut self,
                      die: &DebuggingInformationEntry<'_, '_, R>,
                      mut frame_base: Option<u64>
@@ -105,13 +111,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             );
             if let Some(expr) = attr.value().exprloc_value() {
                 if attr.name() == gimli::DW_AT_frame_base {
-                    frame_base = match self.new_evaluate(&self.unit, expr, frame_base).unwrap() {
-                        Value::U64(v) => Some(v),
-                        Value::U32(v) => Some(v as u64),
+                    frame_base = match self.evaluate(&self.unit, expr, frame_base).unwrap() {
+                        DebuggerValue::Value(Value::U64(v)) => Some(v),
+                        DebuggerValue::Value(Value::U32(v)) => Some(v as u64),
                         _ => frame_base,
                     };
                 } else {
-                    self.new_evaluate(self.unit, expr, frame_base);
+                    self.evaluate(self.unit, expr, frame_base);
                 }
             }
         }

@@ -41,13 +41,28 @@ use gimli::{
     DieReference,
 };
 
+#[derive(Debug)]
+pub enum DebuggerValue<R: Reader<Offset = usize>> {
+    Value(Value),
+    Bytes(R),
+}
+
+impl<R: Reader<Offset = usize>> DebuggerValue<R> {
+    pub fn to_value(self) -> Value {
+        match self {
+            DebuggerValue::Value(val) => return val,
+            _ => unimplemented!(),
+        };
+    }
+}
+
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new_evaluate(&mut self,
+    pub fn evaluate(&mut self,
                         unit: &Unit<R>,
                         expr: Expression<R>,
                         frame_base: Option<u64>
-                    ) -> Result<Value, &'static str>
+                    ) -> Result<DebuggerValue<R>, &'static str>
     {
         let mut eval = expr.evaluation(self.unit.encoding());
         let mut result = eval.evaluate().unwrap();
@@ -66,13 +81,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 RequiresCallFrameCfa => unimplemented!(), // TODO
                 RequiresAtLocation(die_ref) => self.resolve_requires_at_location(unit, &mut eval, &mut result, frame_base, die_ref)?,
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(self.new_evaluate(unit, e, frame_base)?).unwrap(),
+                  result = eval.resume_with_entry_value(self.evaluate(unit, e, frame_base)?.to_value()).unwrap(),
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die = unit.entry(unit_offset).unwrap();
                         let expr = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
-                        let value = self.new_evaluate(unit, expr, frame_base).unwrap();
-                        if let Value::U64(val) = value {
+                        let value = self.evaluate(unit, expr, frame_base).unwrap();
+                        if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val).unwrap();
                         } else {
                             return Err("could not find parameter");
@@ -97,7 +112,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn eval_pieces(&mut self,
                    pieces: Vec<Piece<R>>
-                   ) -> Result<Value, &'static str>
+                   ) -> Result<DebuggerValue<R>, &'static str>
     {
         // TODO: What should happen if more then one piece is given?
         if pieces.len() > 1 {
@@ -110,11 +125,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn eval_piece(&mut self,
                   piece: &Piece<R>
-                  ) -> Result<Value, &'static str>
+                  ) -> Result<DebuggerValue<R>, &'static str>
     {
-        fn parse_value(data: u32,
+        fn parse_value<R: Reader<Offset = usize>>(data: u32,
                        size_in_bits: Option<u64>,
-                       bit_offset: Option<u64>) -> Result<Value, &'static str>
+                       bit_offset: Option<u64>) -> Result<DebuggerValue<R>, &'static str>
         {
             let mut mask: u32 = u32::MAX;
             if let Some(bits) = size_in_bits {
@@ -129,16 +144,25 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 }
                 mask = mask << offset;
             }
-            return Ok(Value::U32(data & mask)); // TODO: Always return U32?
+            return Ok(DebuggerValue::Value(Value::U32(data & mask))); // TODO: Always return U32?
         }
         match &piece.location {
             Location::Empty => return Err("Optimized out"),
             Location::Register { register } => 
                 return parse_value(self.core.read_core_reg(register.0).unwrap(), piece.size_in_bits, piece.bit_offset),
             Location::Address { address } =>  // TODO Always return U32?
-                return parse_value(self.core.read_word_32(*address as u32).map_err(|e| "Read error")?, piece.size_in_bits, piece.bit_offset),
-            Location::Value { value } => return Ok(value.clone()), // TODO: Handle size_in_bits and bit_offset
-            Location::Bytes { value } => unimplemented!(), // TODO
+                return parse_value(self.core.read_word_32(*address as u32).map_err(|e| "Read error")?, piece.size_in_bits, piece.bit_offset), // TODO: Use read_32 instead
+            Location::Value { value } => {
+                if let Some(_) = piece.size_in_bits {
+                    panic!("needs to be implemented");
+                }
+                if let Some(_) = piece.bit_offset {
+                    panic!("needs to be implemented");
+                }
+                return Ok(DebuggerValue::Value(value.clone()));
+            }, // TODO: Handle size_in_bits and bit_offset?
+            Location::Bytes { value } => // TODO: Check and test if correct
+                return Ok(DebuggerValue::Bytes(value.clone())),
             Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
         };
     }
@@ -222,9 +246,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let die = unit.entry(unit_offset).unwrap();
         if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
     
-            let val = self.new_evaluate(&unit, expr, frame_base);
-            unimplemented!(); // TODO: Add a value enum
-    //          eval.resume_with_at_location(val.bytes); // val need to be of type bytes: R
+            let val = self.evaluate(&unit, expr, frame_base)?;
+            if let DebuggerValue::Bytes(b) = val {
+               *result =  eval.resume_with_at_location(b).unwrap();
+               return Ok(());
+            } else {
+                panic!("Error expected bytes");
+            }
         }
         else {
             return Err("die has no at location");
