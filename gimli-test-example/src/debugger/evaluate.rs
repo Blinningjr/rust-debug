@@ -99,7 +99,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     result = eval.resume_with_indexed_address(self.dwarf.address(unit, index).unwrap()).unwrap(),
                 RequiresBaseType(unit_offset) => // TODO: Check and test if correct
                     result = eval.resume_with_base_type(
-                        parse_base_type(unit, 0, unit_offset).value_type()).unwrap(),
+                        parse_base_type(unit, &[0], unit_offset).value_type()).unwrap(),
             };
         }
     
@@ -178,14 +178,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             result: &mut EvaluationResult<R>,
             address: u64,
             size: u8, // TODO: Handle size
-            _space: Option<u64>,
+            space: Option<u64>, // TODO: Handle space
             base_type: UnitOffset<usize>
         )
             where R: Reader<Offset = usize>
     {
-        let data = self.core.read_word_32(address as u32).unwrap();
-        let value = parse_base_type(unit, data, base_type);
+        let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
+        self.core.read_32(address as u32, &mut data).unwrap();
+        let value = parse_base_type(unit, &data, base_type);
         *result = eval.resume_with_memory(value).unwrap();    
+        // TODO: Mask the relavent bits?
     }
 
 
@@ -203,7 +205,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             where R: Reader<Offset = usize>
     {
         let data = self.core.read_core_reg(reg.0).unwrap();
-        let value = parse_base_type(unit, data, base_type);
+        let value = parse_base_type(unit, &[data], base_type);
         *result = eval.resume_with_register(value).unwrap();    
     }
 
@@ -264,13 +266,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 fn parse_base_type<R>(
         unit: &Unit<R>,
-        data: u32,
+        data: &[u32],
         base_type: UnitOffset<usize>
     ) -> Value
         where R: Reader<Offset = usize>
 {
     if base_type.0 == 0 {
-        return Value::Generic(data as u64);
+        return Value::Generic(slize_as_u64(data));
     }
     let die = unit.entry(base_type).unwrap();
 
@@ -290,17 +292,26 @@ fn parse_base_type<R>(
     };
     
     // Check dwarf doc for the codes.
-    match (encoding, byte_size) {
-        (DwAte(7), 1) => Value::U8(data as u8),     // (unsigned, 8)
-        (DwAte(7), 2) => Value::U16(data as u16),   // (unsigned, 16)
-        (DwAte(7), 4) => Value::U32(data as u32),   // (unsigned, 32)
-        (DwAte(7), 8) => Value::U64(data as u64),   // (unsigned, 64) TODO: Fix
+    match (encoding, byte_size) { 
+        (DwAte(7), 1) => Value::U8(slize_as_u64(data) as u8),       // (unsigned, 8)
+        (DwAte(7), 2) => Value::U16(slize_as_u64(data) as u16),     // (unsigned, 16)
+        (DwAte(7), 4) => Value::U32(slize_as_u64(data) as u32),     // (unsigned, 32)
+        (DwAte(7), 8) => Value::U64(slize_as_u64(data)),            // (unsigned, 64)
         
-        (DwAte(5), 1) => Value::I8(data as i8),     // (signed, 8)
-        (DwAte(5), 2) => Value::I16(data as i16),   // (signed, 16)
-        (DwAte(5), 4) => Value::I32(data as i32),   // (signed, 32)
-        (DwAte(5), 8) => Value::I64(data as i64),   // (signed, 64) TODO: Fix
+        (DwAte(5), 1) => Value::I8(slize_as_u64(data) as i8),       // (signed, 8)
+        (DwAte(5), 2) => Value::I16(slize_as_u64(data) as i16),     // (signed, 16)
+        (DwAte(5), 4) => Value::I32(slize_as_u64(data) as i32),     // (signed, 32)
+        (DwAte(5), 8) => Value::I64(slize_as_u64(data) as i64),     // (signed, 64)
         _ => unimplemented!(),
     }
+}
+
+fn slize_as_u64(data: &[u32]) -> u64 {
+    // TODO: Take account to what endian it is
+    // TODO: Check and test if correct
+    if data.len() < 2 {
+        return data[0] as u64;
+    }
+    return ((data[0] as u64)<< 32) + (data[1] as u64);
 }
 
