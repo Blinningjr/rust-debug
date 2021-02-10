@@ -27,6 +27,7 @@ use gimli::{
     AttributeValue::{
         Udata,
         Encoding,
+        UnitRef,
     },
     Reader,
     Evaluation,
@@ -39,12 +40,14 @@ use gimli::{
     Piece,
     Location,
     DieReference,
+    DebuggingInformationEntry,
 };
 
 #[derive(Debug)]
 pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),
     Bytes(R),
+    Raw(Vec<u32>),
 }
 
 impl<R: Reader<Offset = usize>> DebuggerValue<R> {
@@ -61,7 +64,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn evaluate(&mut self,
                         unit: &Unit<R>,
                         expr: Expression<R>,
-                        frame_base: Option<u64>
+                        frame_base: Option<u64>,
+                        type_die: Option<&DebuggingInformationEntry<'_, '_, R>>,
                     ) -> Result<DebuggerValue<R>, &'static str>
     {
         let mut eval = expr.evaluation(self.unit.encoding());
@@ -81,12 +85,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 RequiresCallFrameCfa => unimplemented!(), // TODO
                 RequiresAtLocation(die_ref) => self.resolve_requires_at_location(unit, &mut eval, &mut result, frame_base, die_ref)?,
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(self.evaluate(unit, e, frame_base)?.to_value()).unwrap(),
+                  result = eval.resume_with_entry_value(self.evaluate(unit, e, frame_base, None)?.to_value()).unwrap(),
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die = unit.entry(unit_offset).unwrap();
+                        let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
+                            UnitRef(offset) => self.unit.entry(offset).unwrap(),
+                            _ => unimplemented!(),
+                        };
                         let expr = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
-                        let value = self.evaluate(unit, expr, frame_base).unwrap();
+                        let value = self.evaluate(unit, expr, frame_base, Some(&tdie)).unwrap();
                         if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val).unwrap();
                         } else {
@@ -103,7 +111,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
         }
     
-        let value = self.eval_pieces(eval.result());
+        let value = self.eval_pieces(eval.result(), type_die);
         println!("Value: {:?}", value);
         value
     }
@@ -111,7 +119,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn eval_pieces(&mut self,
-                   pieces: Vec<Piece<R>>
+                   pieces: Vec<Piece<R>>,
+                   type_die: Option<&DebuggingInformationEntry<'_, '_, R>>
                    ) -> Result<DebuggerValue<R>, &'static str>
     {
         // TODO: What should happen if more then one piece is given?
@@ -119,12 +128,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             panic!("Found more then one piece");
         }
         println!("{:?}", pieces);
-        return self.eval_piece(&pieces[0]);
+        return self.eval_piece(&pieces[0], type_die);
     }
    
 
     fn eval_piece(&mut self,
-                  piece: &Piece<R>
+                  piece: &Piece<R>,
+                  type_die: Option<&DebuggingInformationEntry<'_, '_, R>>
                   ) -> Result<DebuggerValue<R>, &'static str>
     {
         fn parse_value<R: Reader<Offset = usize>>(data: u32,
@@ -146,12 +156,28 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }
             return Ok(DebuggerValue::Value(Value::U32(data & mask))); // TODO: Always return U32?
         }
+
+        let byte_size: u64 = match type_die {
+            Some(tdie) => match tdie.attr_value(gimli::DW_AT_byte_size).unwrap() {
+                Some(Udata(val)) => (val + 4 - 1) / 4,
+                Some(_) => panic!("Found no byte size"),
+                None => 1,
+            },
+            None => 1,
+        };
         match &piece.location {
             Location::Empty => return Err("Optimized out"),
             Location::Register { register } => 
                 return parse_value(self.core.read_core_reg(register.0).unwrap(), piece.size_in_bits, piece.bit_offset),
-            Location::Address { address } =>  // TODO Always return U32?
-                return parse_value(self.core.read_word_32(*address as u32).map_err(|e| "Read error")?, piece.size_in_bits, piece.bit_offset), // TODO: Use read_32 instead
+            Location::Address { address } => { //TODO:
+                    let mut data: Vec<u32> = vec![0; byte_size as usize];
+                    self.core.read_32(*address as u32, &mut data).map_err(|e| "Read error")?;
+                    let mut res: Vec<u32> = Vec::new();
+                    for d in data.iter() {
+                        res.push(*d);
+                    }
+                    return Ok(DebuggerValue::Raw(res));
+                },
             Location::Value { value } => {
                 if let Some(_) = piece.size_in_bits {
                     panic!("needs to be implemented");
@@ -247,8 +273,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = unit.entry(unit_offset).unwrap();
         if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
+            let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
+                UnitRef(offset) => self.unit.entry(offset).unwrap(),
+                _ => unimplemented!(),
+            };
     
-            let val = self.evaluate(&unit, expr, frame_base)?;
+            let val = self.evaluate(&unit, expr, frame_base, Some(&tdie))?;
             if let DebuggerValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b).unwrap();
                return Ok(());
