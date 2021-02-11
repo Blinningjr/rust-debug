@@ -126,11 +126,10 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
 //        check_die(&dwarf, &unit, die, pc);
 //    }
 
-    let mut tree = unit.entries_tree(None)?;
-    let root = tree.root()?;
-
     let mut debugger = Debugger::new(core, dwarf, &unit, pc);
-    debugger.process_tree(root, false, None)?; 
+    let search = "test_enum1";
+    let value = debugger.find_variable(search)?; 
+    println!("var {:?} = {:?}", search, value);
     
 
     return Ok(());

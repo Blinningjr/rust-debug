@@ -23,6 +23,7 @@ use gimli::{
     Reader,
     EntriesTreeNode,
     Value,
+    Error,
 };
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
@@ -45,64 +46,92 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
     }
 
+    pub fn find_variable(&mut self, search: &str) -> gimli::Result<DebuggerValue<R>> {
+        let mut tree = self.unit.entries_tree(None)?;
+        let root = tree.root()?;
+        return match self.process_tree(root, None, search)? {
+            Some((val, _)) => Ok(val),
+            None => Err(Error::Io),
+        };
+    }
+
 
     pub fn process_tree(&mut self, 
             node: EntriesTreeNode<R>,
-            prev_in_range: bool,
-            mut frame_base: Option<u64>
-        ) -> gimli::Result<bool>
+            mut frame_base: Option<u64>,
+            search: &str
+        ) -> gimli::Result<Option<(DebuggerValue<R>, Option<String>)>>
     {
         let die = node.entry();
-        let in_range = die_in_range(&self.dwarf, &self.unit, die, self.pc);
-        let mut in_r = true;
-        match (in_range, prev_in_range) {
-            (Some(false), _ ) => in_r = false, //return Ok(()),
-            (None, false) => in_r = false, //return Ok(()),
+
+        // Check if die in range
+        match die_in_range(&self.dwarf, &self.unit, die, self.pc) {
+            Some(false) => return Ok(None),
             _ => (),
         };
 
-        // only look at dies that are in range.
-        if !in_r {
-            return Ok(false);
-        }
+        frame_base = self.check_frame_base(&die, frame_base)?;
 
-        println!("in_r: {:?}", in_r);
-        if let Some(fb) = self.check_die(die, frame_base) {
-            frame_base = Some(fb);
-        }
-        if die.tag() == gimli::DW_TAG_variable {
-            if let Some(name) =  die.attr_value(gimli::DW_AT_name)? {
-                if let DebugStrRef(offset) = name  {
-                    if self.dwarf.string(offset).unwrap().to_string().unwrap() == "test_enum" {
-                        
-                        if let Some(UnitRef(offset)) =  die.attr_value(gimli::DW_AT_type)? {
-                            println!("{:#?}", offset);
-                            self.check_die(&self.unit.entry(offset)?, frame_base);
-                        }
-                        
+        // Check for the searched vairable.
+        if die.tag() == gimli::DW_TAG_variable { // Check that it is a variable.
+            if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
+                if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
 
-                        return Ok(true);
+                    if let Some(UnitRef(offset)) =  die.attr_value(gimli::DW_AT_type)? { 
+                        println!("\n");
+                        let value =self.check_die(&die, frame_base).unwrap();
+                        println!("\n");
+
+                        let tdie = self.unit.entry(offset)?;
+                        let name = match tdie.attr_value(gimli::DW_AT_name).unwrap().unwrap() {
+                            DebugStrRef(offset) => self.dwarf.string(offset).unwrap().to_string().unwrap().to_string(),
+                            _ => panic!("error"),
+                        };
+                        self.check_die(&tdie, frame_base);
+
+                        return Ok(Some((value, Some(name))));
                     }
+
                 }
             }
         }
-        if in_r {
-            let mut children = node.children();
-            while let Some(child) = children.next()? {
-                // Recursively process a child.
-                if self.process_tree(child, in_r, frame_base)? {
-                    return Ok(true);
-                }
+
+        // Recursively process the children.
+        let mut children = node.children();
+        while let Some(child) = children.next()? {
+            if let Some(result) = self.process_tree(child, frame_base, search)? {
+                return Ok(Some(result));
             }
         }
-        Ok(false)
+        Ok(None)
+    }
+
+
+    pub fn check_frame_base(&mut self,
+                            die: &DebuggingInformationEntry<'_, '_, R>,
+                            frame_base: Option<u64>
+                            ) -> gimli::Result<Option<u64>>
+    {
+        if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
+            if let Some(expr) = val.exprloc_value() {
+                return Ok(match self.evaluate(&self.unit, expr, frame_base, None).unwrap() {
+                    DebuggerValue::Value(Value::U64(v)) => Some(v),
+                    DebuggerValue::Value(Value::U32(v)) => Some(v as u64),
+                    _ => frame_base,
+                });
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        }
     }
 
 
     pub fn check_die(&mut self,
                      die: &DebuggingInformationEntry<'_, '_, R>,
                      mut frame_base: Option<u64>
-        ) -> Option<u64>
+        ) -> Option<DebuggerValue<R>>
     {
     
         let mut attrs = die.attrs();
@@ -124,24 +153,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 val
             );
             if let Some(expr) = attr.value().exprloc_value() {
-                if attr.name() == gimli::DW_AT_frame_base {
-                    frame_base = match self.evaluate(&self.unit, expr, frame_base, None).unwrap() {
-                        DebuggerValue::Value(Value::U64(v)) => Some(v),
-                        DebuggerValue::Value(Value::U32(v)) => Some(v as u64),
-                        _ => frame_base,
-                    };
-                } else {
-                    let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
-                        UnitRef(offset) => self.unit.entry(offset).unwrap(),
-                        _ => unimplemented!(),
-                    };
-                    self.evaluate(self.unit, expr, frame_base, Some(&tdie));
-                }
+                let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
+                    UnitRef(offset) => self.unit.entry(offset).unwrap(),
+                    _ => unimplemented!(),
+                };
+                return Some(self.evaluate(self.unit, expr, frame_base, Some(&tdie)).unwrap());
             }
         }
         println!("\n");
     
-        return frame_base;
+        return None;
     }
 }
 
