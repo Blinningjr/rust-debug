@@ -5,6 +5,9 @@ mod debugger;
 
 use debugger::{
     Debugger,
+    utils::{
+        in_range
+    },
 };
 
 use std::{borrow, env, fs};
@@ -25,7 +28,6 @@ use core::time::Duration;
 use object::{Object, ObjectSection};
 
 use gimli::{
-    RangeIter,
     Unit,
     Dwarf,
     Error,
@@ -171,23 +173,5 @@ fn get_current_dies<'a, R>(
         }
     }
     return Ok(dies);
-}
-
-
-fn in_range<R>(pc: u32, rang: &mut RangeIter<R>) -> Option<bool>
-        where R: Reader<Offset = usize>
-{ 
-    let mut no_range = true;
-    while let Ok(Some(range)) = rang.next() {
-//        println!("range: {:?}", range);
-        if range.begin <= pc as u64 && range.end >= pc as u64 {
-            return Some(true);
-        }
-        no_range = false;
-    }
-    if no_range {
-        return None;
-    }
-    return Some(false);
 }
 
