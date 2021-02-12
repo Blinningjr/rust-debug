@@ -25,12 +25,25 @@ use gimli::{
 
 use std::collections::HashMap;
 
+pub trait ByteSize {
+    fn byte_size(&self) -> u64;
+}
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerType {
     Enum(Enum),
     Struct(Struct),
     BaseType(BaseType),
+}
+
+impl ByteSize for DebuggerType {
+    fn byte_size(&self) -> u64 {
+        match self {
+            DebuggerType::Enum(e) => e.byte_size(),
+            DebuggerType::Struct(s) => s.byte_size(),
+            DebuggerType::BaseType(bt) => bt.byte_size(),
+        }
+    }
 }
 
 
@@ -41,6 +54,12 @@ pub struct BaseType {
     pub byte_size: u64,
 }
 
+impl ByteSize for BaseType {
+    fn byte_size(&self) -> u64 {
+        self.byte_size
+    }
+}
+
 
 #[derive(Debug, PartialEq)]
 pub struct Struct {
@@ -48,6 +67,12 @@ pub struct Struct {
     pub byte_size: u64,
     pub alignment: u64,
     pub members: Vec<Member>,
+}
+
+impl ByteSize for Struct {
+    fn byte_size(&self) -> u64 {
+        self.byte_size
+    }
 }
 
 
@@ -60,6 +85,12 @@ pub struct Enum {
     pub variants: HashMap<u64, Member>,
 }
 
+impl ByteSize for Enum {
+    fn byte_size(&self) -> u64 {
+        self.byte_size
+    }
+}
+
 
 #[derive(Debug, PartialEq)]
 pub struct Member {
@@ -69,11 +100,24 @@ pub struct Member {
     pub data_member_location: u64,
 }
 
+impl ByteSize for Member {
+    fn byte_size(&self) -> u64 {
+        self.r#type.byte_size()
+    }
+}
+
+
 #[derive(Debug, PartialEq)]
 pub struct ArtificialMember {
     pub r#type: Box<DebuggerType>,
     pub alignment: u64,
     pub data_member_location: u64,
+}
+
+impl ByteSize for ArtificialMember {
+    fn byte_size(&self) -> u64 {
+        self.r#type.byte_size()
+    }
 }
 
 
