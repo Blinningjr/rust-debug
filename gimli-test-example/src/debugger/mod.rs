@@ -84,14 +84,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
                 if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
 
-                    if let Some(UnitRef(offset)) =  die.attr_value(gimli::DW_AT_type)? { 
+                    if let Some(attr) =  die.attr_value(gimli::DW_AT_type)? { 
                         println!("\n");
                         let value =self.print_die(&die, frame_base).unwrap();
                         println!("\n");
 
-                        let mut tree = self.unit.entries_tree(Some(offset))?;
-                        let root = tree.root()?;
-                        self.print_tree(root, frame_base);
+                        self.parse_type_attr(attr); 
 
                         return Ok(Some((value, None)));
                     }
