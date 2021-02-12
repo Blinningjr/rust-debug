@@ -73,11 +73,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 val
             );
             if let Some(expr) = attr.value().exprloc_value() {
-                let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
-                    UnitRef(offset) => self.unit.entry(offset).unwrap(),
+                let dtype = match die.attr_value(gimli::DW_AT_type).unwrap() {
+                    Some(attr) => self.parse_type_attr(attr).unwrap(),
                     _ => unimplemented!(),
                 };
-                return Some(self.evaluate(self.unit, expr, frame_base, Some(&tdie)).unwrap());
+                return Some(self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap());
             }
         }
         println!("\n");

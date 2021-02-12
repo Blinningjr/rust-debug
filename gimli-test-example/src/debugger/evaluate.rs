@@ -1,5 +1,9 @@
 use super::{
     Debugger,
+    type_parser::{
+        DebuggerType,
+        ByteSize,
+    },
 };
 
 
@@ -65,7 +69,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         unit: &Unit<R>,
                         expr: Expression<R>,
                         frame_base: Option<u64>,
-                        type_die: Option<&DebuggingInformationEntry<'_, '_, R>>,
+                        vtype: Option<&DebuggerType>,
                     ) -> Result<DebuggerValue<R>, &'static str>
     {
         let mut eval = expr.evaluation(self.unit.encoding());
@@ -89,12 +93,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die = unit.entry(unit_offset).unwrap();
-                        let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
-                            UnitRef(offset) => self.unit.entry(offset).unwrap(),
+                        let dtype = match die.attr_value(gimli::DW_AT_type).unwrap() {
+                            Some(attr) => self.parse_type_attr(attr).unwrap(),
                             _ => unimplemented!(),
                         };
                         let expr = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
-                        let value = self.evaluate(unit, expr, frame_base, Some(&tdie)).unwrap();
+                        let value = self.evaluate(unit, expr, frame_base, Some(&dtype)).unwrap();
                         if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val).unwrap();
                         } else {
@@ -111,8 +115,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
         }
     
-        let value = self.eval_pieces(eval.result(), type_die);
+        let value = self.eval_pieces(eval.result(), vtype);
         println!("Value: {:?}", value);
+        println!("Type: {:#?}", vtype);
         value
     }
 
@@ -120,7 +125,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn eval_pieces(&mut self,
                    pieces: Vec<Piece<R>>,
-                   type_die: Option<&DebuggingInformationEntry<'_, '_, R>>
+                   vtype: Option<&DebuggerType>
                    ) -> Result<DebuggerValue<R>, &'static str>
     {
         // TODO: What should happen if more then one piece is given?
@@ -128,13 +133,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             panic!("Found more then one piece");
         }
         println!("{:?}", pieces);
-        return self.eval_piece(&pieces[0], type_die);
+        return self.eval_piece(&pieces[0], vtype);
     }
    
 
     fn eval_piece(&mut self,
                   piece: &Piece<R>,
-                  type_die: Option<&DebuggingInformationEntry<'_, '_, R>>
+                  vtype: Option<&DebuggerType>
                   ) -> Result<DebuggerValue<R>, &'static str>
     {
         fn parse_value<R: Reader<Offset = usize>>(data: u32,
@@ -157,12 +162,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             return Ok(DebuggerValue::Value(Value::U32(data & mask))); // TODO: Always return U32?
         }
 
-        let byte_size: u64 = match type_die {
-            Some(tdie) => match tdie.attr_value(gimli::DW_AT_byte_size).unwrap() {
-                Some(Udata(val)) => (val + 4 - 1) / 4,
-                Some(_) => panic!("Found no byte size"),
-                None => 1,
-            },
+        let reg_size: u64 = match vtype {
+            Some(dtype) => (dtype.byte_size() + 4 - 1)/4,
             None => 1,
         };
         match &piece.location {
@@ -170,7 +171,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Location::Register { register } => 
                 return parse_value(self.core.read_core_reg(register.0).unwrap(), piece.size_in_bits, piece.bit_offset),
             Location::Address { address } => { //TODO:
-                    let mut data: Vec<u32> = vec![0; byte_size as usize];
+                    let mut data: Vec<u32> = vec![0; reg_size as usize];
                     self.core.read_32(*address as u32, &mut data).map_err(|e| "Read error")?;
                     let mut res: Vec<u32> = Vec::new();
                     for d in data.iter() {
@@ -273,12 +274,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = unit.entry(unit_offset).unwrap();
         if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
-            let tdie = match die.attr_value(gimli::DW_AT_type).unwrap().unwrap() {
-                UnitRef(offset) => self.unit.entry(offset).unwrap(),
+            let dtype = match die.attr_value(gimli::DW_AT_type).unwrap() {
+                Some(attr) => self.parse_type_attr(attr).unwrap(),
                 _ => unimplemented!(),
             };
     
-            let val = self.evaluate(&unit, expr, frame_base, Some(&tdie))?;
+            let val = self.evaluate(&unit, expr, frame_base, Some(&dtype))?;
             if let DebuggerValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b).unwrap();
                return Ok(());
