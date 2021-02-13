@@ -47,12 +47,32 @@ use gimli::{
     DebuggingInformationEntry,
 };
 
+use std::collections::HashMap;
+
+
 #[derive(Debug)]
 pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),
     Bytes(R),
     Raw(Vec<u32>),
+    Struct(Box<StructValue<R>>),
+    Enum(Box<EnumValue<R>>),
 }
+
+#[derive(Debug)]
+pub struct StructValue<R: Reader<Offset = usize>> {
+    pub name: String,
+    pub attributes: HashMap<String, DebuggerValue<R>>,
+}
+
+#[derive(Debug)]
+pub struct EnumValue<R: Reader<Offset = usize>> {
+    pub name: String,
+    pub value: u64,
+    pub member: (String, DebuggerValue<R>),
+}
+
+
 
 impl<R: Reader<Offset = usize>> DebuggerValue<R> {
     pub fn to_value(self) -> Value {
@@ -177,7 +197,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     for d in data.iter() {
                         res.push(*d);
                     }
-                    return Ok(DebuggerValue::Raw(res));
+                    println!("Raw: {:?}", res);
+                    return Ok(self.parse_value(res, vtype.unwrap()).unwrap());
                 },
             Location::Value { value } => {
                 if let Some(_) = piece.size_in_bits {
@@ -322,18 +343,35 @@ fn parse_base_type<R>(
         _ => panic!("expected Udata"),
     };
     
-    // Check dwarf doc for the codes.
+    eval_base_type(data, encoding, byte_size)
+}
+
+pub fn eval_base_type(data: &[u32],
+                         encoding: DwAte,
+                         byte_size: u64
+                         ) -> Value
+{
+    if byte_size == 0 {
+        panic!("expected byte size to be larger then 0");
+    }
+
+    let value = slize_as_u64(data);
     match (encoding, byte_size) { 
-        (DwAte(7), 1) => Value::U8(slize_as_u64(data) as u8),       // (unsigned, 8)
-        (DwAte(7), 2) => Value::U16(slize_as_u64(data) as u16),     // (unsigned, 16)
-        (DwAte(7), 4) => Value::U32(slize_as_u64(data) as u32),     // (unsigned, 32)
-        (DwAte(7), 8) => Value::U64(slize_as_u64(data)),            // (unsigned, 64)
+        (DwAte(7), 1) => Value::U8(value as u8),       // (unsigned, 8)
+        (DwAte(7), 2) => Value::U16(value as u16),     // (unsigned, 16)
+        (DwAte(7), 4) => Value::U32(value as u32),     // (unsigned, 32)
+        (DwAte(7), 8) => Value::U64(value),            // (unsigned, 64)
         
-        (DwAte(5), 1) => Value::I8(slize_as_u64(data) as i8),       // (signed, 8)
-        (DwAte(5), 2) => Value::I16(slize_as_u64(data) as i16),     // (signed, 16)
-        (DwAte(5), 4) => Value::I32(slize_as_u64(data) as i32),     // (signed, 32)
-        (DwAte(5), 8) => Value::I64(slize_as_u64(data) as i64),     // (signed, 64)
-        _ => unimplemented!(),
+        (DwAte(5), 1) => Value::I8(value as i8),       // (signed, 8)
+        (DwAte(5), 2) => Value::I16(value as i16),     // (signed, 16)
+        (DwAte(5), 4) => Value::I32(value as i32),     // (signed, 32)
+        (DwAte(5), 8) => Value::I64(value as i64),     // (signed, 64)
+
+        (DwAte(2), 1) => Value::Generic((value as u8) as u64), // Should be returnd as bool?
+        _ => {
+            println!("{:?}, {:?}", encoding, byte_size);
+            unimplemented!()
+        },
     }
 }
 
@@ -342,6 +380,9 @@ fn slize_as_u64(data: &[u32]) -> u64 {
     // TODO: Check and test if correct
     if data.len() < 2 {
         return data[0] as u64;
+    }
+    if data.len() > 2 {
+        panic!("To big value");
     }
     return ((data[0] as u64)<< 32) + (data[1] as u64);
 }

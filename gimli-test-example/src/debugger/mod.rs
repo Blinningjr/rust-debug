@@ -2,6 +2,7 @@ pub mod utils;
 pub mod print_dwarf;
 pub mod evaluate;
 pub mod type_parser;
+pub mod type_value;
 
 
 use utils::{
@@ -86,7 +87,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
                     if let Some(attr) =  die.attr_value(gimli::DW_AT_type)? { 
                         println!("\n");
-                        let value =self.print_die(&die, frame_base).unwrap();
+                        let value = self.print_die(&die, frame_base).unwrap();
                         println!("\n");
 
                         self.parse_type_attr(attr); 

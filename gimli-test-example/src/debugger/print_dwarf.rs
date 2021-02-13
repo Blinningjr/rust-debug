@@ -53,7 +53,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      frame_base: Option<u64>
         ) -> Option<DebuggerValue<R>>
     {
-    
+        let mut result = None; 
         let mut attrs = die.attrs();
         println!("{:?}", die.tag().static_string());
         println!(
@@ -77,12 +77,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     Some(attr) => self.parse_type_attr(attr).unwrap(),
                     _ => unimplemented!(),
                 };
-                return Some(self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap());
+                result = Some(self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap());
             }
         }
         println!("\n");
     
-        return None;
+        return result;
     }
 }
 

@@ -371,7 +371,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                       ) -> gimli::Result<BaseType>
     {
         let die = node.entry();
-        
         let name: String = match die.attr_value(gimli::DW_AT_name)? {
             Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
             _ => panic!("expected name"),
