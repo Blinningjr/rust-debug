@@ -7,7 +7,6 @@ use super::{
         BaseType,
         ByteSize,
         Member,
-        ArtificialMember,
     },
     evaluate::{
         DebuggerValue,
@@ -19,17 +18,8 @@ use super::{
 
 
 use gimli::{
-    Unit,
-    Dwarf,
-    DebuggingInformationEntry,
-    AttributeValue::{
-        DebugStrRef,
-        UnitRef,
-    },
     Reader,
-    EntriesTreeNode,
     Value,
-    Error,
 };
 
 

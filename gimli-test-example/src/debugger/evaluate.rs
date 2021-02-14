@@ -31,7 +31,6 @@ use gimli::{
     AttributeValue::{
         Udata,
         Encoding,
-        UnitRef,
     },
     Reader,
     Evaluation,
@@ -44,7 +43,6 @@ use gimli::{
     Piece,
     Location,
     DieReference,
-    DebuggingInformationEntry,
 };
 
 use std::collections::HashMap;

@@ -149,14 +149,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // Check for the searched type.
         if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
             if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
-                self.print_tree(node, frame_base);
+                self.print_tree(node);
 
                 // Recursively process the children.
                 //let mut i = 0;
                 //let mut children = node.children();
                 //while let Some(child) = children.next()? {
                 //    if i == -1 {
-                //        self.print_tree(child, frame_base);
+                //        self.print_tree(child);
                 //    }
 
                 //    i += 1;
@@ -190,7 +190,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     gimli::DW_TAG_structure_type => self.parse_structure_type(root),
                     gimli::DW_TAG_base_type => Ok(DebuggerType::BaseType(self.parse_base_type(root)?)),
                     _ => {
-                        self.print_tree(root, None);
+                        self.print_tree(root);
                         unimplemented!();
                     },
                 };

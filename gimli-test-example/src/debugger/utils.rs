@@ -3,14 +3,7 @@ use gimli::{
     Unit,
     Dwarf,
     DebuggingInformationEntry,
-    AttributeValue::{
-        DebugStrRef,
-        UnitRef,
-    },
     Reader,
-    EntriesTreeNode,
-    Value,
-    Error,
 };
 
 

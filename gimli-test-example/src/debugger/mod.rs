@@ -6,7 +6,6 @@ pub mod type_value;
 
 
 use utils::{
-    in_range,
     die_in_range,
 };
 
@@ -26,7 +25,6 @@ use gimli::{
     DebuggingInformationEntry,
     AttributeValue::{
         DebugStrRef,
-        UnitRef,
     },
     Reader,
     EntriesTreeNode,
@@ -57,8 +55,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn find_variable(&mut self, search: &str) -> gimli::Result<DebuggerValue<R>> {
         let mut tree = self.unit.entries_tree(None)?;
         let root = tree.root()?;
+        self.print_tree(root);
+        unimplemented!();
         return match self.process_tree(root, None, search)? {
-            Some((val, _)) => Ok(val),
+            Some(val) => Ok(val),
             None => Err(Error::Io),
         };
     }
@@ -68,7 +68,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             node: EntriesTreeNode<R>,
             mut frame_base: Option<u64>,
             search: &str
-        ) -> gimli::Result<Option<(DebuggerValue<R>, Option<String>)>>
+        ) -> gimli::Result<Option<DebuggerValue<R>>>
     {
         let die = node.entry();
 
@@ -85,16 +85,23 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
                 if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
 
-                    if let Some(attr) =  die.attr_value(gimli::DW_AT_type)? { 
-                        println!("\n");
-                        let value = self.print_die(&die, frame_base).unwrap();
-                        println!("\n");
+                    println!("\n");
+                    self.print_die(&die);
 
-                        self.parse_type_attr(attr); 
+                    if let Some(tattr) =  die.attr_value(gimli::DW_AT_type)? { 
+                        if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
 
-                        return Ok(Some((value, None)));
+                            let dtype = self.parse_type_attr(tattr).unwrap();
+                            let value = self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap();
+                            println!("\n");
+
+                            return Ok(Some(value));
+                        }
+
+
                     }
 
+                    return Ok(None);
                 }
             }
         }
@@ -108,6 +115,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
         Ok(None)
     }
+
+
     
 
 
