@@ -25,9 +25,25 @@
 
 * Had a meeting with Per and the other.
 
+
 # Friday
+* Restructured the code so it is easier to work with.
+
+* Implemented so that the given type offset is used to find the tree node that has all the type info.
+
+* Implemented a set of parsers that parse the type information into a type struct, that is easier to use.
+
+* Added a trait for the `DebuggerType` that allows for easy access to the bytes size of the type.
+
+* Changed so that the `DebuggerType` is used instead of a reference to the die with the type information.
+
 
 # Saturday
+* Implemented a set of parsers that takes the raw data read from some address plus the parsed type information and transforms it into a value struct.
+
 
 # Sunday
+* Make the print function not evaluate the expressions.
+
+* Fixed some of the warnings.
 
