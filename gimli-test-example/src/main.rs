@@ -6,7 +6,7 @@ mod debugger;
 use debugger::{
     Debugger,
     utils::{
-        in_range
+        in_ranges
     },
 };
 
@@ -129,16 +129,23 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
 //    }
 
     let mut debugger = Debugger::new(core, dwarf, &unit, pc);
+
+    let search = "test_enum1";
+    let value = debugger.find_variable(search)?; 
+    println!("var {:?} = {:#?}", search, value);
+
+    println!("################");
+    
+    let search = "test_enum2";
+    let value = debugger.find_variable(search)?; 
+    println!("var {:?} = {:#?}", search, value);
+
+    println!("################");
+    
     let search = "test_enum3";
     let value = debugger.find_variable(search)?; 
     println!("var {:?} = {:#?}", search, value);
-
-    println!("\n#########################\n");
-    
-    let search = "test_struct";
-    let value = debugger.find_variable(search)?; 
-    println!("var {:?} = {:#?}", search, value);
-
+ 
     return Ok(());
 }
 
@@ -154,7 +161,7 @@ fn get_current_unit<'a, R>(
     let mut iter = dwarf.units();
     while let Some(header) = iter.next()? {
         let unit = dwarf.unit(header)?;
-        if Some(true) == in_range(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
+        if Some(true) == in_ranges(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
             return Ok(unit);
         }
     }
@@ -173,7 +180,7 @@ fn get_current_dies<'a, R>(
     let mut dies: Vec<DebuggingInformationEntry<R>> = vec!();
     while let Some((_, entry)) = entries.next_dfs()? {
 //        println!("{:#?}", entry.tag().static_string());
-        if Some(true) == in_range(pc, &mut dwarf.die_ranges(unit, entry)?) {
+        if Some(true) == in_ranges(pc, &mut dwarf.die_ranges(unit, entry)?) {
             dies.push(entry.clone());
         }
     }

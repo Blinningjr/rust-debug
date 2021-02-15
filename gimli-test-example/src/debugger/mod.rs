@@ -7,6 +7,7 @@ pub mod type_value;
 
 use utils::{
     die_in_range,
+    in_range,
 };
 
 
@@ -25,6 +26,8 @@ use gimli::{
     DebuggingInformationEntry,
     AttributeValue::{
         DebugStrRef,
+        Exprloc,
+        LocationListsRef,
     },
     Reader,
     EntriesTreeNode,
@@ -55,8 +58,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn find_variable(&mut self, search: &str) -> gimli::Result<DebuggerValue<R>> {
         let mut tree = self.unit.entries_tree(None)?;
         let root = tree.root()?;
-        self.print_tree(root);
-        unimplemented!();
+//        self.print_tree(root);
+//        unimplemented!();
         return match self.process_tree(root, None, search)? {
             Some(val) => Ok(val),
             None => Err(Error::Io),
@@ -89,13 +92,28 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     self.print_die(&die);
 
                     if let Some(tattr) =  die.attr_value(gimli::DW_AT_type)? { 
-                        if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
+                        match die.attr_value(gimli::DW_AT_location)?.unwrap() {
+                            Exprloc(expr) => {
 
-                            let dtype = self.parse_type_attr(tattr).unwrap();
-                            let value = self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap();
-                            println!("\n");
+                                let dtype = self.parse_type_attr(tattr).unwrap();
+                                let value = self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap();
+                                println!("\n");
 
-                            return Ok(Some(value));
+                                return Ok(Some(value));
+                            },
+                            LocationListsRef(offset) => {
+                                let mut locations = self.dwarf.locations(self.unit, offset)?;
+                                while let Some(llent) = locations.next()? {
+                                    if in_range(self.pc, &llent.range) {
+                                        let dtype = self.parse_type_attr(tattr).unwrap();
+                                        let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
+                                        println!("\n");
+
+                                        return Ok(Some(value));
+                                    }
+                                }
+                            },
+                            _ => unimplemented!(),
                         }
 
 

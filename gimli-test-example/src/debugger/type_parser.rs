@@ -10,6 +10,7 @@ use gimli::{
     AttributeValue,
     AttributeValue::{
         DebugStrRef,
+        DebugInfoRef,
         UnitRef,
         Data1,
         Data2,
@@ -34,6 +35,7 @@ pub enum DebuggerType {
     Enum(Enum),
     Struct(Struct),
     BaseType(BaseType),
+    Non,
 }
 
 impl ByteSize for DebuggerType {
@@ -42,6 +44,7 @@ impl ByteSize for DebuggerType {
             DebuggerType::Enum(e) => e.byte_size(),
             DebuggerType::Struct(s) => s.byte_size(),
             DebuggerType::BaseType(bt) => bt.byte_size(),
+            DebuggerType::Non => 0,
         }
     }
 }
@@ -195,7 +198,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     },
                 };
             },
-            _ => unimplemented!(),
+            DebugInfoRef(di_offset) => {
+                println!("{:?}", self.dwarf.debug_info.header_from_offset(di_offset));
+                return Ok(DebuggerType::Non);
+                unimplemented!();
+            },
+            _ => {
+                println!("{:?}", attr_value);
+                unimplemented!();
+            },
         };
     }
 

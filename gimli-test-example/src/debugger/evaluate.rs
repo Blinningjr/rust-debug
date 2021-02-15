@@ -55,6 +55,7 @@ pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Raw(Vec<u32>),
     Struct(Box<StructValue<R>>),
     Enum(Box<EnumValue<R>>),
+    Non,
 }
 
 #[derive(Debug)]
@@ -133,9 +134,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
         }
     
+        println!("Type: {:#?}", vtype);
         let value = self.eval_pieces(eval.result(), vtype);
         println!("Value: {:?}", value);
-        println!("Type: {:#?}", vtype);
         value
     }
 
@@ -146,11 +147,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                    vtype: Option<&DebuggerType>
                    ) -> Result<DebuggerValue<R>, &'static str>
     {
+        println!("{:#?}", pieces);
         // TODO: What should happen if more then one piece is given?
         if pieces.len() > 1 {
-            panic!("Found more then one piece");
+            for p in &pieces {
+                println!("Value {:#?}", self.eval_piece(p, vtype));
+            }
+            //panic!("Found more then one piece");
         }
-        println!("{:?}", pieces);
         return self.eval_piece(&pieces[0], vtype);
     }
    
@@ -185,7 +189,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             None => 1,
         };
         match &piece.location {
-            Location::Empty => return Err("Optimized out"),
+            Location::Empty => return Ok(DebuggerValue::Non), //return Err("Optimized out"),
             Location::Register { register } => 
                 return parse_value(self.core.read_core_reg(register.0).unwrap(), piece.size_in_bits, piece.bit_offset),
             Location::Address { address } => { //TODO:
@@ -196,7 +200,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         res.push(*d);
                     }
                     println!("Raw: {:?}", res);
-                    return Ok(self.parse_value(res, vtype.unwrap()).unwrap());
+                    return Ok(DebuggerValue::Raw(res));
+                    //return Ok(self.parse_value(res, vtype.unwrap()).unwrap());
                 },
             Location::Value { value } => {
                 if let Some(_) = piece.size_in_bits {

@@ -36,6 +36,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             DebuggerType::Enum(e) => self.parse_enum_value(data, e),
             DebuggerType::Struct(s) => self.parse_struct_value(data, s),
             DebuggerType::BaseType(bt) => self.parse_base_type_value(data, bt),
+            DebuggerType::Non => Ok(DebuggerValue::Non),
         }
     }
 
