@@ -7,6 +7,8 @@ use super::{
         BaseType,
         ByteSize,
         Member,
+        TemplateParameter,
+        UnionType,
     },
     evaluate::{
         DebuggerValue,
@@ -36,6 +38,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             DebuggerType::Enum(e) => self.parse_enum_value(data, e),
             DebuggerType::Struct(s) => self.parse_struct_value(data, s),
             DebuggerType::BaseType(bt) => self.parse_base_type_value(data, bt),
+            DebuggerType::Union(ut) => self.parse_union_type_value(data, ut),
+            DebuggerType::Array(at) => unimplemented!(),
+//            DebuggerType::TemplateParameter(p) => self.parse_template_parameter_value(data, p),
             DebuggerType::Non => Ok(DebuggerValue::Non),
         }
     }
@@ -70,7 +75,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => panic!("Expected unsinged int"),
         };
 
-        let (mname, member) = self.parse_member_value(data, etype.variants.get(&value).unwrap())?;
+        let (mname, member) = self.parse_member_value(data, etype.variants.get(&(value%etype.variants.len() as u64)).unwrap())?;
 
         return Ok(DebuggerValue::Enum(Box::new(EnumValue {
             name: name,
@@ -108,6 +113,28 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let value = self.parse_value(data, &(*member.r#type))?;
         return Ok((name, value));
     }
+
+
+    pub fn parse_template_parameter_value(&mut self,
+                                 mut data: Vec<u32>,
+                                 parameter: &TemplateParameter
+                                 ) -> gimli::Result<DebuggerValue<R>>
+    {
+        return self.parse_value(data, &(*parameter.r#type));
+    }
+
+
+    pub fn parse_union_type_value(&mut self,
+                              mut data: Vec<u32>,
+                              union: &UnionType,
+                              ) -> gimli::Result<DebuggerValue<R>>
+    {
+        let name = union.name.clone();
+        data = self.parse_data(data, union.byte_size(), 0);
+        //let value = self.parse_value(data, &(*member.r#type))?;
+        return Ok(DebuggerValue::Non);
+    }
+
 
 
     pub fn parse_data(&mut self,

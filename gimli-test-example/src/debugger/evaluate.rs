@@ -73,6 +73,7 @@ pub struct EnumValue<R: Reader<Offset = usize>> {
 
 
 
+
 impl<R: Reader<Offset = usize>> DebuggerValue<R> {
     pub fn to_value(self) -> Value {
         match self {
@@ -151,11 +152,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // TODO: What should happen if more then one piece is given?
         if pieces.len() > 1 {
             for p in &pieces {
-                println!("Value {:#?}", self.eval_piece(p, vtype));
+                println!("Value {:#?}", self.eval_piece(p, None)); //TODO
             }
             //panic!("Found more then one piece");
         }
-        return self.eval_piece(&pieces[0], vtype);
+        return self.eval_piece(&pieces[0], None); //TODO
     }
    
 
@@ -201,7 +202,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     }
                     println!("Raw: {:?}", res);
                     return Ok(DebuggerValue::Raw(res));
-                    //return Ok(self.parse_value(res, vtype.unwrap()).unwrap());
+                    //return match self.parse_value(res.clone(), vtype.unwrap()) {
+                    //    Ok(val) => return Ok(val),
+                    //    Err(_) => Ok(DebuggerValue::Raw(res)),
+                    //} //TODO: Uncomment
                 },
             Location::Value { value } => {
                 if let Some(_) = piece.size_in_bits {
@@ -257,6 +261,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let data = self.core.read_core_reg(reg.0).unwrap();
         let value = parse_base_type(unit, &[data], base_type);
+//        println!("value: {:?} \ndata: {:?}", value, data);
         *result = eval.resume_with_register(value).unwrap();    
     }
 

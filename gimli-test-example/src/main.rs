@@ -86,7 +86,7 @@ fn read_dwarf(pc: u32, core: Core, path: &Path) {
     } else {
         gimli::RunTimeEndian::Big
     };
-    dump_file(object, endian, pc, core).unwrap();
+    dump_file(object, endian, pc, core);
 }
 
 
@@ -131,19 +131,19 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
     let mut debugger = Debugger::new(core, dwarf, &unit, pc);
 
     let search = "test_enum1";
-    let value = debugger.find_variable(search)?; 
+    let value = debugger.find_variable(search); 
     println!("var {:?} = {:#?}", search, value);
 
     println!("################");
     
     let search = "test_enum2";
-    let value = debugger.find_variable(search)?; 
+    let value = debugger.find_variable(search); 
     println!("var {:?} = {:#?}", search, value);
 
     println!("################");
     
     let search = "test_enum3";
-    let value = debugger.find_variable(search)?; 
+    let value = debugger.find_variable(search); 
     println!("var {:?} = {:#?}", search, value);
  
     return Ok(());

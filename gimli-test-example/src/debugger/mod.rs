@@ -62,7 +62,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 //        unimplemented!();
         return match self.process_tree(root, None, search)? {
             Some(val) => Ok(val),
-            None => Err(Error::Io),
+            None => Err(Error::Io), // TODO: Change to a better error.
         };
     }
 
@@ -91,38 +91,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     println!("\n");
                     self.print_die(&die);
 
-                    if let Some(tattr) =  die.attr_value(gimli::DW_AT_type)? { 
-                        match die.attr_value(gimli::DW_AT_location)?.unwrap() {
-                            Exprloc(expr) => {
-
-                                let dtype = self.parse_type_attr(tattr).unwrap();
-                                let value = self.evaluate(self.unit, expr, frame_base, Some(&dtype)).unwrap();
-                                println!("\n");
-
-                                return Ok(Some(value));
-                            },
-                            LocationListsRef(offset) => {
-                                let mut locations = self.dwarf.locations(self.unit, offset)?;
-                                while let Some(llent) = locations.next()? {
-                                    if in_range(self.pc, &llent.range) {
-                                        let dtype = self.parse_type_attr(tattr).unwrap();
-                                        let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
-                                        println!("\n");
-
-                                        return Ok(Some(value));
-                                    }
-                                }
-                            },
-                            _ => unimplemented!(),
-                        }
-
-
-                    }
-
-                    return Ok(None);
+                    return self.eval_location(&die, frame_base);
                 }
             }
         }
+
+        self.eval_location(&die, frame_base);
 
         // Recursively process the children.
         let mut children = node.children();
@@ -135,6 +109,73 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
+    fn eval_location(&mut self,
+                     die: &DebuggingInformationEntry<R>,
+                     mut frame_base: Option<u64>
+                     ) -> gimli::Result<Option<DebuggerValue<R>>> 
+    {
+        if let Some(tattr) =  die.attr_value(gimli::DW_AT_type)? { 
+            match die.attr_value(gimli::DW_AT_location)? {
+                Some(Exprloc(expr)) => {
+
+                    let dtype = self.parse_type_attr(tattr).unwrap();
+                    let value = match self.evaluate(self.unit, expr, frame_base, Some(&dtype)) {
+                        Ok(val) => val,
+                        Err(_) => return Err(Error::Io), // TODO
+                    };
+                    println!("\n");
+
+                    return Ok(Some(value));
+                },
+                Some(LocationListsRef(offset)) => {
+                    let mut locations = self.dwarf.locations(self.unit, offset)?;
+                    while let Some(llent) = locations.next()? {
+                        if in_range(self.pc, &llent.range) {
+                            let dtype = self.parse_type_attr(tattr).unwrap();
+                            let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
+                            println!("\n");
+
+                            return Ok(Some(value));
+                        }
+                    }
+                    return Err(Error::Io);
+                },
+                None => return Err(Error::Io),
+                Some(v) => {
+                    println!("{:?}", v);
+                    unimplemented!();
+                },
+            }
+        } else {
+            match die.attr_value(gimli::DW_AT_location)? {
+                Some(Exprloc(expr)) => {
+
+                    let value = self.evaluate(self.unit, expr, frame_base, None).unwrap();
+                    println!("\n");
+
+                    return Ok(Some(value));
+                },
+                Some(LocationListsRef(offset)) => {
+                    let mut locations = self.dwarf.locations(self.unit, offset)?;
+                    while let Some(llent) = locations.next()? {
+                        if in_range(self.pc, &llent.range) {
+                            let value = self.evaluate(self.unit, llent.data, frame_base, None).unwrap();
+                            println!("\n");
+
+                            return Ok(Some(value));
+                        }
+                    }
+                    return Err(Error::Io);
+                },
+                None => return Err(Error::Io),
+                Some(v) => {
+                    println!("{:?}", v);
+                    unimplemented!();
+                },
+            }
+        }
+        return Err(Error::Io); //TODO
+    }
     
 
 
@@ -145,16 +186,20 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(&self.unit, expr, frame_base, None).unwrap() {
-                    DebuggerValue::Value(Value::U64(v)) => Some(v),
-                    DebuggerValue::Value(Value::U32(v)) => Some(v as u64),
-                    _ => frame_base,
+                return Ok(match self.evaluate(&self.unit, expr, frame_base, None) {
+                    Ok(DebuggerValue::Value(Value::U64(v))) => Some(v),
+                    Ok(DebuggerValue::Value(Value::U32(v))) => Some(v as u64),
+                    Ok(v) => {
+                        println!("{:?}", v);
+                        unimplemented!()
+                    },
+                    Err(err) => panic!(err),
                 });
             } else {
                 return Ok(None);
             }
         } else {
-            return Ok(None);
+            return Ok(frame_base);
         }
     }
 }
