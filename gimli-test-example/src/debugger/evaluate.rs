@@ -2,7 +2,7 @@ use super::{
     Debugger,
     type_parser::{
         DebuggerType,
-        ByteSize,
+        TypeInfo,
     },
 };
 
@@ -152,11 +152,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // TODO: What should happen if more then one piece is given?
         if pieces.len() > 1 {
             for p in &pieces {
-                println!("Value {:#?}", self.eval_piece(p, None)); //TODO
+                println!("Value {:#?}", self.eval_piece(p, vtype)); //TODO
             }
             //panic!("Found more then one piece");
         }
-        return self.eval_piece(&pieces[0], None); //TODO
+        return self.eval_piece(&pieces[0], vtype); //TODO
     }
    
 
@@ -194,19 +194,25 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Location::Register { register } => 
                 return parse_value(self.core.read_core_reg(register.0).unwrap(), piece.size_in_bits, piece.bit_offset),
             Location::Address { address } => { //TODO:
-                    let mut data: Vec<u32> = vec![0; reg_size as usize];
-                    self.core.read_32(*address as u32, &mut data).map_err(|e| "Read error")?;
-                    let mut res: Vec<u32> = Vec::new();
-                    for d in data.iter() {
-                        res.push(*d);
-                    }
-                    println!("Raw: {:?}", res);
-                    return Ok(DebuggerValue::Raw(res));
-                    //return match self.parse_value(res.clone(), vtype.unwrap()) {
-                    //    Ok(val) => return Ok(val),
-                    //    Err(_) => Ok(DebuggerValue::Raw(res)),
-                    //} //TODO: Uncomment
-                },
+                //let address = match vtype {
+                //    Some(vt) => address + (address%(match vt.alignment() {Some(v) => v, None => 1,})),
+                //    None => *address,
+                //};
+                //println!("address: {:?}", address);
+
+                let mut data: Vec<u32> = vec![0; reg_size as usize];
+                self.core.read_32(*address as u32, &mut data).map_err(|e| "Read error")?;
+                let mut res: Vec<u32> = Vec::new();
+                for d in data.iter() {
+                    res.push(*d);
+                }
+                println!("Raw: {:?}", res);
+                return Ok(DebuggerValue::Raw(res));
+                //return match self.parse_value(res.clone(), vtype.unwrap()) {
+                //    Ok(val) => return Ok(val),
+                //    Err(_) => Ok(DebuggerValue::Raw(res)),
+                //} //TODO: Uncomment
+            },
             Location::Value { value } => {
                 if let Some(_) = piece.size_in_bits {
                     panic!("needs to be implemented");

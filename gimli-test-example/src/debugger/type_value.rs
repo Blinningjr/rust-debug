@@ -5,7 +5,7 @@ use super::{
         Enum,
         Struct,
         BaseType,
-        ByteSize,
+        TypeInfo,
         Member,
         TemplateParameter,
         UnionType,
@@ -42,6 +42,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             DebuggerType::Array(at) => unimplemented!(),
 //            DebuggerType::TemplateParameter(p) => self.parse_template_parameter_value(data, p),
             DebuggerType::Non => Ok(DebuggerValue::Non),
+            _ => unimplemented!(),
         }
     }
 

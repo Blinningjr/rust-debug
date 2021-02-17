@@ -19,40 +19,57 @@ use gimli::{
         Udata,
         Sdata,
         Encoding,
+        Flag,
+        AddressClass,
     },
     Reader,
     EntriesTreeNode,
     DwAte,
+    DwAddr,
 };
 
 use std::collections::HashMap;
 
-pub trait ByteSize {
+pub trait TypeInfo {
     fn byte_size(&self) -> u64;
+    fn alignment(&self) -> Option<u64>;
 }
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerType {
     Enum(Enum),
+    EnumerationType(EnumerationType),
     Struct(Struct),
     BaseType(BaseType),
     Union(UnionType),
     Array(ArrayType),
+    Pointer(PointerType),
 //    TemplateParameter(TemplateParameter),
     Non,
 }
-
-impl ByteSize for DebuggerType {
+impl TypeInfo for DebuggerType {
     fn byte_size(&self) -> u64 {
         match self {
             DebuggerType::Enum(e) => e.byte_size(),
+            DebuggerType::EnumerationType(et) => et.byte_size(),
             DebuggerType::Struct(s) => s.byte_size(),
             DebuggerType::BaseType(bt) => bt.byte_size(),
             DebuggerType::Union(ut) => ut.byte_size(),
             DebuggerType::Array(at) => at.byte_size(),
-//            DebuggerType::TemplateParameter(tp) => tp.byte_size(),
-
+            DebuggerType::Pointer(pt) => pt.byte_size(),
             DebuggerType::Non => 0,
+        }
+    }
+    fn alignment(&self) -> Option<u64>{
+        match self {
+            DebuggerType::Enum(e) => e.alignment(),
+            DebuggerType::EnumerationType(et) => et.alignment(),
+            DebuggerType::Struct(s) => s.alignment(),
+            DebuggerType::BaseType(bt) => bt.alignment(),
+            DebuggerType::Union(ut) => ut.alignment(),
+            DebuggerType::Array(at) => at.alignment(),
+            DebuggerType::Pointer(pt) => pt.alignment(),
+            DebuggerType::Non => None,
         }
     }
 }
@@ -65,9 +82,12 @@ pub struct BaseType {
     pub byte_size: u64,
 }
 
-impl ByteSize for BaseType {
+impl TypeInfo for BaseType {
     fn byte_size(&self) -> u64 {
         self.byte_size
+    }
+    fn alignment(&self) -> Option<u64>{
+        None
     }
 }
 
@@ -80,9 +100,12 @@ pub struct Struct {
     pub members: Vec<Member>,
 }
 
-impl ByteSize for Struct {
+impl TypeInfo for Struct {
     fn byte_size(&self) -> u64 {
         self.byte_size
+    }
+    fn alignment(&self) -> Option<u64>{
+        Some(self.alignment)
     }
 }
 
@@ -95,10 +118,44 @@ pub struct Enum {
     pub index_type: ArtificialMember,
     pub variants: HashMap<u64, Member>,
 }
-
-impl ByteSize for Enum {
+impl TypeInfo for Enum {
     fn byte_size(&self) -> u64 {
         self.byte_size
+    }
+    fn alignment(&self) -> Option<u64>{
+        Some(self.alignment)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct EnumerationType {
+    pub name: String,
+    pub enum_class: bool,
+    pub r#type: Box<DebuggerType>,
+    pub byte_size: u64,
+    pub alignment: u64, 
+    pub enumerators: Vec<Enumerator>,
+}
+impl TypeInfo for EnumerationType {
+    fn byte_size(&self) -> u64 {
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64>{
+        Some(self.alignment)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Enumerator {
+    pub name: String,
+    pub const_value: u64,
+}
+impl TypeInfo for Enumerator {
+    fn byte_size(&self) -> u64 {
+        1
+    }
+    fn alignment(&self) -> Option<u64>{
+        None
     }
 }
 
@@ -110,10 +167,12 @@ pub struct Member {
     pub alignment: u64,
     pub data_member_location: u64,
 }
-
-impl ByteSize for Member {
+impl TypeInfo for Member {
     fn byte_size(&self) -> u64 {
         self.r#type.byte_size()
+    }
+    fn alignment(&self) -> Option<u64>{
+        Some(self.alignment)
     }
 }
 
@@ -124,10 +183,12 @@ pub struct ArtificialMember {
     pub alignment: u64,
     pub data_member_location: u64,
 }
-
-impl ByteSize for ArtificialMember {
+impl TypeInfo for ArtificialMember {
     fn byte_size(&self) -> u64 {
         self.r#type.byte_size()
+    }
+    fn alignment(&self) -> Option<u64>{
+        Some(self.alignment)
     }
 }
 
@@ -137,9 +198,12 @@ pub struct TemplateParameter {
     pub name: String,
     pub r#type: Box<DebuggerType>,
 }
-impl ByteSize for TemplateParameter {
+impl TypeInfo for TemplateParameter {
     fn byte_size(&self) -> u64 {
         self.r#type.byte_size()
+    }
+    fn alignment(&self) -> Option<u64>{
+        self.r#type.alignment()
     }
 }
 
@@ -152,9 +216,12 @@ pub struct UnionType {
     pub members: Vec<Member>,
     pub tparams: Vec<TemplateParameter>,
 }
-impl ByteSize for UnionType {
+impl TypeInfo for UnionType {
     fn byte_size(&self) -> u64 {
         self.byte_size
+    }
+    fn alignment(&self) -> Option<u64>{
+        Some(self.alignment)
     }
 }
 
@@ -164,9 +231,12 @@ pub struct ArrayType {
     pub r#type: Box<DebuggerType>,
     pub range: SubRangeType,
 }
-impl ByteSize for ArrayType {
+impl TypeInfo for ArrayType {
     fn byte_size(&self) -> u64 {
         self.r#type.byte_size()
+    }
+    fn alignment(&self) -> Option<u64>{
+        self.r#type.alignment()
     }
 }
 
@@ -177,12 +247,30 @@ pub struct SubRangeType {
     pub lower_bound: i64,
     pub count: u64,
 }
-impl ByteSize for SubRangeType {
+impl TypeInfo for SubRangeType {
     fn byte_size(&self) -> u64 {
         self.r#type.byte_size()
     }
+    fn alignment(&self) -> Option<u64>{
+        self.r#type.alignment()
+    }
 }
 
+
+#[derive(Debug, PartialEq)]
+pub struct PointerType {
+    pub name: String,
+    pub r#type: Box<DebuggerType>,
+    pub address_class: DwAddr,
+}
+impl TypeInfo for PointerType {
+    fn byte_size(&self) -> u64 {
+        self.r#type.byte_size()
+    }
+    fn alignment(&self) -> Option<u64>{
+        self.r#type.alignment()
+    }
+}
 
 
 
@@ -252,22 +340,24 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             UnitRef(offset) => {
                 let mut tree = self.unit.entries_tree(Some(offset))?;
                 let root = tree.root()?;
-                return match root.entry().tag() { // TODO: Parse enum, struct and base types.
+                return match root.entry().tag() { 
                     gimli::DW_TAG_structure_type => self.parse_structure_type(root),
                     gimli::DW_TAG_base_type => Ok(DebuggerType::BaseType(self.parse_base_type(root)?)),
 //                    gimli::DW_TAG_template_type_parameter => Ok(DebuggerType::TemplateParameter(self.parse_template_parameter_type(root)?)),
                     gimli::DW_TAG_union_type => self.parse_union_type(root),
                     gimli::DW_TAG_array_type => self.parse_array_type(root),
+                    gimli::DW_TAG_enumeration_type => self.parse_enumeration_type(root),
+                    gimli::DW_TAG_pointer_type => self.parse_pointer_type(root),
                     _ => {
                         println!("Start of type tree");
                         self.print_tree(root);
-                        unimplemented!();
+                        unimplemented!(); //TODO: Add parser if this is reached.
                     },
                 };
             },
             DebugInfoRef(di_offset) => {
                 println!("{:?}", self.dwarf.debug_info.header_from_offset(di_offset));
-                return Ok(DebuggerType::Non);
+                return Ok(DebuggerType::Non); //TODO
                 unimplemented!();
             },
             _ => {
@@ -299,10 +389,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut members: Vec<Member> = Vec::new();
 
         let mut children = node.children();
-        while let Some(child) = children.next()? { // TODO: parse enum and struct.
+        println!("Begining");
+        while let Some(child) = children.next()? { 
+            println!("tag: {:?}", child.entry().tag().static_string());
             match child.entry().tag() {
                 gimli::DW_TAG_variant_part => {
                     let (index_type, variants) = self.parse_variant_part(child)?;
+                    continue;
                     return Ok(DebuggerType::Enum(Enum {
                         name: name,
                         byte_size: byte_size,
@@ -316,15 +409,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     members.push(member);
                 },
                 gimli::DW_TAG_template_type_parameter => continue, //TODO
+                gimli::DW_TAG_subprogram => continue, //TODO
+                gimli::DW_TAG_structure_type => continue, //TODO
                 _ => {
                     println!("Type tree starts here");
                     self.print_tree(child);
-                    continue;
                     unimplemented!();
                 },
             };
         }
-        
+        println!("End");
+       
         return Ok(DebuggerType::Struct(Struct {
             name: name,
             byte_size: byte_size,
@@ -564,10 +659,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         range: subrange,
                     }));
                 },
-                _ => unimplemented!(),
+                _ => unimplemented!(), //TODO: Implement if reached
             };
         }
-        unimplemented!();
+        unimplemented!(); //TODO: Implement if reached
     }
 
     fn parse_subrange_type(&mut self,
@@ -607,5 +702,100 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         });
     }
 
+    fn parse_enumeration_type(&mut self,
+                              node: EntriesTreeNode<R>
+                              ) -> gimli::Result<DebuggerType>
+    {
+        let die = node.entry();
+        let name: String = match die.attr_value(gimli::DW_AT_name)? {
+            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
+            _ => panic!("expected name"),
+        };
+        let byte_size: u64 = match die.attr_value(gimli::DW_AT_byte_size)? {
+            Some(Udata(val)) => val,
+            _ => panic!("expected Udata"),
+        };
+        let alignment: u64 = match die.attr_value(gimli::DW_AT_alignment)? {
+            Some(Udata(val)) => val,
+            _ => panic!("expected Udata"),
+        };
+        let r#type = match die.attr_value(gimli::DW_AT_type)? {
+            Some(attr) => self.parse_type_attr(attr)?,
+            _ => panic!("expected Type"),
+        };
+        let enum_class = match die.attr_value(gimli::DW_AT_enum_class)? {
+            Some(Flag(b)) => b,
+            _ => panic!("expected enum class flag"),
+        }; 
+
+        let mut enumerators = Vec::new();
+        
+        let mut children = node.children();
+        while let Some(child) = children.next()? { 
+            match child.entry().tag() {
+                gimli::DW_TAG_enumerator => {
+                    let enumerator = self.parse_enumerator_type(child)?;
+                    enumerators.push(enumerator);
+                },
+                _ => unimplemented!(),
+            };
+        }
+
+        return Ok(DebuggerType::EnumerationType(EnumerationType {
+            name: name,
+            enum_class: enum_class,
+            r#type: Box::new(r#type),
+            byte_size: byte_size,
+            alignment: alignment,
+            enumerators: enumerators,
+        }));
+    }
+
+
+    fn parse_enumerator_type(&mut self,
+                              node: EntriesTreeNode<R>
+                              ) -> gimli::Result<Enumerator>
+    {
+        let die = node.entry();
+        let name: String = match die.attr_value(gimli::DW_AT_name)? {
+            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
+            _ => panic!("expected name"),
+        };
+        let const_value: u64 = match die.attr_value(gimli::DW_AT_const_value)? {
+            Some(Udata(val)) => val,
+            _ => panic!("expected Udata"),
+        };
+
+        return Ok(Enumerator{
+            name: name,
+            const_value: const_value,
+        });
+    }
+
+
+    fn parse_pointer_type(&mut self,
+                              node: EntriesTreeNode<R>
+                              ) -> gimli::Result<DebuggerType>
+    {
+        let die = node.entry();
+        let name: String = match die.attr_value(gimli::DW_AT_name)? {
+            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
+            _ => panic!("expected name"),
+        };
+        let address_class: DwAddr = match die.attr_value(gimli::DW_AT_address_class)? {
+            Some(AddressClass(val)) => val,
+            _ => panic!("expected Udata"),
+        };
+        let r#type = match die.attr_value(gimli::DW_AT_type)? {
+            Some(attr) => self.parse_type_attr(attr)?,
+            _ => panic!("expected Type"),
+        };
+
+        return Ok(DebuggerType::Pointer(PointerType {
+            name: name,
+            r#type: Box::new(r#type),
+            address_class: address_class,
+        }));
+    }
 }
 

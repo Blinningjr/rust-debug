@@ -96,7 +96,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }
         }
 
-        self.eval_location(&die, frame_base);
+//        self.eval_location(&die, frame_base);
 
         // Recursively process the children.
         let mut children = node.children();

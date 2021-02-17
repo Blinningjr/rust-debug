@@ -24,7 +24,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         // Check if die in range
         match die_in_range(&self.dwarf, &self.unit, die, self.pc) {
-            Some(false) => return Ok(()),
+            Some(false) =>(),// return Ok(()),
             _ => (),
         };
 

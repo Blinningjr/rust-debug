@@ -129,6 +129,18 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
 //    }
 
     let mut debugger = Debugger::new(core, dwarf, &unit, pc);
+    
+    let search = "my_num";
+    let value = debugger.find_variable(search); 
+    println!("var {:?} = {:#?}", search, value);
+
+    println!("################");
+    
+    let search = "test_struct";
+    let value = debugger.find_variable(search); 
+    println!("var {:?} = {:#?}", search, value);
+
+    println!("################");
 
     let search = "test_enum1";
     let value = debugger.find_variable(search); 
@@ -157,15 +169,24 @@ fn get_current_unit<'a, R>(
         where R: Reader<Offset = usize>
 {
     // TODO: Maybe return a Vec of units
+    let mut res = None;
 
     let mut iter = dwarf.units();
+    let mut i = 0;
     while let Some(header) = iter.next()? {
         let unit = dwarf.unit(header)?;
         if Some(true) == in_ranges(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
-            return Ok(unit);
+            res = Some(unit);
+            i += 1;
         }
     }
-    return Err(Error::MissingUnitDie);
+    if i > 1 {
+        panic!("Found more then one unit in range {}", i);
+    }
+    return match res {
+        Some(u) => Ok(u),
+        None => Err(Error::MissingUnitDie),
+    };
 }
 
 
