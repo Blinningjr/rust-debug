@@ -19,6 +19,10 @@
 
 
 # Thursday
+* Looked into debuging information llvm generate for optimized code.
+
+* Had meeting with Per and the other students.
+
 
 # Friday
 
