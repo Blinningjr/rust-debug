@@ -33,4 +33,5 @@
 
 
 # Sunday
+* Did nothing.
 
