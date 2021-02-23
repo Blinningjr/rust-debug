@@ -18,5 +18,7 @@ The debugging information is stored in DIE:s, DIE stands for Debugging Informati
 * CFA -	Canonical Frame Address - An area of memory that is allocated on a stack called a “call frame.” The call frame is identified by an address on the stack. We refer to this address as the Canonical Frame Address or CFA. Typically, the CFA is defined to be the value of the stack pointer at the call site in the previous frame (which may be different from its value on entry to the current frame).
 
 # Optimization problems
+When a function gets inline the location information is stored in the place it got inline to. The inline die only have the location info and a abstract\_origin tag, thus I recommend to use a tool like `dwarfview` to find these.
+
 * Can use `#[inline(never)]` to ensure that the location information is there, but removes some of the optimization.
 
