@@ -389,13 +389,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut members: Vec<Member> = Vec::new();
 
         let mut children = node.children();
-        println!("Begining");
         while let Some(child) = children.next()? { 
-            println!("tag: {:?}", child.entry().tag().static_string());
             match child.entry().tag() {
                 gimli::DW_TAG_variant_part => {
                     let (index_type, variants) = self.parse_variant_part(child)?;
-                    continue;
+//                    continue;
                     return Ok(DebuggerType::Enum(Enum {
                         name: name,
                         byte_size: byte_size,
@@ -418,7 +416,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 },
             };
         }
-        println!("End");
        
         return Ok(DebuggerType::Struct(Struct {
             name: name,

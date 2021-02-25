@@ -207,19 +207,24 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     res.push(*d);
                 }
                 println!("Raw: {:?}", res);
-                return Ok(DebuggerValue::Raw(res));
-                //return match self.parse_value(res.clone(), vtype.unwrap()) {
-                //    Ok(val) => return Ok(val),
-                //    Err(_) => Ok(DebuggerValue::Raw(res)),
-                //} //TODO: Uncomment
+                //return Ok(DebuggerValue::Raw(res));
+                match vtype {
+                    Some(t) => {
+                        return match self.parse_value(res.clone(), vtype.unwrap()) {
+                            Ok(val) => return Ok(val),
+                            Err(_) => Ok(DebuggerValue::Raw(res)),
+                        } //TODO: Uncomment
+                    },
+                    None => return Ok(DebuggerValue::Raw(res)),
+                };
             },
             Location::Value { value } => {
-                if let Some(_) = piece.size_in_bits {
-                    panic!("needs to be implemented");
-                }
-                if let Some(_) = piece.bit_offset {
-                    panic!("needs to be implemented");
-                }
+                //if let Some(_) = piece.size_in_bits {
+                //    panic!("needs to be implemented");
+                //}
+                //if let Some(_) = piece.bit_offset {
+                //    panic!("needs to be implemented");
+                //}
                 return Ok(DebuggerValue::Value(value.clone()));
             }, // TODO: Handle size_in_bits and bit_offset?
             Location::Bytes { value } => // TODO: Check and test if correct

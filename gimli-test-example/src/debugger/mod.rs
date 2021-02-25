@@ -9,6 +9,7 @@ use utils::{
     die_in_range,
     in_range,
 };
+use crate::debugger::type_parser::DebuggerType;
 
 
 use evaluate::{
@@ -20,6 +21,7 @@ use probe_rs::{
     Core,
 };
 
+
 use gimli::{
     Unit,
     Dwarf,
@@ -28,6 +30,7 @@ use gimli::{
         DebugStrRef,
         Exprloc,
         LocationListsRef,
+        UnitRef,
     },
     Reader,
     EntriesTreeNode,
@@ -35,12 +38,14 @@ use gimli::{
     Error,
 };
 
+
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
     core: Core<'a>,
     dwarf: Dwarf<R>,
     unit: &'a Unit<R>,
     pc: u32,
 }
+
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn new(core: Core<'a>,
@@ -54,6 +59,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             pc: pc,
         }
     }
+
 
     pub fn find_variable(&mut self, search: &str) -> gimli::Result<DebuggerValue<R>> {
         let mut tree = self.unit.entries_tree(None)?;
@@ -84,16 +90,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         frame_base = self.check_frame_base(&die, frame_base)?;
 
         // Check for the searched vairable.
-        if die.tag() == gimli::DW_TAG_variable { // Check that it is a variable.
-            if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
-                if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
-
-                    println!("\n");
-                    self.print_die(&die);
-
-                    return self.eval_location(&die, frame_base);
-                }
-            }
+        if self.check_var_name(&die, search) {
+            println!("\n");
+            self.print_die(&die);
+            let dtype = self.get_var_type(&die).unwrap();
+            match self.eval_location(&die, &dtype, frame_base) {
+                Ok(v) => return Ok(v),
+                Err(_) => (),
+            };
         }
 
 //        self.eval_location(&die, frame_base);
@@ -109,75 +113,96 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
+    fn check_var_name(&mut self,
+                  die: &DebuggingInformationEntry<R>,
+                  search: &str
+                  ) -> bool
+    {
+        if die.tag() == gimli::DW_TAG_variable { // Check that it is a variable.
+            if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
+                return self.dwarf.string(offset).unwrap().to_string().unwrap() == search;// Compare the name of the variable. 
+            } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+                match offset {
+                    UnitRef(o) => {
+                        if let Ok(ndie) = self.unit.entry(o) {
+                            return self.check_var_name(&ndie, search);
+                        }
+                    },
+                    _ => {
+                        println!("{:?}", offset);
+                        unimplemented!();
+                    },
+                };
+            }
+        }
+        return false;
+    }
+
+
+    fn get_var_type(&mut self,
+                    die: &DebuggingInformationEntry<R>
+                    ) -> Option<DebuggerType>
+    {
+        if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
+            return match self.parse_type_attr(tattr) {
+                Ok(t) => Some(t),
+                Err(_) => None,
+            };
+        } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            match die_offset {
+                UnitRef(offset) => {
+                    if let Ok(ndie) = self.unit.entry(offset) {
+                        return self.get_var_type(&ndie);
+                    }
+                },
+                _ => {
+                    println!("{:?}", die_offset);
+                    unimplemented!();
+                },
+            };
+        }
+        return None;
+    }
+
+
     fn eval_location(&mut self,
                      die: &DebuggingInformationEntry<R>,
+                     dtype: &DebuggerType,
                      mut frame_base: Option<u64>
                      ) -> gimli::Result<Option<DebuggerValue<R>>> 
     {
-        if let Some(tattr) =  die.attr_value(gimli::DW_AT_type)? { 
-            match die.attr_value(gimli::DW_AT_location)? {
-                Some(Exprloc(expr)) => {
+        match die.attr_value(gimli::DW_AT_location)? {
+            Some(Exprloc(expr)) => {
+                let value = match self.evaluate(self.unit, expr, frame_base, Some(dtype)) {
+                    Ok(val) => val,
+                    Err(_) => return Err(Error::Io), // TODO
+                };
+                println!("\n");
 
-                    let dtype = self.parse_type_attr(tattr).unwrap();
-                    let value = match self.evaluate(self.unit, expr, frame_base, Some(&dtype)) {
-                        Ok(val) => val,
-                        Err(_) => return Err(Error::Io), // TODO
-                    };
-                    println!("\n");
+                return Ok(Some(value));
+            },
+            Some(LocationListsRef(offset)) => {
+                let mut locations = self.dwarf.locations(self.unit, offset)?;
+                while let Some(llent) = locations.next()? {
+                    //let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
+                    //println!("\n");
+                    if in_range(self.pc, &llent.range) {
+                        let value = self.evaluate(self.unit, llent.data, frame_base, Some(dtype)).unwrap();
+                        println!("\n");
 
-                    return Ok(Some(value));
-                },
-                Some(LocationListsRef(offset)) => {
-                    let mut locations = self.dwarf.locations(self.unit, offset)?;
-                    while let Some(llent) = locations.next()? {
-                        if in_range(self.pc, &llent.range) {
-                            let dtype = self.parse_type_attr(tattr).unwrap();
-                            let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
-                            println!("\n");
-
-                            return Ok(Some(value));
-                        }
+                        return Ok(Some(value));
                     }
-                    return Err(Error::Io);
-                },
-                None => return Err(Error::Io),
-                Some(v) => {
-                    println!("{:?}", v);
-                    unimplemented!();
-                },
-            }
-        } else {
-            match die.attr_value(gimli::DW_AT_location)? {
-                Some(Exprloc(expr)) => {
-
-                    let value = self.evaluate(self.unit, expr, frame_base, None).unwrap();
-                    println!("\n");
-
-                    return Ok(Some(value));
-                },
-                Some(LocationListsRef(offset)) => {
-                    let mut locations = self.dwarf.locations(self.unit, offset)?;
-                    while let Some(llent) = locations.next()? {
-                        if in_range(self.pc, &llent.range) {
-                            let value = self.evaluate(self.unit, llent.data, frame_base, None).unwrap();
-                            println!("\n");
-
-                            return Ok(Some(value));
-                        }
-                    }
-                    return Err(Error::Io);
-                },
-                None => return Err(Error::Io),
-                Some(v) => {
-                    println!("{:?}", v);
-                    unimplemented!();
-                },
-            }
+                }
+                return Err(Error::Io);
+            },
+            None => return Err(Error::Io),
+            Some(v) => {
+                println!("{:?}", v);
+                unimplemented!();
+            },
         }
-        return Err(Error::Io); //TODO
     }
     
-
 
     pub fn check_frame_base(&mut self,
                             die: &DebuggingInformationEntry<'_, '_, R>,
@@ -203,6 +228,4 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
     }
 }
-
-
 
