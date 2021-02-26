@@ -7,8 +7,12 @@
 
 
 # Wednesday
+* Fixed so that I can find the previous optimized out variables.
+
 
 # Thursday
+* Workd on parsing the types.
+* Reserched how to debug the parameters.
 
 # Friday
 
