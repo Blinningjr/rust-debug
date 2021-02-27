@@ -94,6 +94,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             println!("\n");
             self.print_die(&die);
             let dtype = self.get_var_type(&die).unwrap();
+            println!("{:?}", dtype);
             match self.eval_location(&die, &dtype, frame_base) {
                 Ok(v) => return Ok(v),
                 Err(_) => (),
@@ -171,6 +172,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      mut frame_base: Option<u64>
                      ) -> gimli::Result<Option<DebuggerValue<R>>> 
     {
+        println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 let value = match self.evaluate(self.unit, expr, frame_base, Some(dtype)) {
@@ -193,9 +195,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         return Ok(Some(value));
                     }
                 }
-                return Err(Error::Io);
+                panic!("Location Out Of Range");
             },
-            None => return Err(Error::Io),
+            None => unimplemented!(), //return Err(Error::Io),
             Some(v) => {
                 println!("{:?}", v);
                 unimplemented!();

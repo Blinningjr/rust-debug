@@ -26,6 +26,7 @@ use gimli::{
     EntriesTreeNode,
     DwAte,
     DwAddr,
+    Section,
 };
 
 use std::collections::HashMap;
@@ -356,9 +357,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 };
             },
             DebugInfoRef(di_offset) => {
-                println!("{:?}", self.dwarf.debug_info.header_from_offset(di_offset));
-                return Ok(DebuggerType::Non); //TODO
-                unimplemented!();
+                let res = self.debug_info_offset_type(di_offset).ok_or_else(|| gimli::Error::Io)?;
+                println!("{:?}", res);
+                return Ok(res);
             },
             _ => {
                 println!("{:?}", attr_value);
@@ -793,6 +794,27 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             r#type: Box::new(r#type),
             address_class: address_class,
         }));
+    }
+
+
+
+    fn debug_info_offset_type( // TODO
+        &mut self,
+        offset: gimli::DebugInfoOffset,
+    ) -> Option<DebuggerType>
+    {
+        let offset = gimli::UnitSectionOffset::DebugInfoOffset(offset);
+        let mut iter = self.dwarf.debug_info.units();
+        while  let Ok(Some(header)) = iter.next() {
+            let unit = self.dwarf.unit(header).unwrap();
+            if let Some(offset) = offset.to_unit_offset(&unit) {
+                let mut tree = unit.entries_tree(Some(offset)).ok()?;
+                let root= tree.root().unwrap(); 
+                let die = root.entry();
+                return Some(DebuggerType::BaseType(self.parse_base_type(root).ok()?));
+            }
+        }
+        None
     }
 }
 
