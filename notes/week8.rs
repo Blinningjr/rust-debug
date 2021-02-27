@@ -20,7 +20,8 @@
  
 
 # Saturday
-* Did notihing.
+* Added a simple function that finds the type die from a `DebugInfoOffset` struct
+
 
 # Sunday
 
