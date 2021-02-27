@@ -15,8 +15,12 @@
 * Reserched how to debug the parameters.
 
 # Friday
+* Working on parsing the types.
+* Reserched how to debug the parameters.
+ 
 
 # Saturday
+* Did notihing.
 
 # Sunday
 
