@@ -13,6 +13,7 @@
 # Thursday
 * Workd on parsing the types.
 * Reserched how to debug the parameters.
+*
 
 # Friday
 * Working on parsing the types.
@@ -24,4 +25,7 @@
 
 
 # Sunday
+* Added parsers for some of the die attributes.
+* Cleanup the code a bit.
+* Formatted the code a bit.
 
