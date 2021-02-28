@@ -3,6 +3,7 @@ pub mod print_dwarf;
 pub mod evaluate;
 pub mod type_parser;
 pub mod type_value;
+pub mod attributes;
 
 
 use utils::{

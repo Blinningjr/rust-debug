@@ -374,18 +374,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             ) -> gimli::Result<DebuggerType>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
-        let byte_size: u64 = match die.attr_value(gimli::DW_AT_byte_size)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let alignment: u64 = match die.attr_value(gimli::DW_AT_alignment)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
+        let name = self.name_attribute(&die).unwrap();
+        let byte_size = self.byte_size_attribute(&die).unwrap();
+        let alignment = self.alignment_attribute(&die).unwrap();
 
         let mut members: Vec<Member> = Vec::new();
 
@@ -490,24 +481,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             ) -> gimli::Result<Member>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
+        let name = self.name_attribute(&die).unwrap();
+        let r#type = self.type_attribute(&die).unwrap();
+        let alignment = self.alignment_attribute(&die).unwrap();
+        let data_member_location = self.data_member_location_attribute(&die).unwrap();
 
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        }; 
-
-        let alignment: u64 = match die.attr_value(gimli::DW_AT_alignment)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let data_member_location: u64 = match die.attr_value(gimli::DW_AT_data_member_location)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
         return Ok(Member {
             name: name,
             r#type: Box::new(r#type),
@@ -523,19 +501,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
 
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        }; 
+        let r#type = self.type_attribute(&die).unwrap();
 
-        let alignment: u64 = match die.attr_value(gimli::DW_AT_alignment)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let data_member_location: u64 = match die.attr_value(gimli::DW_AT_data_member_location)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
+        let alignment = self.alignment_attribute(&die).unwrap();
+        let data_member_location = self.data_member_location_attribute(&die).unwrap();
+
         return Ok(ArtificialMember {
             r#type: Box::new(r#type),
             alignment: alignment,
@@ -549,20 +519,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                       ) -> gimli::Result<BaseType>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
+        let name = self.name_attribute(&die).unwrap();
         
-        let encoding: DwAte = match die.attr_value(gimli::DW_AT_encoding)? {
-            Some(Encoding(val)) => val,
-            _ => panic!("expected Udata"),
-        };
+        let encoding = self.encoding_attribute(&die).unwrap();
         
-        let byte_size: u64 = match die.attr_value(gimli::DW_AT_byte_size)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
+        let byte_size = self.byte_size_attribute(&die).unwrap();
 
         return Ok(BaseType {
             name: name,
@@ -576,15 +537,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             ) -> gimli::Result<TemplateParameter>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
+        let name = self.name_attribute(&die).unwrap();
 
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        }; 
+        let r#type = self.type_attribute(&die).unwrap();
+
         return Ok(TemplateParameter {
             name: name,
             r#type: Box::new(r#type),
@@ -596,18 +552,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         ) -> gimli::Result<DebuggerType>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
-        let byte_size: u64 = match die.attr_value(gimli::DW_AT_byte_size)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let alignment: u64 = match die.attr_value(gimli::DW_AT_alignment)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
+        let name = self.name_attribute(&die).unwrap();
+        let byte_size = self.byte_size_attribute(&die).unwrap();
+        let alignment = self.alignment_attribute(&die).unwrap();
 
 
         let mut members: Vec<Member> = Vec::new();
@@ -643,10 +590,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         ) -> gimli::Result<DebuggerType>
     {
         let die = node.entry();
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        }; 
+        let r#type = self.type_attribute(&die).unwrap();
         let mut children = node.children();
         if let Some(child) = children.next()? { 
             match child.entry().tag() {
@@ -668,18 +612,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                            ) -> gimli::Result<SubRangeType>
     {
         let die = node.entry();
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        }; 
-        
-        let lower_bound = match die.attr_value(gimli::DW_AT_lower_bound)? {
-            Some(attr) => match attr {
-                Sdata(val) => val,
-                _ => unimplemented!(),
-            },
-            _ => panic!("expected lower bound"),
-        }; 
+        let r#type = self.type_attribute(&die).unwrap(); 
+        let lower_bound = self.lower_bound_attribute(&die).unwrap();
         
         let count = match die.attr_value(gimli::DW_AT_count)? {
             Some(attr) => match attr {
@@ -705,26 +639,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                               ) -> gimli::Result<DebuggerType>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
-        let byte_size: u64 = match die.attr_value(gimli::DW_AT_byte_size)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let alignment: u64 = match die.attr_value(gimli::DW_AT_alignment)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        };
-        let enum_class = match die.attr_value(gimli::DW_AT_enum_class)? {
-            Some(Flag(b)) => b,
-            _ => panic!("expected enum class flag"),
-        }; 
+        let name = self.name_attribute(&die).unwrap();
+        let byte_size = self.byte_size_attribute(&die).unwrap();
+        let alignment = self.alignment_attribute(&die).unwrap();
+        let r#type = self.type_attribute(&die).unwrap();
+        let enum_class = self.enum_class_attribute(&die).unwrap(); 
 
         let mut enumerators = Vec::new();
         
@@ -755,14 +674,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                               ) -> gimli::Result<Enumerator>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
-        let const_value: u64 = match die.attr_value(gimli::DW_AT_const_value)? {
-            Some(Udata(val)) => val,
-            _ => panic!("expected Udata"),
-        };
+        let name = self.name_attribute(&die).unwrap();
+        let const_value = self.const_value_attribute(&die).unwrap();
 
         return Ok(Enumerator{
             name: name,
@@ -776,18 +689,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                               ) -> gimli::Result<DebuggerType>
     {
         let die = node.entry();
-        let name: String = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => self.dwarf.string(offset)?.to_string()?.to_string(),
-            _ => panic!("expected name"),
-        };
-        let address_class: DwAddr = match die.attr_value(gimli::DW_AT_address_class)? {
-            Some(AddressClass(val)) => val,
-            _ => panic!("expected Udata"),
-        };
-        let r#type = match die.attr_value(gimli::DW_AT_type)? {
-            Some(attr) => self.parse_type_attr(attr)?,
-            _ => panic!("expected Type"),
-        };
+        let name = self.name_attribute(&die).unwrap();
+        let address_class = self.address_class_attribute(&die).unwrap();
+        let r#type = self.type_attribute(&die).unwrap();
 
         return Ok(DebuggerType::Pointer(PointerType {
             name: name,
@@ -798,10 +702,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
 
-    fn debug_info_offset_type( // TODO
-        &mut self,
-        offset: gimli::DebugInfoOffset,
-    ) -> Option<DebuggerType>
+    fn debug_info_offset_type(&mut self, // TODO
+                              offset: gimli::DebugInfoOffset,
+                              ) -> Option<DebuggerType>
     {
         let offset = gimli::UnitSectionOffset::DebugInfoOffset(offset);
         let mut iter = self.dwarf.debug_info.units();
