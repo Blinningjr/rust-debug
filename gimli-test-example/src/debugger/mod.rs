@@ -41,44 +41,47 @@ use gimli::{
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
-    core: Core<'a>,
-    dwarf: Dwarf<R>,
-    unit: &'a Unit<R>,
-    pc: u32,
+    core:   Core<'a>,
+    dwarf:  Dwarf<R>,
+    unit:   &'a Unit<R>,
+    pc:     u32,
 }
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new(core: Core<'a>,
-               dwarf: Dwarf<R>,
-               unit: &'a Unit<R>,
-               pc: u32) -> Debugger<'a, R> {
+    pub fn new(core:    Core<'a>,
+               dwarf:   Dwarf<R>,
+               unit:    &'a Unit<R>,
+               pc:      u32
+               ) -> Debugger<'a, R> {
         Debugger{
-            core: core,
-            dwarf: dwarf,
-            unit: unit,
-            pc: pc,
+            core:   core,
+            dwarf:  dwarf,
+            unit:   unit,
+            pc:     pc,
         }
     }
 
 
-    pub fn find_variable(&mut self, search: &str) -> gimli::Result<DebuggerValue<R>> {
-        let mut tree = self.unit.entries_tree(None)?;
-        let root = tree.root()?;
-//        self.print_tree(root);
-//        unimplemented!();
+    pub fn find_variable(&mut self,
+                         search: &str
+                         ) -> gimli::Result<DebuggerValue<R>>
+    {
+        let mut tree    = self.unit.entries_tree(None)?;
+        let root        = tree.root()?;
+
         return match self.process_tree(root, None, search)? {
-            Some(val) => Ok(val),
-            None => Err(Error::Io), // TODO: Change to a better error.
+            Some(val)   => Ok(val),
+            None        => Err(Error::Io), // TODO: Change to a better error.
         };
     }
 
 
     pub fn process_tree(&mut self, 
-            node: EntriesTreeNode<R>,
-            mut frame_base: Option<u64>,
-            search: &str
-        ) -> gimli::Result<Option<DebuggerValue<R>>>
+                        node:           EntriesTreeNode<R>,
+                        mut frame_base: Option<u64>,
+                        search:         &str
+                        ) -> gimli::Result<Option<DebuggerValue<R>>>
     {
         let die = node.entry();
 
@@ -116,9 +119,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn check_var_name(&mut self,
-                  die: &DebuggingInformationEntry<R>,
-                  search: &str
-                  ) -> bool
+                      die:      &DebuggingInformationEntry<R>,
+                      search:   &str
+                      ) -> bool
     {
         if die.tag() == gimli::DW_TAG_variable { // Check that it is a variable.
             if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
@@ -168,9 +171,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn eval_location(&mut self,
-                     die: &DebuggingInformationEntry<R>,
-                     dtype: &DebuggerType,
-                     mut frame_base: Option<u64>
+                     die:               &DebuggingInformationEntry<R>,
+                     dtype:             &DebuggerType,
+                     mut frame_base:    Option<u64>
                      ) -> gimli::Result<Option<DebuggerValue<R>>> 
     {
         println!("{:?}", die.attr_value(gimli::DW_AT_location));
@@ -208,7 +211,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     
 
     pub fn check_frame_base(&mut self,
-                            die: &DebuggingInformationEntry<'_, '_, R>,
+                            die:        &DebuggingInformationEntry<'_, '_, R>,
                             frame_base: Option<u64>
                             ) -> gimli::Result<Option<u64>>
     {

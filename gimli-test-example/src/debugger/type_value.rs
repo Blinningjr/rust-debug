@@ -30,26 +30,25 @@ use std::collections::HashMap;
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn parse_value(&mut self,
-                       data: Vec<u32>,
-                       dtype: &DebuggerType
+                       data:    Vec<u32>,
+                       dtype:   &DebuggerType
                        ) -> gimli::Result<DebuggerValue<R>>
     {
         match dtype {
-            DebuggerType::Enum(e) => self.parse_enum_value(data, e),
-            DebuggerType::Struct(s) => self.parse_struct_value(data, s),
-            DebuggerType::BaseType(bt) => self.parse_base_type_value(data, bt),
-            DebuggerType::Union(ut) => self.parse_union_type_value(data, ut),
-            DebuggerType::Array(at) => unimplemented!(),
-//            DebuggerType::TemplateParameter(p) => self.parse_template_parameter_value(data, p),
-            DebuggerType::Non => Ok(DebuggerValue::Non),
-            _ => unimplemented!(),
+            DebuggerType::Enum(e)       => self.parse_enum_value(data, e),
+            DebuggerType::Struct(s)     => self.parse_struct_value(data, s),
+            DebuggerType::BaseType(bt)  => self.parse_base_type_value(data, bt),
+            DebuggerType::Union(ut)     => self.parse_union_type_value(data, ut),
+            DebuggerType::Array(at)     => unimplemented!(),
+            DebuggerType::Non           => Ok(DebuggerValue::Non),
+            _                           => unimplemented!(),
         }
     }
 
     
     pub fn parse_base_type_value(&mut self,
-                                 mut data: Vec<u32>,
-                                 btype: &BaseType
+                                 mut data:  Vec<u32>,
+                                 btype:     &BaseType
                                  ) -> gimli::Result<DebuggerValue<R>>
     {
         let value = eval_base_type(&data[..], btype.encoding, btype.byte_size);
@@ -58,20 +57,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn parse_enum_value(&mut self,
-                                 data: Vec<u32>,
-                                 etype: &Enum
-                                 ) -> gimli::Result<DebuggerValue<R>>
+                            data:   Vec<u32>,
+                            etype:  &Enum
+                            ) -> gimli::Result<DebuggerValue<R>>
     {
-        let name = etype.name.clone();
-        let amem = &etype.index_type;
-        let index_data = self.parse_data(data.clone(), amem.byte_size(), amem.data_member_location);
-        let value: u64 = match self.parse_value(index_data, &(*amem.r#type))? {
+        let name        = etype.name.clone();
+        let amem        = &etype.index_type;
+        let index_data  = self.parse_data(data.clone(), amem.byte_size(), amem.data_member_location);
+
+        let value: u64  = match self.parse_value(index_data, &(*amem.r#type))? {
             DebuggerValue::Value(val) => match val {
-                Value::U8(v) => v as u64,
-                Value::U16(v) => v as u64,
-                Value::U32(v) => v as u64,
-                Value::U64(v) => v,
-                _ => panic!("Expected unsinged int"),
+                Value::U8(v)    => v as u64,
+                Value::U16(v)   => v as u64,
+                Value::U32(v)   => v as u64,
+                Value::U64(v)   => v,
+                _               => panic!("Expected unsinged int"),
             },
             _ => panic!("Expected unsinged int"),
         };
@@ -79,26 +79,28 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let (mname, member) = self.parse_member_value(data, etype.variants.get(&(value%etype.variants.len() as u64)).unwrap())?;
 
         return Ok(DebuggerValue::Enum(Box::new(EnumValue {
-            name: name,
-            value: value,
+            name:   name,
+            value:  value,
             member: (mname, member),
         })));
     }
 
 
     pub fn parse_struct_value(&mut self,
-                                 data: Vec<u32>,
-                                 stype: &Struct
-                                 ) -> gimli::Result<DebuggerValue<R>>
+                              data:     Vec<u32>,
+                              stype:    &Struct
+                              ) -> gimli::Result<DebuggerValue<R>>
     {
-        let name = stype.name.clone();
-        let mut attributes = HashMap::new();
+        let name            = stype.name.clone();
+        let mut attributes  = HashMap::new();
+
         for member in &stype.members {
             let (vname, value) = self.parse_member_value(data.clone(), member)?;
             attributes.insert(vname, value);
         }
+
         return Ok(DebuggerValue::Struct(Box::new(StructValue {
-            name: name,
+            name:       name,
             attributes: attributes,
         })));
     }
@@ -106,47 +108,48 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     pub fn parse_member_value(&mut self,
                               mut data: Vec<u32>,
-                              member: &Member
+                              member:   &Member
                               ) -> gimli::Result<(String, DebuggerValue<R>)>
     {
-        let name = member.name.clone();
-        data = self.parse_data(data, member.byte_size(), member.data_member_location);
-        let value = self.parse_value(data, &(*member.r#type))?;
+        let name    = member.name.clone();
+        data        = self.parse_data(data, member.byte_size(), member.data_member_location);
+        let value   = self.parse_value(data, &(*member.r#type))?;
         return Ok((name, value));
     }
 
 
     pub fn parse_template_parameter_value(&mut self,
-                                 mut data: Vec<u32>,
-                                 parameter: &TemplateParameter
-                                 ) -> gimli::Result<DebuggerValue<R>>
+                                          mut data:     Vec<u32>,
+                                          parameter:    &TemplateParameter
+                                          ) -> gimli::Result<DebuggerValue<R>>
     {
         return self.parse_value(data, &(*parameter.r#type));
     }
 
 
     pub fn parse_union_type_value(&mut self,
-                              mut data: Vec<u32>,
-                              union: &UnionType,
-                              ) -> gimli::Result<DebuggerValue<R>>
+                                  mut data: Vec<u32>,
+                                  union:    &UnionType,
+                                  ) -> gimli::Result<DebuggerValue<R>>
     {
-        let name = union.name.clone();
-        data = self.parse_data(data, union.byte_size(), 0);
+        let name    = union.name.clone();
+        data        = self.parse_data(data, union.byte_size(), 0);
         //let value = self.parse_value(data, &(*member.r#type))?;
-        return Ok(DebuggerValue::Non);
+        return Ok(DebuggerValue::Non); // TODO
     }
 
 
 
     pub fn parse_data(&mut self,
-                      mut data: Vec<u32>,
-                      byte_size: u64,
+                      mut data:             Vec<u32>,
+                      byte_size:            u64,
                       data_member_location: u64
                       ) -> Vec<u32>
     {
         if (data.len() as u64) * 4 < byte_size + data_member_location {
             panic!("Somhting went very wrong");
         }
+
         for _ in 0..(data_member_location/4) {
             data.remove(0);
         }
