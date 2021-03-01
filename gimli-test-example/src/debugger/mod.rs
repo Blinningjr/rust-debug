@@ -1,7 +1,7 @@
 pub mod utils;
 pub mod print_dwarf;
 pub mod evaluate;
-pub mod type_parser;
+pub mod types;
 pub mod type_value;
 pub mod attributes;
 
@@ -10,7 +10,7 @@ use utils::{
     die_in_range,
     in_range,
 };
-use crate::debugger::type_parser::DebuggerType;
+use crate::debugger::types::DebuggerType;
 
 
 use evaluate::{

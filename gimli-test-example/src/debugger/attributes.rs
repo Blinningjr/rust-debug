@@ -1,6 +1,8 @@
 use super::{
     Debugger,
-    type_parser::DebuggerType,
+    types::{
+        DebuggerType,
+    },
 };
 
 

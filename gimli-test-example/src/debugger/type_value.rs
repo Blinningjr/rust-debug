@@ -1,6 +1,6 @@
 use super::{
     Debugger,
-    type_parser::{
+    types::{
         DebuggerType,
         Enum,
         Struct,
