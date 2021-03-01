@@ -239,16 +239,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     res.push(*d);
                 }
                 println!("Raw: {:?}", res);
-                //return Ok(DebuggerValue::Raw(res));
-                match vtype {
-                    Some(t) => {
-                        return match self.parse_value(res.clone(), vtype.unwrap()) {
-                            Ok(val) => return Ok(val),
-                            Err(_)  => Ok(DebuggerValue::Raw(res)),
-                        } //TODO: Uncomment
-                    },
-                    None => return Ok(DebuggerValue::Raw(res)),
-                };
+                return Ok(DebuggerValue::Raw(res));
+                //match vtype {
+                //    Some(t) => {
+                //        return match self.parse_value(res.clone(), vtype.unwrap()) {
+                //            Ok(val) => return Ok(val),
+                //            Err(_)  => Ok(DebuggerValue::Raw(res)),
+                //        } //TODO: Uncomment
+                //    },
+                //    None => return Ok(DebuggerValue::Raw(res)),
+                //};
             },
 
             Location::Value { value } => {

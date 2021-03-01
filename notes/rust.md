@@ -1,5 +1,6 @@
 Comand to see all the codegen options.
 ```rustc -C help```
+```rustc -C llvm-args=--help```
 
 Forum talking about location information being removed on higher optimization levels.
 https://users.rust-lang.org/t/opt-level-2-removes-debug-symbols-needed-in-perf-profiling/16835/2

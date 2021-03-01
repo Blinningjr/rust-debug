@@ -2,7 +2,7 @@ pub mod utils;
 pub mod print_dwarf;
 pub mod evaluate;
 pub mod types;
-pub mod type_value;
+//pub mod type_value;
 pub mod attributes;
 
 
@@ -93,19 +93,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         frame_base = self.check_frame_base(&die, frame_base)?;
 
-        // Check for the searched vairable.
-        if self.check_var_name(&die, search) {
-            println!("\n");
-            self.print_die(&die);
-            let dtype = self.get_var_type(&die).unwrap();
-            println!("{:?}", dtype);
-            match self.eval_location(&die, &dtype, frame_base) {
-                Ok(v) => return Ok(v),
-                Err(_) => (),
-            };
+        //// Check for the searched vairable.
+        //if self.check_var_name(&die, search) {
+        //    println!("\n");
+        //    self.print_die(&die);
+        //    let dtype = self.get_var_type(&die).unwrap();
+        //    //println!("{:?}", dtype);
+        //    match self.eval_location(&die, &dtype, frame_base) {
+        //        Ok(v) => return Ok(v),
+        //        Err(_) => (),
+        //    };
+        //}
+        
+        if let Some(dtype) = self.get_var_type(&die) {
+            self.eval_location(&die, &dtype, frame_base);
         }
-
-//        self.eval_location(&die, frame_base);
 
         // Recursively process the children.
         let mut children = node.children();
@@ -123,9 +125,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                       search:   &str
                       ) -> bool
     {
-        if die.tag() == gimli::DW_TAG_variable { // Check that it is a variable.
+        if die.tag() == gimli::DW_TAG_variable ||
+            die.tag() == gimli::DW_TAG_formal_parameter ||
+                die.tag() == gimli::DW_TAG_constant { // Check that it is a variable.
+
             if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
                 return self.dwarf.string(offset).unwrap().to_string().unwrap() == search;// Compare the name of the variable. 
+
             } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
                 match offset {
                     UnitRef(o) => {
@@ -176,9 +182,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      mut frame_base:    Option<u64>
                      ) -> gimli::Result<Option<DebuggerValue<R>>> 
     {
-        println!("{:?}", die.attr_value(gimli::DW_AT_location));
+        //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
+                self.print_die(&die);
                 let value = match self.evaluate(self.unit, expr, frame_base, Some(dtype)) {
                     Ok(val) => val,
                     Err(_) => return Err(Error::Io), // TODO
@@ -188,6 +195,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 return Ok(Some(value));
             },
             Some(LocationListsRef(offset)) => {
+                self.print_die(&die);
                 let mut locations = self.dwarf.locations(self.unit, offset)?;
                 while let Some(llent) = locations.next()? {
                     //let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
@@ -201,7 +209,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 }
                 panic!("Location Out Of Range");
             },
-            None => unimplemented!(), //return Err(Error::Io),
+            None => return Err(Error::Io),//unimplemented!(), //return Err(Error::Io),
             Some(v) => {
                 println!("{:?}", v);
                 unimplemented!();
