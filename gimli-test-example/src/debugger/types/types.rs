@@ -19,12 +19,14 @@ pub enum DebuggerType {
     Unimplemented,
     BaseType(BaseType),
     PointerType(PointerType),
-    TypeDef(TypeDef),
     ArrayType(ArrayType),
     StructuredType(StructuredType),
     UnionType(UnionType),
-    EnumurationType(EnumurationType),
+    MemberType(MemberType),
+    EnumerationType(EnumerationType),
     StringType(StringType), 
+    SubrangeType(SubrangeType),
+    GenericSubrangeType(GenericSubrangeType),
 }
 //impl TypeInfo for DebuggerType {
 //    fn byte_size(&self) -> u64 {
@@ -45,7 +47,7 @@ pub struct BaseType {
 //    pub endianity: Option<>, //TODO
     pub byte_size:          Option<u64>,
     pub bit_size:           Option<u64>,
-    pub bit_size_offset:    Option<u64>,
+    pub data_bit_offset:    Option<u64>,
     // NOTE: May have more attributes.
 }
 
@@ -71,30 +73,31 @@ pub struct PointerType {
 //pub struct VolatileType {}
 
 
-#[derive(Debug, PartialEq)]
-pub struct TypeDef { // TODO: Don't know if this used by rust.
-    pub name:   String,
-    pub r#type: Option<Box<DebuggerType>>,
-}
+//#[derive(Debug, PartialEq)]
+//pub struct TypeDef { // TODO: Don't know if this used by rust.
+//    pub name:   String,
+//    pub r#type: Option<Box<DebuggerType>>,
+//}
 
 
 #[derive(Debug, PartialEq)]
 pub struct ArrayType {
     pub name:           Option<String>,
-    pub ordering:       Option<u64>,
     pub r#type:         Box<DebuggerType>,
-    pub byte_stride:    Option<u64>,
-    pub bit_stride:     Option<u64>,
-    pub byte_size:      Option<u64>,
-    pub bit_size:       Option<u64>,
     pub children:       Vec<Box<DebuggerType>>, // NOTE: Should be DW_TAG_subrange_type or DW_TAG_enumeration_type.
     // NOTE: Special case for array with dynamic rank, then the array dimensions are described by
     // one DW_TAG_generic_subrange. It has the same attribute as DW_TAG_subrange_type but there is
     // always only one. This case only happens when the DW_AT_rank attribute is present.
-    pub rank:           Option<u64>,
-    pub allocated:      Option<bool>,
-    pub associated:     Option<bool>,
-    pub data_location:  Option<bool>,
+
+    //pub ordering:       Option<u64>, // TODO: Check if any of these are used by rust.
+    //pub byte_stride:    Option<u64>,
+    //pub bit_stride:     Option<u64>,
+    //pub byte_size:      Option<u64>,
+    //pub bit_size:       Option<u64>,
+    //pub rank:           Option<u64>,
+    //pub allocated:      Option<bool>,
+    //pub associated:     Option<bool>,
+    //pub data_location:  Option<bool>,
 }
 
 
@@ -110,7 +113,7 @@ pub struct StructuredType {
     pub byte_size:  Option<u64>,
     pub bit_size:   Option<u64>,
     pub alignment:  Option<u64>,
-    pub children:   Vec<DebuggerType>, // Maybe make this more specific so it is easier to parse the value later.
+    pub children:   Vec<Box<DebuggerType>>, // Maybe make this more specific so it is easier to parse the value later.
 }
 
 // NOTE: There are a lot more attributes in the Dwarf spec, but most of them don't seam to be used
@@ -121,7 +124,7 @@ pub struct UnionType {
     pub byte_size:  Option<u64>,
     pub bit_size:   Option<u64>,
     pub alignment:  Option<u64>,
-    pub children:   Vec<DebuggerType>, // Maybe make this more specific so it is easier to parse the value later.
+    pub children:   Vec<Box<DebuggerType>>, // Maybe make this more specific so it is easier to parse the value later.
 }
 
 
@@ -145,23 +148,23 @@ pub struct MemberType {
 
 
 #[derive(Debug, PartialEq)]
-pub struct EnumurationType {
+pub struct EnumerationType {
     pub name:           Option<String>,
-    pub r#type:         Option<Box<DebuggerType>>,
+    pub r#type:         Box<Option<DebuggerType>>,
     pub byte_size:      Option<u64>,
     pub bit_size:       Option<u64>,
     pub alignment:      Option<u64>,
     pub enum_class:     Option<bool>,
-    pub enumerations:   Vec<Enumeration>,
+    pub enumerations:   Vec<Enumerator>,
 
     // NOTE: Special case.
-    pub byte_stride:    Option<u64>,
-    pub bit_stride:     Option<u64>,
+    //pub byte_stride:    Option<u64>,
+    //pub bit_stride:     Option<u64>,
 }
 
 
 #[derive(Debug, PartialEq)]
-pub struct Enumeration {
+pub struct Enumerator {
     pub name:           String,
     pub const_value:    u64,
 }
@@ -173,7 +176,7 @@ pub struct Enumeration {
 #[derive(Debug, PartialEq)]
 pub struct StringType {
     pub name:                       Option<String>,
-    pub r#type:                     Option<Box<DebuggerType>>,
+    pub r#type:                     Box<Option<DebuggerType>>,
     pub byte_size:                  Option<u64>,
     pub bit_size:                   Option<u64>,
     pub alignment:                  Option<u64>,
@@ -189,28 +192,30 @@ pub struct StringType {
 #[derive(Debug, PartialEq)]
 pub struct SubrangeType {
     pub name:           Option<String>,
-    pub r#type:         Option<Box<DebuggerType>>,
+    pub r#type:         Box<Option<DebuggerType>>,
     pub byte_size:      Option<u64>,
     pub bit_size:       Option<u64>,
-    pub threads_scaled: Option<bool>,
+    //pub threads_scaled: Option<bool>,
     pub lower_bound:    Option<i64>,
     pub upper_bound:    Option<i64>,
     pub count:          Option<u64>,
-    pub byte_stride:    Option<u64>,
-    pub bit_stride:     Option<u64>,
+    //pub byte_stride:    Option<u64>,
+    //pub bit_stride:     Option<u64>,
 }
 
+
+#[derive(Debug, PartialEq)]
 pub struct GenericSubrangeType {
     pub name:           Option<String>,
-    pub r#type:         Option<Box<DebuggerType>>,
+    pub r#type:         Box<Option<DebuggerType>>,
     pub byte_size:      Option<u64>,
     pub bit_size:       Option<u64>,
-    pub threads_scaled: Option<bool>,
+    //pub threads_scaled: Option<bool>,
     pub lower_bound:    Option<i64>,
     pub upper_bound:    Option<i64>,
     pub count:          Option<u64>,
-    pub byte_stride:    Option<u64>,
-    pub bit_stride:     Option<u64>,
+    //pub byte_stride:    Option<u64>,
+    //pub bit_stride:     Option<u64>,
 }
 
 

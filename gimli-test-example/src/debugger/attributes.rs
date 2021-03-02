@@ -53,6 +53,36 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
+    pub fn bit_size_attribute(&mut self,
+                              die: &DebuggingInformationEntry<R>
+                              ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_bit_size).ok()? {
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("bit_size_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn data_bit_offset_attribute(&mut self,
+                                     die: &DebuggingInformationEntry<R>
+                                     ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_data_bit_offset).ok()? {
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("data_bit_offset_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
     pub fn alignment_attribute(&mut self,
                                die: &DebuggingInformationEntry<R>
                                ) -> Option<u64>
@@ -154,6 +184,36 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
+    pub fn upper_bound_attribute(&mut self,
+                                 die: &DebuggingInformationEntry<R>
+                                 ) -> Option<i64>
+    {
+        return match die.attr_value(gimli::DW_AT_upper_bound).ok()? {
+            Some(Sdata(val)) => Some(val),
+            Some(unknown) => {
+                println!("upper_bound_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn count_attribute(&mut self,
+                           die: &DebuggingInformationEntry<R>
+                           ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_count).ok()? {
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("count_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
     pub fn encoding_attribute(&mut self,
                               die: &DebuggingInformationEntry<R>
                               ) -> Option<DwAte>
@@ -162,6 +222,81 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Some(Encoding(val)) => Some(val),
             Some(unknown) => {
                 println!("encoding_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+    
+    pub fn accessibility_attribute(&mut self,
+                                   die: &DebuggingInformationEntry<R>
+                                   ) -> Option<bool>
+    {
+        return match die.attr_value(gimli::DW_AT_accessibility).ok()? {
+            Some(Flag(val)) => Some(val),
+            Some(unknown) => {
+                println!("acessibility_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn mutable_attribute(&mut self,
+                             die: &DebuggingInformationEntry<R>
+                             ) -> Option<bool>
+    {
+        return match die.attr_value(gimli::DW_AT_mutable).ok()? {
+            Some(Flag(val)) => Some(val),
+            Some(unknown) => {
+                println!("mutable_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn string_length_attribute(&mut self,
+                                   die: &DebuggingInformationEntry<R>
+                                   ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_string_length).ok()? {
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("string_length_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn string_length_byte_size_attribute(&mut self,
+                                             die: &DebuggingInformationEntry<R>
+                                             ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_string_length_byte_size).ok()? {
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("string_length_byte_size_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn string_length_bit_size_attribute(&mut self,
+                                            die: &DebuggingInformationEntry<R>
+                                            ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_string_length_bit_size).ok()? {
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("string_length_bit_size_attribute, unknown: {:?}", unknown);
                 unimplemented!();
             },
             _ => None,
