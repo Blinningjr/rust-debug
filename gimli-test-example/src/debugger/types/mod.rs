@@ -4,18 +4,6 @@ mod parser;
 pub use types::{
     TypeInfo,
     DebuggerType,
-    Enum,
-    Struct,
-    BaseType,
-    Member,
-    TemplateParameter,
-    UnionType, 
-    ArtificialMember,
-    ArrayType,
-    SubRangeType,
-    EnumerationType,
-    Enumerator,
-    PointerType
 };
 
 use super::{

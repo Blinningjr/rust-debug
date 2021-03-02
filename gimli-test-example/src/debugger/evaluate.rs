@@ -213,7 +213,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
 
         let reg_size: u64 = match vtype {
-            Some(dtype) => (dtype.byte_size() + 4 - 1)/4,
+            Some(dtype) => 1,//(dtype.byte_size() + 4 - 1)/4,
             None        => 1,
         };
         match &piece.location {
