@@ -94,7 +94,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(&die, frame_base)?;
+        //frame_base = self.check_frame_base(&die, frame_base)?;
 
         //// Check for the searched vairable.
         //if self.check_var_name(&die, search) {
@@ -108,8 +108,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //    //};
         //}
         
-        self.print_die(&die)?;
+        //self.print_die(&die)?;
         if let Some(dtype) = self.get_var_type(&die) {
+            println!("{:#?}", dtype);
             //self.print_die(&die)?;
             //self.eval_location(&die, &dtype, frame_base);
         }

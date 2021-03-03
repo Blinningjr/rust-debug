@@ -86,7 +86,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             },
             DebugInfoRef(di_offset) => {
                 let res = self.debug_info_offset_type(di_offset).ok_or_else(|| gimli::Error::Io)?;
-                println!("{:?}", res);
+                //println!("{:?}", res);
                 return Ok(res);
             },
             _ => {
@@ -107,19 +107,35 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let bit_size    = self.bit_size_attribute(&die);
         let alignment   = self.alignment_attribute(&die);
 
+        //let mut members         = Vec::new();
+        //let mut template_param  = Vec::new();
         let mut parsed_children = Vec::new();
         let mut children        = node.children();
 
         while let Some(child) = children.next()? { 
+            //match child.entry().tag() {
+            //    gimli::DW_TAG_member                    => members.push(self.parse_member_type(child)?), 
+            //    gimli::DW_TAG_template_type_parameter   => template_param.push(self.parse_template_type_parameter(child)?),
+            //    gimli::DW_TAG_variant_part              => continue,    // TODO: Handle the part when this is a enum.
+            //    gimli::DW_TAG_subprogram                => continue,    // TODO:
+            //    gimli::DW_TAG_structure_type            => continue,    // TODO:
+            //    _ => {
+            //        println!("Start of type tree");
+            //        self.print_tree(child);
+            //        unimplemented!(); //TODO: Add parser if this is reached.
+            //    },
+            //};
             parsed_children.push(Box::new(self.parse_type_node(child)?));
         }
        
         return Ok(StructuredType {
-            name:       name,
-            byte_size:  byte_size,
-            bit_size:   bit_size,
-            alignment:  alignment,
-            children:   parsed_children,
+            name:           name,
+            byte_size:      byte_size,
+            bit_size:       bit_size,
+            alignment:      alignment,
+            children:       parsed_children,
+//            members:        members,
+//            template_param: template_param,
         }); 
     }
 
@@ -529,18 +545,33 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                           ) -> gimli::Result<VariantPart>
     {
         let die     = node.entry();
-        let r#type  = Box::new(self.type_attribute(&die));
+        //let r#type  = Box::new(self.type_attribute(&die));
+    
+        let mut member      = None;
+        let mut variants    = Vec::new();
+        let mut children    = node.children();
 
-        let mut parsed_children = Vec::new();
-        let mut children        = node.children();
-
-//        while let Some(child) = children.next()? { 
-//            parsed_children.push(Box::new(self.parse_type_node(child)?));
-//        }
+        while let Some(child) = children.next()? { 
+            match child.entry().tag() {
+                gimli::DW_TAG_member    => {
+                    if member != None {
+                        panic!("Expected only one member");
+                    }
+                    member = Some(self.parse_member_type(child)?);
+                },
+                gimli::DW_TAG_variant   => variants.push(self.parse_variant(child)?),
+                _ => {
+                    println!("Start of type tree");
+                    self.print_tree(child);
+                    unimplemented!(); //TODO: Add parser if this is reached.
+                },
+            };
+        }
 
         return Ok(VariantPart {
-            r#type:     r#type,
-            children:   parsed_children,
+//            r#type:     r#type,
+            member: member,
+            variants: variants,
         });
     }
 
@@ -552,16 +583,29 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let die         = node.entry();
         let discr_value  = self.discr_value_attribute(&die);
 
-        let mut parsed_children = Vec::new();
+        let mut member = None;
         let mut children        = node.children();
 
-//        while let Some(child) = children.next()? { 
-//            parsed_children.push(Box::new(self.parse_type_node(child)?));
-//        }
+        let mut i = 0;
+        while let Some(child) = children.next()? { 
+            match child.entry().tag() {
+                gimli::DW_TAG_member    => member = Some(self.parse_member_type(child)?),
+                _ => {
+                    println!("Start of type tree");
+                    self.print_tree(child);
+                    unimplemented!(); //TODO: Add parser if this is reached.
+                },
+            };
+            i += 1;
+        }
+
+        if i != 1 {
+            panic!("Expacted one member");
+        }
 
         return Ok(Variant {
             discr_value:    discr_value,
-            children:       parsed_children,
+            member:         member.unwrap(),
         });
     }
 

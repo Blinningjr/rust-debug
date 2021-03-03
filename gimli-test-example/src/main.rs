@@ -134,7 +134,6 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
     let value = debugger.find_variable(search); 
     println!("var {:?} = {:#?}", search, value);
 
-    unimplemented!();
 //    println!("################");
 //    
 //    let search = "test_struct";

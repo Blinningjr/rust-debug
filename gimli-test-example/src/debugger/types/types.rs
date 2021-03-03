@@ -119,7 +119,9 @@ pub struct StructuredType {
     pub byte_size:  Option<u64>,
     pub bit_size:   Option<u64>,
     pub alignment:  Option<u64>,
-    pub children:   Vec<Box<DebuggerType>>, // Maybe make this more specific so it is easier to parse the value later.
+    pub children:   Vec<Box<DebuggerType>>,
+    //pub members:   Vec<MemberType>, // Maybe make this more specific so it is easier to parse the value later.
+    //pub template_param: Vec<TemplateTypeParameter>,
 }
 
 // NOTE: There are a lot more attributes in the Dwarf spec, but most of them don't seam to be used
@@ -238,8 +240,9 @@ pub struct TemplateTypeParameter {
 
 #[derive(Debug, PartialEq)]
 pub struct VariantPart {
-    pub r#type:         Box<Option<DebuggerType>>,
-    pub children:       Vec<Box<DebuggerType>>,
+//    pub r#type:         Box<Option<DebuggerType>>,
+    pub member:         Option<MemberType>,
+    pub variants:       Vec<Variant>,
     // TODO: Check for more possible attribute in Dwarf spec.
 }
 
@@ -248,7 +251,7 @@ pub struct VariantPart {
 pub struct Variant {
     pub discr_value:    Option<u64>,
 //    pub discr_list:     Option<Vec<u64>>,
-    pub children:       Vec<Box<DebuggerType>>,
+    pub member:         MemberType,
     // TODO: Check for more possible attribute in Dwarf spec.
 }
 
