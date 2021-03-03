@@ -1,11 +1,7 @@
 use gimli::{
-    Reader,
     DwAte,
     DwAddr,
 };
-
-
-use std::collections::HashMap;
 
 
 pub trait TypeInfo {
@@ -16,7 +12,6 @@ pub trait TypeInfo {
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerType {
-    Unimplemented,
     BaseType(BaseType),
     PointerType(PointerType),
     ArrayType(ArrayType),
@@ -24,13 +19,13 @@ pub enum DebuggerType {
     UnionType(UnionType),                           // TODO: Try to simplify the structure.
     MemberType(MemberType),
     EnumerationType(EnumerationType),
-    Enumerator(Enumerator),
-    StringType(StringType), 
-    SubrangeType(SubrangeType),
+//    Enumerator(Enumerator),
+    StringType(StringType),                         // TODO: Parse all the important attributes. 
+//    SubrangeType(SubrangeType),
     GenericSubrangeType(GenericSubrangeType),
     TemplateTypeParameter(TemplateTypeParameter),
     VariantPart(VariantPart),
-    Variant(Variant),
+//    Variant(Variant),
     SubroutineType(SubroutineType),
     Subprogram(Subprogram),
 }

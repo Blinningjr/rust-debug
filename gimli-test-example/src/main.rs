@@ -58,7 +58,7 @@ fn probe_rs_stuff() -> Result<(), &'static str> {
     let path = Path::new(&path_str);
     println!("{:#?}", path);
     
-    download_file(&mut session, &path, Format::Elf).map_err(|_| "Failed to flash target");
+    download_file(&mut session, &path, Format::Elf).map_err(|_| "Failed to flash target")?;
     
     let mut core = session.core(0).unwrap();
 
@@ -86,7 +86,7 @@ fn read_dwarf(pc: u32, core: Core, path: &Path) {
     } else {
         gimli::RunTimeEndian::Big
     };
-    dump_file(object, endian, pc, core);
+    let _ = dump_file(object, endian, pc, core);
 }
 
 

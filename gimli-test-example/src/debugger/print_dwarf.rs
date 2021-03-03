@@ -28,7 +28,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        self.print_die(die);
+        self.print_die(die)?;
 
         // Recursively process the children.
         let mut children = node.children();

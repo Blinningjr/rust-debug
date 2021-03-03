@@ -70,7 +70,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut tree    = self.unit.entries_tree(None)?;
         let root        = tree.root()?;
 
-//        self.print_tree(root);
+//        self.print_tree(root)?;
 //        unimplemented!();
 
         return match self.process_tree(root, None, search)? {
@@ -96,24 +96,24 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         //frame_base = self.check_frame_base(&die, frame_base)?;
 
-        //// Check for the searched vairable.
-        //if self.check_var_name(&die, search) {
-        //    println!("\n");
-        //    self.print_die(&die);
-        //    let dtype = self.get_var_type(&die).unwrap();
-        //    //println!("{:?}", dtype);
-        //    //match self.eval_location(&die, &dtype, frame_base) {
-        //    //    Ok(v) => return Ok(v),
-        //    //    Err(_) => (),
-        //    //};
-        //}
+        // Check for the searched vairable.
+        if self.check_var_name(&die, search) {
+            println!("\n");
+            self.print_die(&die)?;
+            let dtype = self.get_var_type(&die).unwrap();
+            println!("{:#?}", dtype);
+            //match self.eval_location(&die, &dtype, frame_base) {
+            //    Ok(v) => return Ok(v),
+            //    Err(_) => (),
+            //};
+        }
         
         //self.print_die(&die)?;
-        if let Some(dtype) = self.get_var_type(&die) {
-//            println!("{:#?}", dtype);
-            //self.print_die(&die)?;
-            //self.eval_location(&die, &dtype, frame_base);
-        }
+//        if let Some(dtype) = self.get_var_type(&die) {
+////            println!("{:#?}", dtype);
+//            //self.print_die(&die)?;
+//            //self.eval_location(&die, &dtype, frame_base);
+//        }
 
         // Recursively process the children.
         let mut children = node.children();
@@ -191,7 +191,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
-                self.print_die(&die);
+                self.print_die(&die)?;
                 let value = match self.evaluate(self.unit, expr, frame_base, Some(dtype)) {
                     Ok(val) => val,
                     Err(_) => return Err(Error::Io), // TODO
@@ -201,7 +201,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 return Ok(Some(value));
             },
             Some(LocationListsRef(offset)) => {
-                self.print_die(&die);
+                self.print_die(&die)?;
                 let mut locations = self.dwarf.locations(self.unit, offset)?;
                 while let Some(llent) = locations.next()? {
                     //let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();

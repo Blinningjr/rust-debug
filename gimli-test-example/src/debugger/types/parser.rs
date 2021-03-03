@@ -28,18 +28,10 @@ use gimli::{
     AttributeValue::{
         DebugInfoRef,
         UnitRef,
-        Data1,
-        Data2,
-        Data4,
-        Data8,
-        Udata,
     },
     Reader,
     EntriesTreeNode,
 };
-
-
-use std::collections::HashMap;
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
@@ -66,7 +58,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             gimli::DW_TAG_subprogram                => Ok(DebuggerType::Subprogram(self.parse_subprogram(node)?)),
             _ => {
                 println!("Start of type tree");
-                self.print_tree(node);
+                self.print_tree(node)?;
                 unimplemented!(); //TODO: Add parser if this is reached.
             },
         };
@@ -81,7 +73,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             UnitRef(offset) => {
                 let mut tree = self.unit.entries_tree(Some(offset))?;
                 let root = tree.root()?;
-                //self.print_tree(root);
+                //self.print_tree(root)?;
                 //return Err(gimli::Error::Io);
                 return self.parse_type_node(root);           
             },
@@ -122,7 +114,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             //    gimli::DW_TAG_structure_type            => continue,    // TODO:
             //    _ => {
             //        println!("Start of type tree");
-            //        self.print_tree(child);
+            //        self.print_tree(child)?;
             //        unimplemented!(); //TODO: Add parser if this is reached.
             //    },
             //};
@@ -228,7 +220,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 gimli::DW_TAG_enumeration_type  => dimensions.push(ArrayDimension::EnumerationType(self.parse_enumeration_type(child)?)),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child);
+                    self.print_tree(child)?;
                     unimplemented!(); //TODO: Add parser for generic_subrange.
                 },
             };
@@ -280,7 +272,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 gimli::DW_TAG_subprogram    => methods.push(self.parse_subprogram(child)?),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child);
+                    self.print_tree(child)?;
                     unimplemented!(); //TODO: Add parser for generic_subrange.
                 },
             };
@@ -454,7 +446,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 gimli::DW_TAG_variant   => variants.push(self.parse_variant(child)?),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child);
+                    self.print_tree(child)?;
                     unimplemented!(); //TODO: Add parser if this is reached.
                 },
             };
@@ -490,7 +482,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 gimli::DW_TAG_member    => member = Some(self.parse_member_type(child)?),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child);
+                    self.print_tree(child)?;
                     unimplemented!(); //TODO: Add parser if this is reached.
                 },
             };
