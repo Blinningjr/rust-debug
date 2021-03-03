@@ -15,6 +15,8 @@ use gimli::{
         Encoding,
         Data1,
         Data2,
+        Data4,
+        Data8,
         Udata,
         Sdata,
         Flag,
