@@ -70,6 +70,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut tree    = self.unit.entries_tree(None)?;
         let root        = tree.root()?;
 
+//        self.print_tree(root);
+//        unimplemented!();
+
         return match self.process_tree(root, None, search)? {
             Some(val)   => Ok(val),
             None        => Err(Error::Io), // TODO: Change to a better error.
@@ -99,14 +102,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //    self.print_die(&die);
         //    let dtype = self.get_var_type(&die).unwrap();
         //    //println!("{:?}", dtype);
-        //    match self.eval_location(&die, &dtype, frame_base) {
-        //        Ok(v) => return Ok(v),
-        //        Err(_) => (),
-        //    };
+        //    //match self.eval_location(&die, &dtype, frame_base) {
+        //    //    Ok(v) => return Ok(v),
+        //    //    Err(_) => (),
+        //    //};
         //}
         
+        self.print_die(&die)?;
         if let Some(dtype) = self.get_var_type(&die) {
-            self.eval_location(&die, &dtype, frame_base);
+            //self.print_die(&die)?;
+            //self.eval_location(&die, &dtype, frame_base);
         }
 
         // Recursively process the children.

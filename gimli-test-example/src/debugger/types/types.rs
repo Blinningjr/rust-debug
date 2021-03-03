@@ -24,9 +24,15 @@ pub enum DebuggerType {
     UnionType(UnionType),
     MemberType(MemberType),
     EnumerationType(EnumerationType),
+    Enumerator(Enumerator),
     StringType(StringType), 
     SubrangeType(SubrangeType),
     GenericSubrangeType(GenericSubrangeType),
+    TemplateTypeParameter(TemplateTypeParameter),
+    VariantPart(VariantPart),
+    Variant(Variant),
+    SubroutineType(SubroutineType),
+    Subprogram(Subprogram),
 }
 //impl TypeInfo for DebuggerType {
 //    fn byte_size(&self) -> u64 {
@@ -155,7 +161,7 @@ pub struct EnumerationType {
     pub bit_size:       Option<u64>,
     pub alignment:      Option<u64>,
     pub enum_class:     Option<bool>,
-    pub enumerations:   Vec<Enumerator>,
+    pub enumerations:   Vec<Box<DebuggerType>>,
 
     // NOTE: Special case.
     //pub byte_stride:    Option<u64>,
@@ -168,9 +174,6 @@ pub struct Enumerator {
     pub name:           String,
     pub const_value:    u64,
 }
-
-
-//pub struct SubroutineType {} // TODO: Implement
 
 
 #[derive(Debug, PartialEq)]
@@ -223,5 +226,50 @@ pub struct GenericSubrangeType {
 //
 // TODO: Checkout File type, Dynamic Type, Template Alias Entries, Dynamic Properties of Types in
 // the Dwarf spec.
+
+
+#[derive(Debug, PartialEq)]
+pub struct TemplateTypeParameter {
+    pub name:           Option<String>,
+    pub r#type:         Box<DebuggerType>,
+    // TODO: Check for more possible attribute in Dwarf spec.
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct VariantPart {
+    pub r#type:         Box<Option<DebuggerType>>,
+    pub children:       Vec<Box<DebuggerType>>,
+    // TODO: Check for more possible attribute in Dwarf spec.
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct Variant {
+    pub discr_value:    Option<u64>,
+//    pub discr_list:     Option<Vec<u64>>,
+    pub children:       Vec<Box<DebuggerType>>,
+    // TODO: Check for more possible attribute in Dwarf spec.
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct SubroutineType {
+    pub name:               Option<String>,
+    pub linkage_name:       Option<String>,
+    pub r#type:             Box<Option<DebuggerType>>,
+    // TODO: Check for more possible attribute in Dwarf spec.
+}
+
+
+#[derive(Debug, PartialEq)]
+pub struct Subprogram {
+    pub name:               Option<String>,
+    pub linkage_name:       Option<String>,
+//    pub r#type:             Box<Option<DebuggerType>>, // NOTE: This can create a loop if it is
+//    in a structure type.
+    // TODO: Handle the children.
+    // TODO: Check for more possible attribute in Dwarf spec.
+}
 
 

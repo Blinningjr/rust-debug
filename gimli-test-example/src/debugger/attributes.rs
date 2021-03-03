@@ -13,6 +13,8 @@ use gimli::{
         AddressClass,
         DebugStrRef,
         Encoding,
+        Data1,
+        Data2,
         Udata,
         Sdata,
         Flag,
@@ -205,6 +207,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         return match die.attr_value(gimli::DW_AT_count).ok()? {
             Some(Udata(val)) => Some(val),
+            Some(Data1(val)) => Some(val as u64),
+            Some(Data2(val)) => Some(val as u64),
             Some(unknown) => {
                 println!("count_attribute, unknown: {:?}", unknown);
                 unimplemented!();
@@ -297,6 +301,37 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Some(Udata(val)) => Some(val),
             Some(unknown) => {
                 println!("string_length_bit_size_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+    
+
+    pub fn linkage_name_attribute(&mut self,
+                                  die: &DebuggingInformationEntry<R>
+                                  ) -> Option<String>
+    {
+        return match die.attr_value(gimli::DW_AT_linkage_name).ok()? {
+            Some(DebugStrRef(offset)) => Some(self.dwarf.string(offset).ok()?.to_string().ok()?.to_string()),
+            Some(unknown) => {
+                println!("linkage_name_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
+
+
+    pub fn discr_value_attribute(&mut self,
+                                 die: &DebuggingInformationEntry<R>
+                                 ) -> Option<u64>
+    {
+        return match die.attr_value(gimli::DW_AT_discr_value).ok()? {
+            Some(Data1(val)) => Some(val as u64),
+            Some(Udata(val)) => Some(val),
+            Some(unknown) => {
+                println!("byte_size_attribute, unknown: {:?}", unknown);
                 unimplemented!();
             },
             _ => None,
