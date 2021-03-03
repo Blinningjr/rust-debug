@@ -147,8 +147,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         return match die.attr_value(gimli::DW_AT_const_value).ok()? {
             Some(Udata(val)) => Some(val),
+            Some(Sdata(val)) => Some(val as u64), // TODO: Should not be converted to unsigned
             Some(unknown) => {
-                println!("const_value_attribute, unknown: {:?}", unknown);
+                println!("const_class_attribute, unknown: {:?}", unknown);
                 unimplemented!();
             },
             _ => None,
@@ -209,6 +210,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Some(Udata(val)) => Some(val),
             Some(Data1(val)) => Some(val as u64),
             Some(Data2(val)) => Some(val as u64),
+            Some(Data4(val)) => Some(val as u64),
+            Some(Data8(val)) => Some(val),
             Some(unknown) => {
                 println!("count_attribute, unknown: {:?}", unknown);
                 unimplemented!();

@@ -20,8 +20,8 @@ pub enum DebuggerType {
     BaseType(BaseType),
     PointerType(PointerType),
     ArrayType(ArrayType),
-    StructuredType(StructuredType),
-    UnionType(UnionType),
+    StructuredType(StructuredType),                 // TODO: Try to simplify the structure.
+    UnionType(UnionType),                           // TODO: Try to simplify the structure.
     MemberType(MemberType),
     EnumerationType(EnumerationType),
     Enumerator(Enumerator),
@@ -90,7 +90,7 @@ pub struct PointerType {
 pub struct ArrayType {
     pub name:           Option<String>,
     pub r#type:         Box<DebuggerType>,
-    pub children:       Vec<Box<DebuggerType>>, // NOTE: Should be DW_TAG_subrange_type or DW_TAG_enumeration_type.
+    pub dimensions:     Vec<ArrayDimension>, // NOTE: Should be DW_TAG_subrange_type or DW_TAG_enumeration_type.
     // NOTE: Special case for array with dynamic rank, then the array dimensions are described by
     // one DW_TAG_generic_subrange. It has the same attribute as DW_TAG_subrange_type but there is
     // always only one. This case only happens when the DW_AT_rank attribute is present.
@@ -105,6 +105,14 @@ pub struct ArrayType {
     //pub associated:     Option<bool>,
     //pub data_location:  Option<bool>,
 }
+
+#[derive(Debug, PartialEq)]
+pub enum ArrayDimension {
+    SubrangeType(SubrangeType),
+    EnumerationType(EnumerationType),
+}
+
+// Dimension
 
 
 //pub struct CoArrays {} // TODO: Don't know if this is used by rust.
@@ -163,7 +171,8 @@ pub struct EnumerationType {
     pub bit_size:       Option<u64>,
     pub alignment:      Option<u64>,
     pub enum_class:     Option<bool>,
-    pub enumerations:   Vec<Box<DebuggerType>>,
+    pub enumerations:   Vec<Enumerator>,
+    pub methods:        Vec<Subprogram>,
 
     // NOTE: Special case.
     //pub byte_stride:    Option<u64>,
@@ -174,7 +183,7 @@ pub struct EnumerationType {
 #[derive(Debug, PartialEq)]
 pub struct Enumerator {
     pub name:           String,
-    pub const_value:    u64,
+    pub const_value:    u64,    // TODO: Can be any constant value,
 }
 
 
@@ -266,7 +275,7 @@ pub struct SubroutineType {
 
 
 #[derive(Debug, PartialEq)]
-pub struct Subprogram {
+pub struct Subprogram { // TODO: Fix this and the parser.
     pub name:               Option<String>,
     pub linkage_name:       Option<String>,
 //    pub r#type:             Box<Option<DebuggerType>>, // NOTE: This can create a loop if it is
