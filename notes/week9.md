@@ -12,8 +12,14 @@
 
 
 # Thursday
+* Long meeting with Per and the other master thesis students.
+* Added more attributes to the `DebuggerType`s.
+
 
 # Friday
+* Added more attributes to the `DebuggerType`s.
+* Implemented the `DebugInfo` trait for some of the `DebuggerType`s.
+
 
 # Saturday
 
