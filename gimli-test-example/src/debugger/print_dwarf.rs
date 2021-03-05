@@ -57,7 +57,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
     
             println!(
-                "{: <30} | {:<?}",
+                "{: <30} | {:<x?}",
                 attr.name().static_string().unwrap(),
                 val
             );

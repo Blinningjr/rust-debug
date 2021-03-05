@@ -5,7 +5,7 @@ use gimli::{
 
 
 pub trait TypeInfo {
-    fn byte_size(&self) -> u64;
+    fn byte_size(&self) -> Option<u64>;
     fn alignment(&self) -> Option<u64>;
 }
 
@@ -29,16 +29,42 @@ pub enum DebuggerType {
     SubroutineType(SubroutineType),
     Subprogram(Subprogram),
 }
-//impl TypeInfo for DebuggerType {
-//    fn byte_size(&self) -> u64 {
-//        match self {
-//        }
-//    }
-//    fn alignment(&self) -> Option<u64>{
-//        match self {
-//        }
-//    }
-//}
+impl TypeInfo for DebuggerType {
+    fn byte_size(&self) -> Option<u64> {
+        match self {
+            DebuggerType::BaseType(bt)                => bt.byte_size(),
+            DebuggerType::PointerType(pt)             => pt.byte_size(),
+            DebuggerType::ArrayType(at)               => at.byte_size(),
+            DebuggerType::StructuredType(st)          => st.byte_size(),
+            DebuggerType::UnionType(ut)               => ut.byte_size(),
+            DebuggerType::MemberType(mt)              => mt.byte_size(),
+            DebuggerType::EnumerationType(et)         => et.byte_size(),
+            DebuggerType::StringType(st)              => st.byte_size(),
+            DebuggerType::GenericSubrangeType(gt)     => gt.byte_size(),
+            DebuggerType::TemplateTypeParameter(tp)   => tp.byte_size(),
+            DebuggerType::VariantPart(vp)             => vp.byte_size(),
+            DebuggerType::SubroutineType(st)          => st.byte_size(),
+            DebuggerType::Subprogram(sp)              => sp.byte_size(),
+        }
+    }
+    fn alignment(&self) -> Option<u64> {
+        match self {
+            DebuggerType::BaseType(bt)                => bt.alignment(),
+            DebuggerType::PointerType(pt)             => pt.alignment(),
+            DebuggerType::ArrayType(at)               => at.alignment(),
+            DebuggerType::StructuredType(st)          => st.alignment(),
+            DebuggerType::UnionType(ut)               => ut.alignment(),
+            DebuggerType::MemberType(mt)              => mt.alignment(),
+            DebuggerType::EnumerationType(et)         => et.alignment(),
+            DebuggerType::StringType(st)              => st.alignment(),
+            DebuggerType::GenericSubrangeType(gt)     => gt.alignment(),
+            DebuggerType::TemplateTypeParameter(tp)   => tp.alignment(),
+            DebuggerType::VariantPart(vp)             => vp.alignment(),
+            DebuggerType::SubroutineType(st)          => st.alignment(),
+            DebuggerType::Subprogram(sp)              => sp.alignment(),
+        }
+    }
+}
 
 
 #[derive(Debug, PartialEq)]
@@ -49,7 +75,16 @@ pub struct BaseType {
     pub byte_size:          Option<u64>,
     pub bit_size:           Option<u64>,
     pub data_bit_offset:    Option<u64>,
+    pub alignment:          Option<u64>,
     // NOTE: May have more attributes.
+}
+impl TypeInfo for BaseType {
+    fn byte_size(&self) -> Option<u64> {// TODO: use bit_size
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 // pub struct UnspecifiedType {} // TODO: Don't know if this is used by rust.
@@ -62,9 +97,26 @@ pub struct BaseType {
 
 #[derive(Debug, PartialEq)]
 pub struct PointerType {
+    pub address_class:  Option<DwAddr>,
+    pub alignment:      Option<u64>,
+    pub bit_size:       Option<u64>,
+    pub byte_size:      Option<u64>,
     pub name:           Option<String>,
     pub r#type:         Box<DebuggerType>,
-    pub address_class:  Option<DwAddr>,
+}
+impl TypeInfo for PointerType {
+    fn byte_size(&self) -> Option<u64> {// TODO: use bit_size
+        match self.byte_size {
+            Some(val)   => Some(val),
+            None        => (*self.r#type).byte_size(),
+        }
+    }
+    fn alignment(&self) -> Option<u64> {
+        match self.alignment {
+            Some(val)   => Some(val),
+            None        => (*self.r#type).alignment(),
+        }
+    }
 }
 
 //pub struct ReferenceType {} // TODO: Don't know if these are used by rust
@@ -83,31 +135,51 @@ pub struct PointerType {
 
 #[derive(Debug, PartialEq)]
 pub struct ArrayType {
+    pub alignment:      Option<u64>,
+    pub bit_size:       Option<u64>,
+    pub byte_size:      Option<u64>,
     pub name:           Option<String>,
     pub r#type:         Box<DebuggerType>,
     pub dimensions:     Vec<ArrayDimension>, // NOTE: Should be DW_TAG_subrange_type or DW_TAG_enumeration_type.
     // NOTE: Special case for array with dynamic rank, then the array dimensions are described by
     // one DW_TAG_generic_subrange. It has the same attribute as DW_TAG_subrange_type but there is
     // always only one. This case only happens when the DW_AT_rank attribute is present.
-
-    //pub ordering:       Option<u64>, // TODO: Check if any of these are used by rust.
-    //pub byte_stride:    Option<u64>,
-    //pub bit_stride:     Option<u64>,
-    //pub byte_size:      Option<u64>,
-    //pub bit_size:       Option<u64>,
-    //pub rank:           Option<u64>,
-    //pub allocated:      Option<bool>,
-    //pub associated:     Option<bool>,
-    //pub data_location:  Option<bool>,
 }
+impl TypeInfo for ArrayType {
+    fn byte_size(&self) -> Option<u64> {// TODO: use bit_size
+        match self.byte_size {
+            Some(val)   => Some(val),
+            None        => (*self.r#type).byte_size(),
+        }
+    }
+    fn alignment(&self) -> Option<u64> {
+        match self.alignment {
+            Some(val)   => Some(val),
+            None        => (*self.r#type).alignment(),
+        }
+    }
+}
+
 
 #[derive(Debug, PartialEq)]
 pub enum ArrayDimension {
-    SubrangeType(SubrangeType),
     EnumerationType(EnumerationType),
+    SubrangeType(SubrangeType),
 }
-
-// Dimension
+impl TypeInfo for ArrayDimension {
+    fn byte_size(&self) -> Option<u64> {
+        match self {
+            ArrayDimension::EnumerationType(et) => et.byte_size(),
+            ArrayDimension::SubrangeType(st)    => st.byte_size(),
+        }
+    }
+    fn alignment(&self) -> Option<u64> {
+        match self {
+            ArrayDimension::EnumerationType(et) => et.alignment(),
+            ArrayDimension::SubrangeType(st)    => st.alignment(),
+        }
+    }
+}
 
 
 //pub struct CoArrays {} // TODO: Don't know if this is used by rust.
@@ -118,38 +190,67 @@ pub enum ArrayDimension {
 // by rust.
 #[derive(Debug, PartialEq)]
 pub struct StructuredType {
-    pub name:       Option<String>,
-    pub byte_size:  Option<u64>,
-    pub bit_size:   Option<u64>,
     pub alignment:  Option<u64>,
+    pub bit_size:   Option<u64>,
+    pub byte_size:  Option<u64>,
     pub children:   Vec<Box<DebuggerType>>,
-    //pub members:   Vec<MemberType>, // Maybe make this more specific so it is easier to parse the value later.
-    //pub template_param: Vec<TemplateTypeParameter>,
+    pub name:       Option<String>,
+}
+impl TypeInfo for StructuredType {
+    fn byte_size(&self) -> Option<u64> {
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 // NOTE: There are a lot more attributes in the Dwarf spec, but most of them don't seam to be used
 // by rust.
 #[derive(Debug, PartialEq)]
 pub struct UnionType {
-    pub name:       Option<String>,
-    pub byte_size:  Option<u64>,
-    pub bit_size:   Option<u64>,
     pub alignment:  Option<u64>,
+    pub bit_size:   Option<u64>,
+    pub byte_size:  Option<u64>,
     pub children:   Vec<Box<DebuggerType>>, // Maybe make this more specific so it is easier to parse the value later.
+    pub name:       Option<String>,
+}
+impl TypeInfo for UnionType {
+    fn byte_size(&self) -> Option<u64> {
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 
 #[derive(Debug, PartialEq)]
 pub struct MemberType {
+    pub accessibility:          Option<bool>,
+    pub alignment:              Option<u64>, // NOTE: This is not pressent in Dwarf 5 spec, but is present in the debug info for rust.
+    pub artificial:             Option<bool>,
+    pub bit_size:               Option<u64>,
+    pub byte_size:              Option<u64>,
+    pub data_bit_offset:        Option<u64>,
+    pub data_member_location:   Option<u64>,
+    pub mutable:                Option<bool>,
     pub name:                   Option<String>,
     pub r#type:                 Box<DebuggerType>,
-    pub accessibility:          Option<bool>,
-    pub mutable:                Option<bool>,
-    pub data_member_location:   Option<u64>,
-    pub data_bit_offset:        Option<u64>,
-    pub byte_size:              Option<u64>,
-    pub bit_size:               Option<u64>,
-    pub alignment:              Option<u64>, 
+}
+impl TypeInfo for MemberType {
+    fn byte_size(&self) -> Option<u64> {// TODO: use bit_size.
+        match self.byte_size {
+            Some(val)   => Some(val),
+            None        => (*self.r#type).byte_size(),
+        }
+    }
+    fn alignment(&self) -> Option<u64> {
+        match self.alignment {
+            Some(val)   => Some(val),
+            None        => (*self.r#type).alignment(),
+        }
+    }
 }
 
 //pub struct ClassType {} // TODO: Don't know if this is used by rust.
@@ -160,18 +261,24 @@ pub struct MemberType {
 
 #[derive(Debug, PartialEq)]
 pub struct EnumerationType {
-    pub name:           Option<String>,
-    pub r#type:         Box<Option<DebuggerType>>,
-    pub byte_size:      Option<u64>,
-    pub bit_size:       Option<u64>,
+    pub accessibility:  Option<bool>,
     pub alignment:      Option<u64>,
+    pub bit_size:       Option<u64>,
+    pub byte_size:      Option<u64>,
+    //pub data_location:  Option<u64>,
     pub enum_class:     Option<bool>,
     pub enumerations:   Vec<Enumerator>,
-    pub methods:        Vec<Subprogram>,
-
-    // NOTE: Special case.
-    //pub byte_stride:    Option<u64>,
-    //pub bit_stride:     Option<u64>,
+    pub methods:        Vec<Subprogram>,    
+    pub name:           Option<String>,
+    pub r#type:         Box<Option<DebuggerType>>,
+}
+impl TypeInfo for EnumerationType {
+    fn byte_size(&self) -> Option<u64> {
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 
@@ -180,18 +287,34 @@ pub struct Enumerator {
     pub name:           String,
     pub const_value:    u64,    // TODO: Can be any constant value,
 }
+impl TypeInfo for Enumerator {
+    fn byte_size(&self) -> Option<u64> {
+        None
+    }
+    fn alignment(&self) -> Option<u64> {
+        None
+    }
+}
 
 
 #[derive(Debug, PartialEq)]
 pub struct StringType {
-    pub name:                       Option<String>,
-    pub r#type:                     Box<Option<DebuggerType>>,
-    pub byte_size:                  Option<u64>,
-    pub bit_size:                   Option<u64>,
+    pub accessibility:              Option<bool>,
     pub alignment:                  Option<u64>,
+    pub bit_size:                   Option<u64>,
+    pub byte_size:                  Option<u64>,
+    pub name:                       Option<String>,
     pub string_length:              Option<u64>,
-    pub string_length_byte_size:    Option<u64>,
     pub string_length_bit_size:     Option<u64>,
+    pub string_length_byte_size:    Option<u64>,
+}
+impl TypeInfo for StringType {
+    fn byte_size(&self) -> Option<u64> {// TODO: bit_size
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 
@@ -200,31 +323,45 @@ pub struct StringType {
 
 #[derive(Debug, PartialEq)]
 pub struct SubrangeType {
+    pub accessibility:  Option<bool>,
+    pub alignment:      Option<u64>,
+    pub bit_size:       Option<u64>,
+    pub byte_size:      Option<u64>,
+    pub count:          Option<u64>,
+    pub lower_bound:    Option<i64>,
     pub name:           Option<String>,
     pub r#type:         Box<Option<DebuggerType>>,
-    pub byte_size:      Option<u64>,
-    pub bit_size:       Option<u64>,
-    //pub threads_scaled: Option<bool>,
-    pub lower_bound:    Option<i64>,
     pub upper_bound:    Option<i64>,
-    pub count:          Option<u64>,
-    //pub byte_stride:    Option<u64>,
-    //pub bit_stride:     Option<u64>,
+}
+impl TypeInfo for SubrangeType {
+    fn byte_size(&self) -> Option<u64> {
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 
 #[derive(Debug, PartialEq)]
 pub struct GenericSubrangeType {
+    pub accessibility:  Option<bool>,
+    pub alignment:      Option<u64>,
+    pub bit_size:       Option<u64>,
+    pub byte_size:      Option<u64>,
+    pub count:          Option<u64>,
+    pub lower_bound:    Option<i64>,
     pub name:           Option<String>,
     pub r#type:         Box<Option<DebuggerType>>,
-    pub byte_size:      Option<u64>,
-    pub bit_size:       Option<u64>,
-    //pub threads_scaled: Option<bool>,
-    pub lower_bound:    Option<i64>,
     pub upper_bound:    Option<i64>,
-    pub count:          Option<u64>,
-    //pub byte_stride:    Option<u64>,
-    //pub bit_stride:     Option<u64>,
+}
+impl TypeInfo for GenericSubrangeType {
+    fn byte_size(&self) -> Option<u64> {
+        self.byte_size
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 
@@ -236,36 +373,74 @@ pub struct GenericSubrangeType {
 
 #[derive(Debug, PartialEq)]
 pub struct TemplateTypeParameter {
+//    pub default_value:  Option<u64>,
     pub name:           Option<String>,
     pub r#type:         Box<DebuggerType>,
     // TODO: Check for more possible attribute in Dwarf spec.
+}
+impl TypeInfo for TemplateTypeParameter {
+    fn byte_size(&self) -> Option<u64> {
+        (*self.r#type).byte_size()
+    }
+    fn alignment(&self) -> Option<u64> {
+        (*self.r#type).alignment()
+    }
 }
 
 
 #[derive(Debug, PartialEq)]
 pub struct VariantPart {
-//    pub r#type:         Box<Option<DebuggerType>>,
+    pub accessibility:  Option<bool>,
+    //pub discr:          Option<u64>, // TODO
     pub member:         Option<MemberType>,
     pub variants:       Vec<Variant>,
     // TODO: Check for more possible attribute in Dwarf spec.
+}
+impl TypeInfo for VariantPart {
+    fn byte_size(&self) -> Option<u64> {
+        unimplemented!();
+    }
+    fn alignment(&self) -> Option<u64> {
+        unimplemented!();
+    }
 }
 
 
 #[derive(Debug, PartialEq)]
 pub struct Variant {
+    pub accessibility:  Option<bool>,
+//    pub discr_list:     Option<Vec<u64>>, // TODO
     pub discr_value:    Option<u64>,
-//    pub discr_list:     Option<Vec<u64>>,
     pub member:         MemberType,
     // TODO: Check for more possible attribute in Dwarf spec.
+}
+impl TypeInfo for Variant {
+    fn byte_size(&self) -> Option<u64> {
+        self.member.byte_size()
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.member.alignment()
+    }
 }
 
 
 #[derive(Debug, PartialEq)]
 pub struct SubroutineType {
-    pub name:               Option<String>,
-    pub linkage_name:       Option<String>,
-    pub r#type:             Box<Option<DebuggerType>>,
+    pub accessibility:  Option<bool>,
+    pub address_class:  Option<DwAddr>,
+    pub alignment:      Option<u64>,
+    pub name:           Option<String>,
+    pub linkage_name:   Option<String>,
+    pub r#type:         Box<Option<DebuggerType>>,
     // TODO: Check for more possible attribute in Dwarf spec.
+}
+impl TypeInfo for SubroutineType {
+    fn byte_size(&self) -> Option<u64> {
+        unimplemented!();
+    }
+    fn alignment(&self) -> Option<u64> {
+        self.alignment
+    }
 }
 
 
@@ -278,5 +453,12 @@ pub struct Subprogram { // TODO: Fix this and the parser.
     // TODO: Handle the children.
     // TODO: Check for more possible attribute in Dwarf spec.
 }
-
+impl TypeInfo for Subprogram {
+    fn byte_size(&self) -> Option<u64> {
+        unimplemented!();
+    }
+    fn alignment(&self) -> Option<u64> {
+        unimplemented!();
+    }
+}
 

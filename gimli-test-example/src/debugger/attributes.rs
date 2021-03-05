@@ -342,5 +342,20 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => None,
         };
     }
+
+
+    pub fn artificial_attribute(&mut self,
+                                die: &DebuggingInformationEntry<R>
+                                ) -> Option<bool>
+    {
+        return match die.attr_value(gimli::DW_AT_artificial).ok()? {
+            Some(Flag(val)) => Some(val),
+            Some(unknown) => {
+                println!("artificial_attribute, unknown: {:?}", unknown);
+                unimplemented!();
+            },
+            _ => None,
+        };
+    }
 }
 

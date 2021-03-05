@@ -95,40 +95,24 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             ) -> gimli::Result<StructuredType>
     {
         let die         = node.entry();
-        let name        = self.name_attribute(&die);
-        let byte_size   = self.byte_size_attribute(&die);
-        let bit_size    = self.bit_size_attribute(&die);
         let alignment   = self.alignment_attribute(&die);
+        let bit_size    = self.bit_size_attribute(&die);
+        let byte_size   = self.byte_size_attribute(&die);
+        let name        = self.name_attribute(&die);
 
-        //let mut members         = Vec::new();
-        //let mut template_param  = Vec::new();
         let mut parsed_children = Vec::new();
         let mut children        = node.children();
 
         while let Some(child) = children.next()? { 
-            //match child.entry().tag() {
-            //    gimli::DW_TAG_member                    => members.push(self.parse_member_type(child)?), 
-            //    gimli::DW_TAG_template_type_parameter   => template_param.push(self.parse_template_type_parameter(child)?),
-            //    gimli::DW_TAG_variant_part              => continue,    // TODO: Handle the part when this is a enum.
-            //    gimli::DW_TAG_subprogram                => continue,    // TODO:
-            //    gimli::DW_TAG_structure_type            => continue,    // TODO:
-            //    _ => {
-            //        println!("Start of type tree");
-            //        self.print_tree(child)?;
-            //        unimplemented!(); //TODO: Add parser if this is reached.
-            //    },
-            //};
             parsed_children.push(Box::new(self.parse_type_node(child)?));
         }
        
         return Ok(StructuredType {
-            name:           name,
-            byte_size:      byte_size,
-            bit_size:       bit_size,
             alignment:      alignment,
+            bit_size:       bit_size,
+            byte_size:      byte_size,
             children:       parsed_children,
-//            members:        members,
-//            template_param: template_param,
+            name:           name,
         }); 
     }
 
@@ -138,10 +122,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         ) -> gimli::Result<UnionType>
     {
         let die         = node.entry();
-        let name        = self.name_attribute(&die);
-        let byte_size   = self.byte_size_attribute(&die);
-        let bit_size    = self.bit_size_attribute(&die);
         let alignment   = self.alignment_attribute(&die);
+        let bit_size    = self.bit_size_attribute(&die);
+        let byte_size   = self.byte_size_attribute(&die);
+        let name        = self.name_attribute(&die);
 
         let mut parsed_children = Vec::new();
         let mut children        = node.children();
@@ -151,11 +135,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
        
         return Ok(UnionType {
-            name:       name,
-            byte_size:  byte_size,
-            bit_size:   bit_size,
             alignment:  alignment,
+            bit_size:   bit_size,
+            byte_size:  byte_size,
             children:   parsed_children,
+            name:       name,
         }); 
     }
 
@@ -166,15 +150,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(MemberType {
+            accessibility:          self.accessibility_attribute(&die),
+            alignment:              self.alignment_attribute(&die),
+            artificial:             self.artificial_attribute(&die),
+            bit_size:               self.bit_size_attribute(&die),
+            byte_size:              self.byte_size_attribute(&die),
+            data_bit_offset:        self.data_bit_offset_attribute(&die),
+            data_member_location:   self.data_member_location_attribute(&die),
+            mutable:                self.mutable_attribute(&die),
             name:                   self.name_attribute(&die),
             r#type:                 Box::new(self.type_attribute(&die).unwrap()),
-            accessibility:          self.accessibility_attribute(&die),
-            mutable:                self.mutable_attribute(&die),
-            data_member_location:   self.data_member_location_attribute(&die),
-            data_bit_offset:        self.data_bit_offset_attribute(&die),
-            byte_size:              self.byte_size_attribute(&die),
-            bit_size:               self.bit_size_attribute(&die),
-            alignment:              self.alignment_attribute(&die),
         });
     }
 
@@ -190,6 +175,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             byte_size:          self.byte_size_attribute(&die),
             bit_size:           self.bit_size_attribute(&die),
             data_bit_offset:    self.data_bit_offset_attribute(&die),
+            alignment:          self.alignment_attribute(&die),
         });
     }
 
@@ -209,6 +195,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         ) -> gimli::Result<ArrayType>
     { 
         let die             = node.entry(); 
+        let alignment       = self.alignment_attribute(&die);
+        let bit_size        = self.bit_size_attribute(&die);
+        let byte_size       = self.byte_size_attribute(&die);
         let name            = self.name_attribute(&die);
         let r#type          = Box::new(self.type_attribute(&die).unwrap());
         let mut dimensions  = Vec::new();
@@ -227,19 +216,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
         
         return Ok(ArrayType {
+            alignment:  alignment,
+            bit_size:   bit_size,
+            byte_size:  byte_size,
             name:       name,
             r#type:     r#type,
             dimensions: dimensions,
-
-            //ordering:       self.ordering_attribute(&die),
-            //byte_stride:    self.byte_stride_attribute(&die),
-            //bit_stride:     self.bit_stride_attribute(&die),
-            //byte_size:      self.byte_size_attribute(&die),
-            //bit_size:       self.bit_size_attribute(&die),
-            //rank:           self.rank_attribute(&die),
-            //allocated:      self.allocated_attribute(&die),
-            //associated:     self.associated_attribute(&die),
-            //data_location:  self.data_location_attribute(&die),
         });
     }
 
@@ -252,15 +234,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                               node: EntriesTreeNode<R>
                               ) -> gimli::Result<EnumerationType>
     {
-        let die         = node.entry();
-        let name        = self.name_attribute(&die);
-        let r#type      = self.type_attribute(&die);
-        let byte_size   = self.byte_size_attribute(&die);
-        let bit_size    = self.bit_size_attribute(&die);
-        let alignment   = self.alignment_attribute(&die);
-        let enum_class  = self.enum_class_attribute(&die);
-        //let byte_stride = self.byte_stride_attribute(&die);
-        //let bit_stride  = self.bit_stride_attribute(&die);
+        let die             = node.entry();
+        let accessibility   = self.accessibility_attribute(&die);
+        let alignment       = self.alignment_attribute(&die);
+        let bit_size        = self.bit_size_attribute(&die);
+        let byte_size       = self.byte_size_attribute(&die);
+        //let data_location   = self.data_location_attribute(&die);
+        let enum_class      = self.enum_class_attribute(&die);
+        let name            = self.name_attribute(&die);
+        let r#type          = self.type_attribute(&die);
         
         let mut enumerators = Vec::new(); 
         let mut methods     = Vec::new();
@@ -279,17 +261,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
 
         return Ok(EnumerationType {
-            name:           name,
-            r#type:         Box::new(r#type),
-            byte_size:      byte_size,
-            bit_size:       bit_size,
+            accessibility:  accessibility,
             alignment:      alignment,
+            bit_size:       bit_size,
+            byte_size:      byte_size,
+            //data_location:  data_location,
             enum_class:     enum_class,
             enumerations:   enumerators,
             methods:        methods,
-
-            //byte_stride:    byte_stride,
-            //bit_stride:    bit_stride,
+            name:           name,
+            r#type:         Box::new(r#type),
         });
     }
 
@@ -321,9 +302,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(PointerType {
+            address_class:  self.address_class_attribute(&die),
+            alignment:      self.alignment_attribute(&die),
+            bit_size:       self.bit_size_attribute(&die),
+            byte_size:      self.byte_size_attribute(&die),
             name:           self.name_attribute(&die),
             r#type:         Box::new(self.type_attribute(&die).unwrap()),
-            address_class:  self.address_class_attribute(&die),
         });
     }
 
@@ -352,14 +336,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(StringType {
-            name:                       self.name_attribute(&die),
-            r#type:                     Box::new(self.type_attribute(&die)),
-            byte_size:                  self.byte_size_attribute(&die),
-            bit_size:                   self.bit_size_attribute(&die),
+            accessibility:              self.accessibility_attribute(&die),
             alignment:                  self.alignment_attribute(&die),
+            bit_size:                   self.bit_size_attribute(&die),
+            byte_size:                  self.byte_size_attribute(&die),
+            name:                       self.name_attribute(&die),
             string_length:              self.string_length_attribute(&die),
-            string_length_byte_size:    self.string_length_byte_size_attribute(&die),
             string_length_bit_size:     self.string_length_bit_size_attribute(&die), 
+            string_length_byte_size:    self.string_length_byte_size_attribute(&die),
         });
     }
 
@@ -370,16 +354,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(SubrangeType {
-            name:                       self.name_attribute(&die),
-            r#type:                     Box::new(self.type_attribute(&die)),
-            byte_size:                  self.byte_size_attribute(&die),
-            bit_size:                   self.bit_size_attribute(&die),
-            //threads_scaled:             self.threads_scaled_attribute(&die),
-            lower_bound:                self.lower_bound_attribute(&die),
-            upper_bound:                self.upper_bound_attribute(&die),
-            count:                      self.count_attribute(&die),
-            //byte_stride:                self.byte_stride_attribute(&die),
-            //bit_stride:                 self.bit_stride_attribute(&die),
+            accessibility:  self.accessibility_attribute(&die),
+            alignment:      self.alignment_attribute(&die),
+            bit_size:       self.bit_size_attribute(&die),
+            byte_size:      self.byte_size_attribute(&die),
+            count:          self.count_attribute(&die),
+            lower_bound:    self.lower_bound_attribute(&die),
+            name:           self.name_attribute(&die),
+            r#type:         Box::new(self.type_attribute(&die)),
+            upper_bound:    self.upper_bound_attribute(&die),
         });
     }
     
@@ -390,16 +373,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(GenericSubrangeType {
-            name:                       self.name_attribute(&die),
-            r#type:                     Box::new(self.type_attribute(&die)),
-            byte_size:                  self.byte_size_attribute(&die),
-            bit_size:                   self.bit_size_attribute(&die),
-            //threads_scaled:             self.threads_scaled_attribute(&die),
-            lower_bound:                self.lower_bound_attribute(&die),
-            upper_bound:                self.upper_bound_attribute(&die),
-            count:                      self.count_attribute(&die),
-            //byte_stride:                self.byte_stride_attribute(&die),
-            //bit_stride:                 self.bit_stride_attribute(&die),
+            accessibility:  self.accessibility_attribute(&die),
+            alignment:      self.alignment_attribute(&die),
+            bit_size:       self.bit_size_attribute(&die),
+            byte_size:      self.byte_size_attribute(&die),
+            count:          self.count_attribute(&die),
+            lower_bound:    self.lower_bound_attribute(&die),
+            name:           self.name_attribute(&die),
+            r#type:         Box::new(self.type_attribute(&die)),
+            upper_bound:    self.upper_bound_attribute(&die),
         });
     }
 
@@ -410,8 +392,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(TemplateTypeParameter {
-            name:   self.name_attribute(&die),
-            r#type: Box::new(self.type_attribute(&die).unwrap()),
+//            default_value:  self.default_value_attribute(&die), // TODO
+            name:           self.name_attribute(&die),
+            r#type:         Box::new(self.type_attribute(&die).unwrap()),
         });
     }
 
@@ -428,9 +411,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                           node: EntriesTreeNode<R>
                           ) -> gimli::Result<VariantPart>
     {
-        let die     = node.entry();
-        //let r#type  = Box::new(self.type_attribute(&die));
-    
+        let die             = node.entry();
+        let accessibility   = self.accessibility_attribute(&die);
+//        let discr           = self.discr_attribute(&die);
+        
         let mut member      = None;
         let mut variants    = Vec::new();
         let mut children    = node.children();
@@ -453,9 +437,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
 
         return Ok(VariantPart {
-//            r#type:     r#type,
-            member: member,
-            variants: variants,
+            accessibility:  accessibility,
+//            discr:          discr,
+            member:         member,
+            variants:       variants,
         });
     }
 
@@ -470,8 +455,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      node: EntriesTreeNode<R>
                      ) -> gimli::Result<Variant>
     {
-        let die         = node.entry();
-        let discr_value  = self.discr_value_attribute(&die);
+        let die             = node.entry();
+        let accessibility   = self.accessibility_attribute(&die);
+        let discr_value     = self.discr_value_attribute(&die);
 
         let mut member = None;
         let mut children        = node.children();
@@ -494,6 +480,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
 
         return Ok(Variant {
+            accessibility:  accessibility,
             discr_value:    discr_value,
             member:         member.unwrap(),
         });
@@ -506,9 +493,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let die = node.entry();
         return Ok(SubroutineType {
-            name:               self.name_attribute(&die),
-            linkage_name:       self.linkage_name_attribute(&die),
-            r#type:             Box::new(self.type_attribute(&die)),
+            accessibility:  self.accessibility_attribute(&die),
+            address_class:  self.address_class_attribute(&die),
+            alignment:      self.alignment_attribute(&die),
+            name:           self.name_attribute(&die),
+            linkage_name:   self.linkage_name_attribute(&die),
+            r#type:         Box::new(self.type_attribute(&die)),
         });
     }
 

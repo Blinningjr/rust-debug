@@ -101,11 +101,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             println!("\n");
             self.print_die(&die)?;
             let dtype = self.get_var_type(&die).unwrap();
-            println!("{:#?}", dtype);
-            //match self.eval_location(&die, &dtype, frame_base) {
-            //    Ok(v) => return Ok(v),
-            //    Err(_) => (),
-            //};
+            //println!("{:#?}", dtype);
+            match self.eval_location(&die, &dtype, frame_base) {
+                Ok(v) => return Ok(v),
+                Err(_) => (),
+            };
         }
         
         //self.print_die(&die)?;
