@@ -26,4 +26,5 @@
 
 
 # Sunday
+* Did nothing.
 
