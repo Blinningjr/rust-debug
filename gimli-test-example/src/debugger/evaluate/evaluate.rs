@@ -17,6 +17,8 @@ use crate::debugger::types::types::{
     StructuredType,
     VariantPart,
     Variant,
+    EnumerationType,
+    Enumerator,
 };
 
 
@@ -42,7 +44,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             DebuggerType::StructuredType        (st)    => self.eval_structured_type(pieces, st),
             DebuggerType::UnionType             (ut)    => self.eval_union_type(),
             DebuggerType::MemberType            (mt)    => self.eval_member(pieces, mt),
-            DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(),
+            DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(pieces, et),
             DebuggerType::StringType            (st)    => self.eval_string_type(),
             DebuggerType::GenericSubrangeType   (gt)    => self.eval_generic_subrange_type(),
             DebuggerType::TemplateTypeParameter (tp)    => self.eval_template_type_parameter(),
@@ -75,12 +77,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_address(&mut self, address: u64, byte_size: Option<u64>, encoding: DwAte) -> Option<DebuggerValue<R>>
+    pub fn eval_address(&mut self,
+                        mut address: u64,
+                        byte_size: Option<u64>,
+                        encoding: DwAte
+                        ) -> Option<DebuggerValue<R>>
     {
         let num_words = match byte_size {
             Some(val)   => (val + 4 - 1 )/4,
             None        => 1,
         };
+
+        address -= address%4;
 
         let mut data: Vec<u32> = vec![0; num_words as usize];
         self.core.read_32(address as u32, &mut data).unwrap();
@@ -157,9 +165,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         })));
     }
 
-    pub fn eval_enumeration_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_enumeration_type(&mut self, pieces: &mut Vec<Piece<R>>, enumeration_type: &EnumerationType) -> Option<DebuggerValue<R>>
     {
-        unimplemented!();
+        let value = get_udata(self.eval_type(pieces, (*enumeration_type.r#type).as_ref().unwrap()).unwrap().to_value().unwrap());
+        for e in &enumeration_type.enumerations {
+            if e.const_value == value {
+                return Some(DebuggerValue::Enum(Box::new(EnumValue{
+                    name:   enumeration_type.name.clone().unwrap(),
+                    value:  DebuggerValue::Name(e.name.clone()),
+                })));
+            }
+        }
+        None
     }
 
     pub fn eval_enumerator(&mut self) -> Option<DebuggerValue<R>>

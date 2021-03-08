@@ -16,6 +16,7 @@ pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Enum(Box<EnumValue<R>>),
     Member(Box<MemberValue<R>>),
     OptimizedOut,
+    Name(String),
 }
 
 #[derive(Debug)]

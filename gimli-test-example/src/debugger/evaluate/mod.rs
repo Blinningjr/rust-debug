@@ -136,10 +136,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         println!("Type: {:#?}", vtype);
         let mut pieces = eval.result();
         println!("{:#?}", pieces);
-        let value = self.eval_type(&mut pieces, vtype.unwrap());
+        let value =  match vtype {
+            Some(t) => self.eval_type(&mut pieces, t),
+            None => self.eval_piece(pieces.remove(0), None, None),
+        };
         println!("Value: {:#?}", value);
-        unimplemented!();
-        //value
+        Ok(value.unwrap())
     }
 
 
