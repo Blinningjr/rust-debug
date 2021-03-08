@@ -52,6 +52,7 @@ pub use value::{
     DebuggerValue,
     StructValue,
     EnumValue,
+    MemberValue,
 };
 
 
@@ -104,7 +105,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(self.evaluate(unit, e, frame_base, None)?.to_value()).unwrap(),
+                  result = eval.resume_with_entry_value(self.evaluate(unit, e, frame_base, None)?.to_value().unwrap()).unwrap(),
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
@@ -133,111 +134,114 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
     
         println!("Type: {:#?}", vtype);
-        let value = self.eval_pieces(eval.result(), vtype);
-        println!("Value: {:?}", value);
-        value
-    }
-
-
-
-    fn eval_pieces(&mut self,
-                   pieces:  Vec<Piece<R>>,
-                   vtype:   Option<&DebuggerType>
-                   ) -> Result<DebuggerValue<R>, &'static str>
-    {
+        let mut pieces = eval.result();
         println!("{:#?}", pieces);
-        // TODO: What should happen if more then one piece is given?
-        if pieces.len() > 1 {
-            for p in &pieces {
-                println!("Value {:#?}", self.eval_piece(p, vtype)); //TODO
-            }
-            //panic!("Found more then one piece");
-        }
-        return self.eval_piece(&pieces[0], vtype); //TODO
+        let value = self.eval_type(&mut pieces, vtype.unwrap());
+        println!("Value: {:#?}", value);
+        unimplemented!();
+        //value
     }
+
+
+
+    //fn eval_pieces(&mut self,
+    //               pieces:  Vec<Piece<R>>,
+    //               vtype:   Option<&DebuggerType>
+    //               ) -> Result<DebuggerValue<R>, &'static str>
+    //{
+    //    println!("{:#?}", pieces);
+    //    // TODO: What should happen if more then one piece is given?
+    //    if pieces.len() > 1 {
+    //        for p in &pieces {
+    //            println!("Value {:#?}", self.eval_piece(p, vtype)); //TODO
+    //        }
+    //        //panic!("Found more then one piece");
+    //    }
+    //    return self.eval_piece(&pieces[0], vtype); //TODO
+    //}
    
 
-    fn eval_piece(&mut self,
-                  piece: &Piece<R>,
-                  vtype: Option<&DebuggerType>
-                  ) -> Result<DebuggerValue<R>, &'static str>
-    {
-        fn parse_value<R: Reader<Offset = usize>>(data:         u32,
-                                                  size_in_bits: Option<u64>,
-                                                  bit_offset:   Option<u64>
-                                                  ) -> Result<DebuggerValue<R>, &'static str>
-        {
-            let mut mask: u32 = u32::MAX;
-            if let Some(bits) = size_in_bits {
-                if bits > 32 {
-                    return Err("not enough bits");
-                }
-                mask = mask >> (32 - bits);
-            }
-            if let Some(offset) = bit_offset {
-                if offset >= 32 {
-                    return Err("not enough bits");
-                }
-                mask = mask << offset;
-            }
-            return Ok(DebuggerValue::Value(Value::U32(data & mask))); // TODO: Always return U32?
-        }
+    //fn eval_piece(&mut self,
+    //              piece: &Piece<R>,
+    //              vtype: Option<&DebuggerType>
+    //              ) -> Result<DebuggerValue<R>, &'static str>
+    //{
+    //    fn parse_value<R: Reader<Offset = usize>>(data:         u32,
+    //                                              size_in_bits: Option<u64>,
+    //                                              bit_offset:   Option<u64>
+    //                                              ) -> Result<DebuggerValue<R>, &'static str>
+    //    {
+    //        let mut mask: u32 = u32::MAX;
+    //        if let Some(bits) = size_in_bits {
+    //            if bits > 32 {
+    //                return Err("not enough bits");
+    //            }
+    //            mask = mask >> (32 - bits);
+    //        }
+    //        if let Some(offset) = bit_offset {
+    //            if offset >= 32 {
+    //                return Err("not enough bits");
+    //            }
+    //            mask = mask << offset;
+    //        }
+    //        return Ok(DebuggerValue::Value(Value::U32(data & mask))); // TODO: Always return U32?
+    //    }
 
-        let reg_size: u64 = match vtype {
-            Some(dtype) => 1,//(dtype.byte_size() + 4 - 1)/4,
-            None        => 1,
-        };
-        match &piece.location {
-            Location::Empty =>
-                return Ok(DebuggerValue::Non), //return Err("Optimized out"),
+    //    let reg_size: u64 = match vtype {
+    //        Some(dtype) => 1,//(dtype.byte_size() + 4 - 1)/4,
+    //        None        => 1,
+    //    };
+    //    match &piece.location {
+    //        Location::Empty =>
+    //            return Ok(DebuggerValue::Non), //return Err("Optimized out"),
 
-            Location::Register { register } => 
-                return parse_value(self.core.read_core_reg(register.0).unwrap(),
-                                   piece.size_in_bits,
-                                   piece.bit_offset),
+    //        Location::Register { register } => 
+    //            return parse_value(self.core.read_core_reg(register.0).unwrap(),
+    //                               piece.size_in_bits,
+    //                               piece.bit_offset),
 
-            Location::Address { address } => { //TODO:
-                //let address = match vtype {
-                //    Some(vt) => address + (address%(match vt.alignment() {Some(v) => v, None => 1,})),
-                //    None => *address,
-                //};
-                //println!("address: {:?}", address);
+    //        Location::Address { address } => { //TODO:
+    //            //let address = match vtype {
+    //            //    Some(vt) => address + (address%(match vt.alignment() {Some(v) => v, None => 1,})),
+    //            //    None => *address,
+    //            //};
+    //            //println!("address: {:?}", address);
 
-                let mut data: Vec<u32> = vec![0; reg_size as usize];
-                self.core.read_32(*address as u32, &mut data).map_err(|e| "Read error")?;
-                let mut res: Vec<u32> = Vec::new();
-                for d in data.iter() {
-                    res.push(*d);
-                }
-                println!("Raw: {:?}", res);
-                return Ok(DebuggerValue::Raw(res));
-                //match vtype {
-                //    Some(t) => {
-                //        return match self.parse_value(res.clone(), vtype.unwrap()) {
-                //            Ok(val) => return Ok(val),
-                //            Err(_)  => Ok(DebuggerValue::Raw(res)),
-                //        } //TODO: Uncomment
-                //    },
-                //    None => return Ok(DebuggerValue::Raw(res)),
-                //};
-            },
+    //            let mut data: Vec<u32> = vec![0; reg_size as usize];
+    //            self.core.read_32(*address as u32, &mut data).map_err(|e| "Read error")?;
+    //            let mut res: Vec<u32> = Vec::new();
+    //            for d in data.iter() {
+    //                res.push(*d);
+    //            }
+    //            println!("Raw: {:?}", res);
+    //            return Ok(DebuggerValue::Raw(res));
+    //            //match vtype {
+    //            //    Some(t) => {
+    //            //        return match self.parse_value(res.clone(), vtype.unwrap()) {
+    //            //            Ok(val) => return Ok(val),
+    //            //            Err(_)  => Ok(DebuggerValue::Raw(res)),
+    //            //        } //TODO: Uncomment
+    //            //    },
+    //            //    None => return Ok(DebuggerValue::Raw(res)),
+    //            //};
+    //        },
 
-            Location::Value { value } => {
-                //if let Some(_) = piece.size_in_bits {
-                //    panic!("needs to be implemented");
-                //}
-                //if let Some(_) = piece.bit_offset {
-                //    panic!("needs to be implemented");
-                //}
-                return Ok(DebuggerValue::Value(value.clone()));
-            }, // TODO: Handle size_in_bits and bit_offset?
+    //        Location::Value { value } => {
+    //            //if let Some(_) = piece.size_in_bits {
+    //            //    panic!("needs to be implemented");
+    //            //}
+    //            //if let Some(_) = piece.bit_offset {
+    //            //    panic!("needs to be implemented");
+    //            //}
+    //            return Ok(DebuggerValue::Value(value.clone()));
+    //        }, // TODO: Handle size_in_bits and bit_offset?
 
-            Location::Bytes { value } => // TODO: Check and test if correct
-                return Ok(DebuggerValue::Bytes(value.clone())),
+    //        Location::Bytes { value } => // TODO: Check and test if correct
+    //            return Ok(DebuggerValue::Bytes(value.clone())),
 
-            Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
-        };
-    }
+    //        Location::ImplicitPointer { value, byte_offset } => unimplemented!(), // TODO
+    //    };
+    //}
 
 
     /*

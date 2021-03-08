@@ -14,29 +14,48 @@ pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Raw(Vec<u32>),
     Struct(Box<StructValue<R>>),
     Enum(Box<EnumValue<R>>),
-    Non,
+    Member(Box<MemberValue<R>>),
+    OptimizedOut,
+}
+
+#[derive(Debug)]
+pub struct MemberValue<R: Reader<Offset = usize>> {
+    pub name:   String,
+    pub value:  DebuggerValue<R>,
 }
 
 #[derive(Debug)]
 pub struct StructValue<R: Reader<Offset = usize>> {
     pub name:       String,
-    pub attributes: HashMap<String, DebuggerValue<R>>,
+    pub members:    Vec<DebuggerValue<R>>,
+    //pub attributes: HashMap<String, DebuggerValue<R>>,
 }
 
 #[derive(Debug)]
 pub struct EnumValue<R: Reader<Offset = usize>> {
     pub name:   String,
-    pub value:  u64,
-    pub member: (String, DebuggerValue<R>),
+    pub value: DebuggerValue<R>,
 }
 
 
 impl<R: Reader<Offset = usize>> DebuggerValue<R> {
-    pub fn to_value(self) -> Value {
+    pub fn to_value(self) -> Option<Value> {
         match self {
-            DebuggerValue::Value(val)   => return val,
-            _                           => unimplemented!(),
-        };
+            DebuggerValue::Value(val)   => Some(val),
+            _                           => None,
+        }
+    }
+}
+
+
+pub fn get_udata(value: Value) -> u64 {
+    match value {
+       Value::U8        (v) => v as u64,
+       Value::U16       (v) => v as u64,
+       Value::U32       (v) => v as u64,
+       Value::U64       (v) => v,
+       Value::Generic   (v) => v,
+       _                    => unimplemented!(),
     }
 }
 

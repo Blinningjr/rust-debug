@@ -130,7 +130,7 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
 
     let mut debugger = Debugger::new(core, dwarf, &unit, pc);
     
-    let search = "cx";
+    let search = "test_struct";
     let value = debugger.find_variable(search); 
     println!("var {:?} = {:#?}", search, value);
 
