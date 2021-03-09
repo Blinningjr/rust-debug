@@ -41,7 +41,10 @@ use probe_rs::MemoryInterface;
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn eval_type(&mut self, pieces: &mut Vec<Piece<R>>, dtype: &DebuggerType) -> Option<DebuggerValue<R>>
+    pub fn eval_type(&mut self,
+                     pieces: &mut Vec<Piece<R>>,
+                     dtype: &DebuggerType
+                     )-> Option<DebuggerValue<R>>
     {
         return match dtype {
             DebuggerType::BaseType              (bt)    => self.eval_basetype(pieces, bt),
@@ -61,7 +64,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_piece(&mut self, piece: Piece<R>, byte_size: Option<u64>, encoding: Option<DwAte>) -> Option<DebuggerValue<R>>
+    pub fn eval_piece(&mut self,
+                      piece: Piece<R>,
+                      byte_size: Option<u64>,
+                      encoding: Option<DwAte>
+                      ) -> Option<DebuggerValue<R>>
     {
         println!("{:#?}", piece);
 
@@ -76,7 +83,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_register(&mut self, register: gimli::Register) -> Option<DebuggerValue<R>>
+    pub fn eval_register(&mut self,
+                         register: gimli::Register
+                         ) -> Option<DebuggerValue<R>>
     {
         let data = self.core.read_core_reg(register.0).unwrap();
         return Some(DebuggerValue::Value(Value::U32(data))); // TODO: Mask the important bits?
@@ -104,21 +113,30 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             res.push(*d);
         }
 
-        return Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap())));
+        return Some(DebuggerValue::Value(eval_base_type(&data,
+                                                        encoding,
+                                                        byte_size.unwrap())));
         //return Some(DebuggerValue::Raw(res)); 
     }
 
 
-    pub fn eval_basetype(&mut self, mut pieces: &mut Vec<Piece<R>>, base_type: &BaseType) -> Option<DebuggerValue<R>>
+    pub fn eval_basetype(&mut self,
+                         mut pieces: &mut Vec<Piece<R>>,
+                         base_type: &BaseType
+                         ) -> Option<DebuggerValue<R>>
     {
         if pieces.len() > 0 {
             match base_type.byte_size {
                 Some(0) => return Some(DebuggerValue::ZeroSize),
                 _       => (),
             };
-            return self.eval_piece(pieces.remove(0), base_type.byte_size, Some(base_type.encoding));
+
+            return self.eval_piece(pieces.remove(0),
+                                   base_type.byte_size,
+                                   Some(base_type.encoding));
         }
-        return Some(DebuggerValue::OptimizedOut); // TODO: Somthing might be wrong whith my code:
+
+        return Some(DebuggerValue::OptimizedOut); // TODO: Something might be wrong with my code:
     }
 
 
@@ -128,7 +146,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_array_type(&mut self, pieces: &mut Vec<Piece<R>>, array_type: &ArrayType) -> Option<DebuggerValue<R>>
+    pub fn eval_array_type(&mut self,
+                           pieces: &mut Vec<Piece<R>>,
+                           array_type: &ArrayType
+                           ) -> Option<DebuggerValue<R>>
     {
         let count = get_udata(match &array_type.dimensions[0] {
             ArrayDimension::EnumerationType (et)    => self.eval_enumeration_type(pieces, et),
@@ -137,7 +158,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         let mut values = Vec::new();
         for i in 0..count {
-            values.push(self.eval_type(pieces, &array_type.r#type).unwrap());  // TODO: Fix so that it can read mutiple of the same type.
+            values.push(self.eval_type(pieces,
+                                       &array_type.r#type).unwrap());  // TODO: Fix so that it can read multiple of the same type.
         }
         
         return Some(DebuggerValue::Array(Box::new(ArrayValue{
@@ -146,18 +168,23 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_structured_type(&mut self, pieces: &mut Vec<Piece<R>>, structured_type: &StructuredType) -> Option<DebuggerValue<R>>
+    pub fn eval_structured_type(&mut self,
+                                pieces: &mut Vec<Piece<R>>,
+                                structured_type: &StructuredType
+                                ) -> Option<DebuggerValue<R>>
     {
         let mut members = Vec::new();
         for c in &structured_type.children {
             match &(**c) {
                 DebuggerType::VariantPart   (vp)    => {
                     let members = vec!(self.eval_variant_part(pieces, &vp).unwrap());
+
                     return Some(DebuggerValue::Struct(Box::new(StructValue{
                         name:       structured_type.name.clone().unwrap(),
                         members:    members,
                     })));
                 },
+
                 DebuggerType::MemberType    (mt)    => {
                     members.push(mt);
                 },
@@ -175,7 +202,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_union_type(&mut self, pieces: &mut Vec<Piece<R>>, union_type: &UnionType) -> Option<DebuggerValue<R>>
+    pub fn eval_union_type(&mut self,
+                           pieces: &mut Vec<Piece<R>>,
+                           union_type: &UnionType
+                           ) -> Option<DebuggerValue<R>>
     {
         let mut members = Vec::new();
         for c in &union_type.children {
@@ -197,7 +227,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_member(&mut self, pieces: &mut Vec<Piece<R>>, member: &MemberType) -> Option<DebuggerValue<R>>
+    pub fn eval_member(&mut self,
+                       pieces: &mut Vec<Piece<R>>,
+                       member: &MemberType
+                       ) -> Option<DebuggerValue<R>>
     {
         return Some(DebuggerValue::Member(Box::new(MemberValue{
             name:   member.name.clone().unwrap(),
@@ -206,9 +239,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_enumeration_type(&mut self, pieces: &mut Vec<Piece<R>>, enumeration_type: &EnumerationType) -> Option<DebuggerValue<R>>
+    pub fn eval_enumeration_type(&mut self,
+                                 pieces: &mut Vec<Piece<R>>,
+                                 enumeration_type: &EnumerationType
+                                 ) -> Option<DebuggerValue<R>>
     {
-        let value = get_udata(self.eval_type(pieces, (*enumeration_type.r#type).as_ref().unwrap()).unwrap().to_value().unwrap());
+        let value = get_udata(self.eval_type(pieces,
+                                             (*enumeration_type.r#type).as_ref().unwrap()).unwrap().to_value().unwrap());
+
         for e in &enumeration_type.enumerations {
             if e.const_value == value {
                 return Some(DebuggerValue::Enum(Box::new(EnumValue{
@@ -231,7 +269,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         unimplemented!();
     }
 
-    pub fn eval_subrange_type(&mut self, pieces: &mut Vec<Piece<R>>, subrange_type: &SubrangeType) -> Option<DebuggerValue<R>>
+
+    pub fn eval_subrange_type(&mut self,
+                              pieces: &mut Vec<Piece<R>>,
+                              subrange_type: &SubrangeType
+                              ) -> Option<DebuggerValue<R>>
     {
         match subrange_type.count {
             Some(val)   => return Some(DebuggerValue::Value(Value::U64(val))),
@@ -245,6 +287,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         None
     }
 
+
     pub fn eval_generic_subrange_type(&mut self) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
@@ -256,13 +299,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_variant_part(&mut self, mut pieces: &mut Vec<Piece<R>>, variant_part: &VariantPart) -> Option<DebuggerValue<R>>
+    pub fn eval_variant_part(&mut self,
+                             mut pieces: &mut Vec<Piece<R>>,
+                             variant_part: &VariantPart
+                             ) -> Option<DebuggerValue<R>>
     {
         match &variant_part.member {
             Some    (member)   => {
-                let variant = get_udata(self.eval_member(pieces, member).unwrap().to_value().unwrap()); // TODO: A more robust way of using the pieces.
+                let variant = get_udata(self.eval_member(pieces,
+                                                         member).unwrap().to_value().unwrap()); // TODO: A more robust way of using the pieces.
                 for v in &variant_part.variants {
                     if v.discr_value.unwrap() == variant {
+
                         return Some(DebuggerValue::Enum(Box::new(EnumValue{
                             name:   v.member.name.clone().unwrap(),
                             value:  self.eval_member(pieces, &v.member).unwrap(),
