@@ -14,6 +14,7 @@ pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Raw(Vec<u32>),
     Struct(Box<StructValue<R>>),
     Enum(Box<EnumValue<R>>),
+    Union(Box<UnionValue<R>>),
     Member(Box<MemberValue<R>>),
     OptimizedOut,
     Name(String),
@@ -30,6 +31,12 @@ pub struct StructValue<R: Reader<Offset = usize>> {
     pub name:       String,
     pub members:    Vec<DebuggerValue<R>>,
     //pub attributes: HashMap<String, DebuggerValue<R>>,
+}
+
+#[derive(Debug)]
+pub struct UnionValue<R: Reader<Offset = usize>> {
+    pub name:       String,
+    pub members:    Vec<DebuggerValue<R>>,
 }
 
 #[derive(Debug)]

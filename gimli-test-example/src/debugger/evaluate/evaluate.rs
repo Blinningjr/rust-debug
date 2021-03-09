@@ -7,6 +7,7 @@ use super::{
     EnumValue,
     StructValue,
     MemberValue,
+    UnionValue,
 };
 
 
@@ -19,6 +20,10 @@ use crate::debugger::types::types::{
     Variant,
     EnumerationType,
     Enumerator,
+    UnionType,
+    ArrayType,
+    ArrayDimension,
+    SubrangeType,
 };
 
 
@@ -40,9 +45,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         return match dtype {
             DebuggerType::BaseType              (bt)    => self.eval_basetype(pieces, bt),
             DebuggerType::PointerType           (pt)    => self.eval_pointer_type(),
-            DebuggerType::ArrayType             (at)    => self.eval_array_type(),
+            DebuggerType::ArrayType             (at)    => self.eval_array_type(pieces, at),
             DebuggerType::StructuredType        (st)    => self.eval_structured_type(pieces, st),
-            DebuggerType::UnionType             (ut)    => self.eval_union_type(),
+            DebuggerType::UnionType             (ut)    => self.eval_union_type(pieces, ut),
             DebuggerType::MemberType            (mt)    => self.eval_member(pieces, mt),
             DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(pieces, et),
             DebuggerType::StringType            (st)    => self.eval_string_type(),
@@ -98,7 +103,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             res.push(*d);
         }
 
-        return Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap())));
+        return Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap()))); 
         //return Some(DebuggerValue::Raw(res));
     }
 
@@ -117,8 +122,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         unimplemented!();
     }
 
-    pub fn eval_array_type(&mut self) -> Option<DebuggerValue<R>>
+
+    pub fn eval_array_type(&mut self, pieces: &mut Vec<Piece<R>>, array_type: &ArrayType) -> Option<DebuggerValue<R>>
     {
+        let count = match &array_type.dimensions[0] {
+            ArrayDimension::EnumerationType (et)    => self.eval_enumeration_type(pieces, et),
+            ArrayDimension::SubrangeType    (st)    => self.eval_subrange_type(pieces, st),
+        };
+
         unimplemented!();
     }
 
@@ -152,9 +163,25 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_union_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_union_type(&mut self, pieces: &mut Vec<Piece<R>>, union_type: &UnionType) -> Option<DebuggerValue<R>>
     {
-        unimplemented!();
+        let mut members = Vec::new();
+        for c in &union_type.children {
+            match &(**c) {
+                DebuggerType::MemberType    (mt)    => {
+                    members.push(mt);
+                },
+                _ => continue,
+            };
+        }
+
+        members.sort_by_key(|m| m.data_member_location);
+        let members = members.into_iter().map(|m| self.eval_member(pieces, m).unwrap()).collect();
+
+        return Some(DebuggerValue::Union(Box::new(UnionValue{
+            name:       union_type.name.clone().unwrap(),
+            members:    members,
+        })));
     }
 
     pub fn eval_member(&mut self, pieces: &mut Vec<Piece<R>>, member: &MemberType) -> Option<DebuggerValue<R>>
@@ -189,8 +216,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         unimplemented!();
     }
 
-    pub fn eval_subrange_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_subrange_type(&mut self, pieces: &mut Vec<Piece<R>>, subrange_type: &SubrangeType) -> Option<DebuggerValue<R>>
     {
+
         unimplemented!();
     }
 

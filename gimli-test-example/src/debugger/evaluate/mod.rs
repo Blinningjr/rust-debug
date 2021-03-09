@@ -53,6 +53,7 @@ pub use value::{
     StructValue,
     EnumValue,
     MemberValue,
+    UnionValue,
 };
 
 
