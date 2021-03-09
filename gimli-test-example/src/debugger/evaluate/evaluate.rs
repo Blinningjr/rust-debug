@@ -8,6 +8,7 @@ use super::{
     StructValue,
     MemberValue,
     UnionValue,
+    ArrayValue,
 };
 
 
@@ -93,7 +94,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             None        => 1,
         };
 
-        address -= address%4;
+        address -= address%4; // TODO: Is this correct?
 
         let mut data: Vec<u32> = vec![0; num_words as usize];
         self.core.read_32(address as u32, &mut data).unwrap();
@@ -103,17 +104,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             res.push(*d);
         }
 
-        return Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap()))); 
-        //return Some(DebuggerValue::Raw(res));
+        return Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap())));
+        //return Some(DebuggerValue::Raw(res)); 
     }
 
 
     pub fn eval_basetype(&mut self, mut pieces: &mut Vec<Piece<R>>, base_type: &BaseType) -> Option<DebuggerValue<R>>
     {
         if pieces.len() > 0 {
+            match base_type.byte_size {
+                Some(0) => return Some(DebuggerValue::ZeroSize),
+                _       => (),
+            };
             return self.eval_piece(pieces.remove(0), base_type.byte_size, Some(base_type.encoding));
         }
-        return Some(DebuggerValue::OptimizedOut);
+        return Some(DebuggerValue::OptimizedOut); // TODO: Somthing might be wrong whith my code:
     }
 
 
@@ -125,12 +130,19 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     pub fn eval_array_type(&mut self, pieces: &mut Vec<Piece<R>>, array_type: &ArrayType) -> Option<DebuggerValue<R>>
     {
-        let count = match &array_type.dimensions[0] {
+        let count = get_udata(match &array_type.dimensions[0] {
             ArrayDimension::EnumerationType (et)    => self.eval_enumeration_type(pieces, et),
             ArrayDimension::SubrangeType    (st)    => self.eval_subrange_type(pieces, st),
-        };
+        }.unwrap().to_value().unwrap());
 
-        unimplemented!();
+        let mut values = Vec::new();
+        for i in 0..count {
+            values.push(self.eval_type(pieces, &array_type.r#type).unwrap());  // TODO: Fix so that it can read mutiple of the same type.
+        }
+        
+        return Some(DebuggerValue::Array(Box::new(ArrayValue{
+            values: values,
+        })));
     }
 
 
@@ -184,6 +196,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         })));
     }
 
+
     pub fn eval_member(&mut self, pieces: &mut Vec<Piece<R>>, member: &MemberType) -> Option<DebuggerValue<R>>
     {
         return Some(DebuggerValue::Member(Box::new(MemberValue{
@@ -191,6 +204,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             value:  self.eval_type(pieces, &member.r#type).unwrap(),
         })));
     }
+
 
     pub fn eval_enumeration_type(&mut self, pieces: &mut Vec<Piece<R>>, enumeration_type: &EnumerationType) -> Option<DebuggerValue<R>>
     {
@@ -206,6 +220,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         None
     }
 
+
     pub fn eval_enumerator(&mut self) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
@@ -218,8 +233,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     pub fn eval_subrange_type(&mut self, pieces: &mut Vec<Piece<R>>, subrange_type: &SubrangeType) -> Option<DebuggerValue<R>>
     {
+        match subrange_type.count {
+            Some(val)   => return Some(DebuggerValue::Value(Value::U64(val))),
+            None        => (),
+        };
 
-        unimplemented!();
+        match &*subrange_type.r#type {
+            Some(val)   => return self.eval_type(pieces, val),
+            None        => (),
+        };
+        None
     }
 
     pub fn eval_generic_subrange_type(&mut self) -> Option<DebuggerValue<R>>

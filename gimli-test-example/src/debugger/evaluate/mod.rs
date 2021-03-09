@@ -54,6 +54,7 @@ pub use value::{
     EnumValue,
     MemberValue,
     UnionValue,
+    ArrayValue,
 };
 
 

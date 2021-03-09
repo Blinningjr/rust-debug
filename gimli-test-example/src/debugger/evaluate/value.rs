@@ -12,12 +12,20 @@ pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),
     Bytes(R),
     Raw(Vec<u32>),
+    Array(Box<ArrayValue<R>>),
     Struct(Box<StructValue<R>>),
     Enum(Box<EnumValue<R>>),
     Union(Box<UnionValue<R>>),
     Member(Box<MemberValue<R>>),
-    OptimizedOut,
     Name(String),
+    OptimizedOut,
+    ZeroSize, 
+}
+
+
+#[derive(Debug)]
+pub struct ArrayValue<R: Reader<Offset = usize>> {
+    pub values:  Vec<DebuggerValue<R>>,
 }
 
 #[derive(Debug)]
