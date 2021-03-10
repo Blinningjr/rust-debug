@@ -41,16 +41,16 @@ use gimli::{
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
-    core:   Core<'a>,
-    dwarf:  Dwarf<R>,
+    core:   &'a mut Core<'a>,
+    dwarf:  &'a Dwarf<R>,
     unit:   &'a Unit<R>,
     pc:     u32,
 }
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new(core:    Core<'a>,
-               dwarf:   Dwarf<R>,
+    pub fn new(core:    &'a mut Core<'a>,
+               dwarf:   &'a Dwarf<R>,
                unit:    &'a Unit<R>,
                pc:      u32
                ) -> Debugger<'a, R> {
