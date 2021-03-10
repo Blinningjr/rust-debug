@@ -1,7 +1,6 @@
-//! Testing how to parse and evaluate dwarf information.
-
-
 mod debugger;
+mod debugger_cli;
+mod commands;
 
 use debugger::{
     Debugger,
@@ -16,6 +15,7 @@ use std::path::Path;
 use probe_rs::{
     Probe,
     Core,
+    Session,
 };
 
 use probe_rs::flashing::{
@@ -35,45 +35,63 @@ use gimli::{
     Reader,
 };
 
+use std::path::PathBuf;
+use structopt::StructOpt;
 
-fn main() {
-    probe_rs_stuff().unwrap();
+use debugger_cli::DebuggerCli;
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "example", about = "An example of StructOpt usage.")]
+struct Opt {
+    /// Input dwarf file
+    #[structopt(parse(from_os_str))]
+    file: PathBuf,
 }
 
 
-fn probe_rs_stuff() -> Result<(), &'static str> {
+fn main() {
+    let opt = Opt::from_args();
+
+    let mut session = match attach_probe() {
+        Ok(session) => session,
+        Err(err)    => panic!("Error: {:?}", err),
+    };
+
+    let pc = match flash_target(&mut session, &opt.file) {
+        Ok(pc)      => pc,
+        Err(err)    => panic!("Error: {:?}", err),
+    };
+
+    let mut core = session.core(0).unwrap();
+    read_dwarf(pc, core, &opt.file);
+}
+
+
+fn attach_probe() -> Result<Session, &'static str>
+{
     // Get a list of all available debug probes.
     let probes = Probe::list_all();
     
     // Use the first probe found.
-    let probe = probes[0].open().map_err(|_| "Failed to open probe")?;
+    let probe = probes[0].open().map_err(|_| "Failed to open probe")?; // TODO: User should choose.
     
     // Attach to a chip.
-    let mut session = probe.attach_under_reset("STM32F411RETx").map_err(|_| "Failed to attach probe to target")?;
+    let session = probe.attach_under_reset("STM32F411RETx").map_err(|_| "Failed to attach probe to target")?; // TODO: User should choose.
+ 
+    Ok(session)
+}
 
 
-//    println!("{:#?}", core.registers().PC());
-//    println!("{:#?}", core.registers().program_counter().address);
-    let path_str = env::args().skip(1).next().unwrap();
-    let path = Path::new(&path_str);
-    println!("{:#?}", path);
-    
-    download_file(&mut session, &path, Format::Elf).map_err(|_| "Failed to flash target")?;
-    
+fn flash_target(session: &mut Session,
+                file_path: &PathBuf
+                ) -> Result<u32, &'static str>
+{
+    download_file(session, file_path, Format::Elf).map_err(|_| "Failed to flash target")?;
+
     let mut core = session.core(0).unwrap();
-
-    core.reset().map_err(|_| "Faild to reset")?;
-
-    core.wait_for_core_halted(Duration::new(5, 0)).map_err(|_| "Core never halted");
-
-    let pc_value: u32 = core
-        .read_core_reg(core.registers().program_counter())
-        .unwrap();
-
-    println!("{:#02x}", pc_value);
-
-    read_dwarf(pc_value, core, path);
-    Ok(())
+    let pc = core.reset_and_halt(std::time::Duration::from_millis(10)).map_err(|_| "Failed to reset and halt the core")?.pc;
+ 
+    Ok(pc)
 }
 
 
@@ -86,11 +104,11 @@ fn read_dwarf(pc: u32, core: Core, path: &Path) {
     } else {
         gimli::RunTimeEndian::Big
     };
-    let _ = dump_file(object, endian, pc, core);
+    let _ = dwarf_cli(object, endian, pc, core);
 }
 
 
-fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: Core) -> Result<(), gimli::Error> {
+fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: Core) -> Result<(), gimli::Error> {
     // Load a section and return as `Cow<[u8]>`.
     let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
         match object.section_by_name(id.name()) {
@@ -117,52 +135,20 @@ fn dump_file(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
     // Create `EndianSlice`s for all of the sections.
     let dwarf = dwarf_cow.borrow(&borrow_section);
 
-
-    let unit = get_current_unit(&dwarf, pc)?;
-    println!("{:?}", unit.name.unwrap().to_string());
-
-//    let dies = get_current_dies(&dwarf, &unit, pc)?;
-//    println!("{:#?}", dies.iter().map(|d| d.tag().static_string()).collect::<Vec<_>>());
-//
-//    for die in dies.iter() {
-//        check_die(&dwarf, &unit, die, pc);
-//    }
-
-    let mut debugger = Debugger::new(core, dwarf, &unit, pc);
-    
-    let search = "enum_yes";
-    let value = debugger.find_variable(search); 
-    println!("var {:?} = {:#?}", search, value);
-
-//    println!("################");
-//    
-//    let search = "test_struct";
-//    let value = debugger.find_variable(search); 
-//    println!("var {:?} = {:#?}", search, value);
-//
-//    println!("################");
-//
-//    let search = "test_enum1";
-//    let value = debugger.find_variable(search); 
-//    println!("var {:?} = {:#?}", search, value);
-//
-//    println!("################");
-//    
-//    let search = "test_enum2";
-//    let value = debugger.find_variable(search); 
-//    println!("var {:?} = {:#?}", search, value);
-//
-//    println!("################");
-//    
-//    let search = "test_enum3";
-//    let value = debugger.find_variable(search); 
-//    println!("var {:?} = {:#?}", search, value);
+    let mut cli = match DebuggerCli::new(core, dwarf) {
+        Ok(val) => val,
+        Err(err)    => panic!("Error: {:?}", err),
+    };
+    match cli.run() {
+        Ok(())    => (),
+        Err(err)    => panic!("Error: {:?}", err),
+    }; 
  
     return Ok(());
 }
 
 
-fn get_current_unit<'a, R>(
+pub fn get_current_unit<'a, R>(
         dwarf: &'a Dwarf<R>,
         pc: u32
     ) -> Result<Unit<R>, Error>
@@ -187,24 +173,5 @@ fn get_current_unit<'a, R>(
         Some(u) => Ok(u),
         None => Err(Error::MissingUnitDie),
     };
-}
-
-
-fn get_current_dies<'a, R>(
-        dwarf: &'a Dwarf<R>,
-        unit: &'a Unit<R>,
-        pc: u32
-    ) -> Result<Vec<DebuggingInformationEntry<'a, 'a, R>>, Error>
-        where R: Reader<Offset = usize>
-{
-    let mut entries = unit.entries();
-    let mut dies: Vec<DebuggingInformationEntry<R>> = vec!();
-    while let Some((_, entry)) = entries.next_dfs()? {
-//        println!("{:#?}", entry.tag().static_string());
-        if Some(true) == in_ranges(pc, &mut dwarf.die_ranges(unit, entry)?) {
-            dies.push(entry.clone());
-        }
-    }
-    return Ok(dies);
 }
 
