@@ -95,23 +95,23 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         frame_base = self.check_frame_base(unit, pc, &die, frame_base)?;
 
         // Check for the searched vairable.
-        //if self.check_var_name(unit, pc, &die, search) {
-        //    println!("\n");
-        //    self.print_die(&die)?;
-        //    let dtype = self.get_var_type(unit, pc, &die).unwrap();
-        //    //println!("{:#?}", dtype);
-        //    match self.eval_location(unit, pc, &die, &dtype, frame_base) {
-        //        Ok(v) => return Ok(v),
-        //        Err(_) => (),
-        //    };
-        //}
-        
-        //self.print_die(&die)?;
-        if let Some(dtype) = self.get_var_type(unit, pc, &die) {
+        if self.check_var_name(unit, pc, &die, search) {
+            println!("\n");
+            self.print_die(&die)?;
+            let dtype = self.get_var_type(unit, pc, &die).unwrap();
             //println!("{:#?}", dtype);
-            //self.print_die(&die)?;
-            self.eval_location(unit, pc, &die, &dtype, frame_base);
+            match self.eval_location(unit, pc, &die, &dtype, frame_base) {
+                Ok(v) => return Ok(v),
+                Err(_) => (),
+            };
         }
+        
+//        //self.print_die(&die)?;
+//        if let Some(dtype) = self.get_var_type(unit, pc, &die) {
+//            //println!("{:#?}", dtype);
+//            //self.print_die(&die)?;
+//            self.eval_location(unit, pc, &die, &dtype, frame_base);
+//        }
 
         // Recursively process the children.
         let mut children = node.children();
