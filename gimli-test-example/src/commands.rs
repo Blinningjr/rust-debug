@@ -10,11 +10,10 @@ use super::{
 };
 
 
-pub struct Command<R> {
+pub struct Command<R: Reader<Offset = usize>> {
     pub name:           &'static str,
     pub description:    &'static str,
-    pub function:       fn(core:    &mut Core,
-                           dwarf:   &Dwarf<R>,
+    pub function:       fn(debugger: &mut Debugger<R>,
                            args:    &[&str]
                            ) -> Result<bool, &'static str>,
 }
@@ -25,22 +24,22 @@ impl<R: Reader<Offset = usize>> Command<R> {
             Command {
                 name:           "exit",
                 description:    "Exit the debugger",
-                function:       |core, dwarf, args| exit_command(),
+                function:       |_debugger, _args| exit_command(),
             },
             Command {
                 name:           "status",
                 description:    "Show current status of CPU",
-                function:       |core, _dwarf, _args| status_command(core),
+                function:       |debugger, _args| status_command(&mut debugger.core),
             },
             Command {
                 name:           "print",
                 description:    "Evaluate variable",
-                function:       |core, dwarf, args| print_command(core, dwarf, args),
+                function:       |debugger, args| print_command(debugger, args),
             },
             Command {
                 name:           "run",
                 description:    "Resume execution of the CPU",
-                function:       |core, _dwarf, _args| run_command(core),
+                function:       |debugger, _args| run_command(&mut debugger.core),
             },
         )
     }
@@ -68,21 +67,20 @@ fn status_command(core: &mut Core) -> Result<bool, &'static str>
 }
 
 
-fn print_command<R: Reader<Offset = usize>>(core:   &mut Core,
-                                            dwarf:  &Dwarf<R>,
+fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
                                             args:   &[&str]
                                             ) -> Result<bool, &'static str>
 {
-    let status = core.status().unwrap();
+    let status = debugger.core.status().unwrap();
     if status.is_halted() {
-        let pc  = core.read_core_reg(core.registers().program_counter()).unwrap();
+        let pc  = debugger.core.read_core_reg(debugger.core.registers().program_counter()).unwrap();
         let var = args[0];
 
-        let unit = get_current_unit(&dwarf, pc).map_err(|_| "Can't find the current dwarf unit")?;
-        println!("{:?}", unit.name.unwrap().to_string());
-
-        //let mut debugger = Debugger::new(core, dwarf, &unit, pc);
-        unimplemented!();
+        let unit = get_current_unit(&debugger.dwarf, pc).map_err(|_| "Can't find the current dwarf unit")?;
+        //println!("{:?}", unit.name.unwrap().to_string());
+        
+        let value = debugger.find_variable(&unit, pc, var);
+        println!("{} = {:#?}", var, value);
     }
     Ok(false)
 }

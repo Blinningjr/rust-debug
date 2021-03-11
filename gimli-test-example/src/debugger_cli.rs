@@ -2,6 +2,9 @@ use super::{
     commands::{
         Command,
     },
+    debugger::{
+        Debugger,
+    },
 };
 
 use probe_rs::{
@@ -20,21 +23,17 @@ use std::path::PathBuf;
 use std::{borrow, env, fs};
 use object::{Object, ObjectSection};
 
-pub struct DebuggerCli<'a, R> {
+pub struct DebuggerCli<'a, R: Reader<Offset = usize>> {
     pub commands:   Vec<Command<R>>,
-    pub core:       Core<'a>,
-    pub dwarf:      Dwarf<R>,    
+    pub debugger:   Debugger<'a, R>,
 }
 
 impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
-    pub fn new(core: Core<'a>,
-               dwarf: Dwarf<R>
-               ) -> Result<DebuggerCli<'a, R>, &'static str>
+    pub fn new(debugger: Debugger<'a, R>) -> Result<DebuggerCli<'a, R>, &'static str>
     {
         Ok(DebuggerCli {
             commands:   Command::init_commands(),
-            core:       core,
-            dwarf:      dwarf,
+            debugger:   debugger,
         })
     }
 
@@ -93,7 +92,7 @@ impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
             if let Some(cmd) = cmd {
                 let remaining_args: Vec<&str> = command_parts.collect();
 
-                (cmd.function)(&mut self.core, &self.dwarf, &remaining_args)
+                (cmd.function)(&mut self.debugger, &remaining_args)
             } else {
                 println!("Unknown command '{}'", command);
                 println!("Enter 'help' for a list of commands");

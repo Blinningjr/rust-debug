@@ -61,12 +61,13 @@ pub use value::{
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn evaluate(&mut self,
                     unit:       &Unit<R>,
+                    pc:         u32,
                     expr:       Expression<R>,
                     frame_base: Option<u64>,
                     vtype:      Option<&DebuggerType>,
                     ) -> Result<DebuggerValue<R>, &'static str>
     {
-        let mut eval    = expr.evaluation(self.unit.encoding());
+        let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate().unwrap();
     
         println!("fb: {:?}", frame_base);
@@ -101,20 +102,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
                 RequiresAtLocation(die_ref) =>
                     self.resolve_requires_at_location(unit,
+                                                      pc,
                                                       &mut eval,
                                                       &mut result,
                                                       frame_base,
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(self.evaluate(unit, e, frame_base, None)?.to_value().unwrap()).unwrap(),
+                  result = eval.resume_with_entry_value(self.evaluate(unit, pc, e, frame_base, None)?.to_value().unwrap()).unwrap(),
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die     = unit.entry(unit_offset).unwrap();
-                        let dtype   = self.type_attribute(&die).unwrap();
+                        let dtype   = self.type_attribute(unit, pc, &die).unwrap();
                         let expr    = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(unit, expr, frame_base, Some(&dtype)).unwrap();
+                        let value   = self.evaluate(unit, pc, expr, frame_base, Some(&dtype)).unwrap();
 
                         if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val).unwrap();
@@ -191,6 +193,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn resolve_requires_at_location(&mut self,
                                     unit:       &Unit<R>,
+                                    pc:         u32,
                                     eval:       &mut Evaluation<R>,
                                     result:     &mut EvaluationResult<R>,
                                     frame_base: Option<u64>,
@@ -200,14 +203,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     { 
         match die_ref {
             DieReference::UnitRef(unit_offset) => {
-                return self.help_at_location(unit, eval, result, frame_base, unit_offset);
+                return self.help_at_location(unit, pc, eval, result, frame_base, unit_offset);
             },
 
             DieReference::DebugInfoRef(debug_info_offset) => {
                 let unit_header = self.dwarf.debug_info.header_from_offset(debug_info_offset).map_err(|_| "Can't find debug info header")?;
                 if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                     let new_unit = self.dwarf.unit(unit_header).map_err(|_| "Can't find unit using unit header")?;
-                    return self.help_at_location(&new_unit, eval, result, frame_base, unit_offset);
+                    return self.help_at_location(&new_unit, pc, eval, result, frame_base, unit_offset);
                 } else {
                     return Err("Could not find at location");
                 }    
@@ -218,6 +221,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn help_at_location(&mut self,
                         unit:           &Unit<R>,
+                        pc:             u32,
                         eval:           &mut Evaluation<R>,
                         result:         &mut EvaluationResult<R>,
                         frame_base:     Option<u64>,
@@ -228,8 +232,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let die = unit.entry(unit_offset).unwrap();
         if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
             
-            let dtype   = self.type_attribute(&die).unwrap();
-            let val     = self.evaluate(&unit, expr, frame_base, Some(&dtype))?;
+            let dtype   = self.type_attribute(unit, pc, &die).unwrap();
+            let val     = self.evaluate(&unit, pc, expr, frame_base, Some(&dtype))?;
 
             if let DebuggerValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b).unwrap();

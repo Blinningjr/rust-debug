@@ -135,7 +135,9 @@ fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: 
     // Create `EndianSlice`s for all of the sections.
     let dwarf = dwarf_cow.borrow(&borrow_section);
 
-    let mut cli = match DebuggerCli::new(core, dwarf) {
+    let debugger = Debugger::new(core, dwarf);
+
+    let mut cli = match DebuggerCli::new(debugger) {
         Ok(val) => val,
         Err(err)    => panic!("Error: {:?}", err),
     };

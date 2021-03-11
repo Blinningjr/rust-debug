@@ -41,39 +41,35 @@ use gimli::{
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
-    core:   &'a mut Core<'a>,
-    dwarf:  &'a Dwarf<R>,
-    unit:   &'a Unit<R>,
-    pc:     u32,
+    pub core:   Core<'a>,
+    pub dwarf:  Dwarf<R>,
 }
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new(core:    &'a mut Core<'a>,
-               dwarf:   &'a Dwarf<R>,
-               unit:    &'a Unit<R>,
-               pc:      u32
+    pub fn new(core:    Core<'a>,
+               dwarf:   Dwarf<R>,
                ) -> Debugger<'a, R> {
         Debugger{
             core:   core,
             dwarf:  dwarf,
-            unit:   unit,
-            pc:     pc,
         }
     }
 
 
     pub fn find_variable(&mut self,
-                         search: &str
+                         unit:      &Unit<R>,
+                         pc:        u32,
+                         search:    &str
                          ) -> gimli::Result<DebuggerValue<R>>
     {
-        let mut tree    = self.unit.entries_tree(None)?;
+        let mut tree    = unit.entries_tree(None)?;
         let root        = tree.root()?;
 
 //        self.print_tree(root)?;
 //        unimplemented!();
 
-        return match self.process_tree(root, None, search)? {
+        return match self.process_tree(unit, pc, root, None, search)? {
             Some(val)   => Ok(val),
             None        => Err(Error::Io), // TODO: Change to a better error.
         };
@@ -81,6 +77,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn process_tree(&mut self, 
+                        unit:           &Unit<R>,
+                        pc:             u32,
                         node:           EntriesTreeNode<R>,
                         mut frame_base: Option<u64>,
                         search:         &str
@@ -89,36 +87,36 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let die = node.entry();
 
         // Check if die in range
-        match die_in_range(&self.dwarf, &self.unit, die, self.pc) {
+        match die_in_range(&self.dwarf, unit, die, pc) {
             Some(false) => return Ok(None),
             _ => (),
         };
 
-        frame_base = self.check_frame_base(&die, frame_base)?;
+        frame_base = self.check_frame_base(unit, pc, &die, frame_base)?;
 
         // Check for the searched vairable.
-        //if self.check_var_name(&die, search) {
+        //if self.check_var_name(unit, pc, &die, search) {
         //    println!("\n");
         //    self.print_die(&die)?;
-        //    let dtype = self.get_var_type(&die).unwrap();
+        //    let dtype = self.get_var_type(unit, pc, &die).unwrap();
         //    //println!("{:#?}", dtype);
-        //    match self.eval_location(&die, &dtype, frame_base) {
+        //    match self.eval_location(unit, pc, &die, &dtype, frame_base) {
         //        Ok(v) => return Ok(v),
         //        Err(_) => (),
         //    };
         //}
         
         //self.print_die(&die)?;
-        if let Some(dtype) = self.get_var_type(&die) {
+        if let Some(dtype) = self.get_var_type(unit, pc, &die) {
             //println!("{:#?}", dtype);
             //self.print_die(&die)?;
-            self.eval_location(&die, &dtype, frame_base);
+            self.eval_location(unit, pc, &die, &dtype, frame_base);
         }
 
         // Recursively process the children.
         let mut children = node.children();
         while let Some(child) = children.next()? {
-            if let Some(result) = self.process_tree(child, frame_base, search)? {
+            if let Some(result) = self.process_tree(unit, pc, child, frame_base, search)? {
                 return Ok(Some(result));
             }
         }
@@ -127,6 +125,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn check_var_name(&mut self,
+                      unit:     &Unit<R>,
+                      pc:       u32,
                       die:      &DebuggingInformationEntry<R>,
                       search:   &str
                       ) -> bool
@@ -141,8 +141,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
                 match offset {
                     UnitRef(o) => {
-                        if let Ok(ndie) = self.unit.entry(o) {
-                            return self.check_var_name(&ndie, search);
+                        if let Ok(ndie) = unit.entry(o) {
+                            return self.check_var_name(unit, pc, &ndie, search);
                         }
                     },
                     _ => {
@@ -157,19 +157,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn get_var_type(&mut self,
+                      unit:     &Unit<R>,
+                      pc:       u32,
                     die: &DebuggingInformationEntry<R>
                     ) -> Option<DebuggerType>
     {
         if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
-            return match self.parse_type_attr(tattr) {
+            return match self.parse_type_attr(unit, pc, tattr) {
                 Ok(t) => Some(t),
                 Err(_) => None,
             };
         } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
             match die_offset {
                 UnitRef(offset) => {
-                    if let Ok(ndie) = self.unit.entry(offset) {
-                        return self.get_var_type(&ndie);
+                    if let Ok(ndie) = unit.entry(offset) {
+                        return self.get_var_type(unit, pc, &ndie);
                     }
                 },
                 _ => {
@@ -183,6 +185,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn eval_location(&mut self,
+                      unit:     &Unit<R>,
+                      pc:       u32,
                      die:               &DebuggingInformationEntry<R>,
                      dtype:             &DebuggerType,
                      mut frame_base:    Option<u64>
@@ -192,7 +196,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 self.print_die(&die)?;
-                let value = match self.evaluate(self.unit, expr, frame_base, Some(dtype)) {
+                let value = match self.evaluate(unit, pc, expr, frame_base, Some(dtype)) {
                     Ok(val) => val,
                     Err(_) => return Err(Error::Io), // TODO
                 };
@@ -202,12 +206,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             },
             Some(LocationListsRef(offset)) => {
                 self.print_die(&die)?;
-                let mut locations = self.dwarf.locations(self.unit, offset)?;
+                let mut locations = self.dwarf.locations(unit, offset)?;
                 while let Some(llent) = locations.next()? {
-                    //let value = self.evaluate(self.unit, llent.data, frame_base, Some(&dtype)).unwrap();
+                    //let value = self.evaluate(unit, llent.data, frame_base, Some(&dtype)).unwrap();
                     //println!("\n");
-                    if in_range(self.pc, &llent.range) {
-                        let value = self.evaluate(self.unit, llent.data, frame_base, Some(dtype)).unwrap();
+                    if in_range(pc, &llent.range) {
+                        let value = self.evaluate(unit, pc, llent.data, frame_base, Some(dtype)).unwrap();
                         println!("\n");
 
                         return Ok(Some(value));
@@ -225,13 +229,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     
 
     pub fn check_frame_base(&mut self,
+                            unit:     &Unit<R>,
+                            pc:       u32,
                             die:        &DebuggingInformationEntry<'_, '_, R>,
                             frame_base: Option<u64>
                             ) -> gimli::Result<Option<u64>>
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(&self.unit, expr, frame_base, None) {
+                return Ok(match self.evaluate(unit, pc, expr, frame_base, None) {
                     Ok(DebuggerValue::Value(Value::U64(v))) => Some(v),
                     Ok(DebuggerValue::Value(Value::U32(v))) => Some(v as u64),
                     Ok(v) => {

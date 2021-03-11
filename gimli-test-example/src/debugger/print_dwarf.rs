@@ -12,18 +12,21 @@ use gimli::{
     },
     Reader,
     EntriesTreeNode,
+    Unit,
 };
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn print_tree(&mut self, 
+                         unit:      &Unit<R>,
+                         pc:        u32,
                       node: EntriesTreeNode<R>
                       ) -> gimli::Result<()>
     {
         let die = node.entry();
 
         // Check if die in range
-        match die_in_range(&self.dwarf, &self.unit, die, self.pc) {
+        match die_in_range(&self.dwarf, unit, die, pc) {
             Some(false) =>(),// return Ok(()),
             _ => (),
         };
@@ -33,7 +36,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // Recursively process the children.
         let mut children = node.children();
         while let Some(child) = children.next()? {
-            self.print_tree(child)?
+            self.print_tree(unit, pc, child)?
         }
         return Ok(());
     }

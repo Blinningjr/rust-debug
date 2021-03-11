@@ -23,6 +23,7 @@ use gimli::{
     },
     DwAddr,
     DwAte,
+    Unit,
 };
 
 
@@ -118,11 +119,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn type_attribute(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                           die: &DebuggingInformationEntry<R>
                           ) -> Option<DebuggerType>
     {
         return match die.attr_value(gimli::DW_AT_type).ok()? {
-            Some(attr) => Some(self.parse_type_attr(attr).ok()?),
+            Some(attr) => Some(self.parse_type_attr(unit, pc, attr).ok()?),
             _ => None,
         };
     }

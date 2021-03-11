@@ -31,34 +31,37 @@ use gimli::{
     },
     Reader,
     EntriesTreeNode,
+    Unit,
 };
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn parse_type_node(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                            node: EntriesTreeNode<R>
                            ) -> gimli::Result<DebuggerType>
     {
         return match node.entry().tag() { 
-            gimli::DW_TAG_base_type                 => Ok(DebuggerType::BaseType(self.parse_base_type(node)?)),
-            gimli::DW_TAG_pointer_type              => Ok(DebuggerType::PointerType(self.parse_pointer_type(node)?)),
-            gimli::DW_TAG_array_type                => Ok(DebuggerType::ArrayType(self.parse_array_type(node)?)),
-            gimli::DW_TAG_structure_type            => Ok(DebuggerType::StructuredType(self.parse_structure_type(node)?)),
-            gimli::DW_TAG_union_type                => Ok(DebuggerType::UnionType(self.parse_union_type(node)?)),
-            gimli::DW_TAG_member                    => Ok(DebuggerType::MemberType(self.parse_member_type(node)?)),
-            gimli::DW_TAG_enumeration_type          => Ok(DebuggerType::EnumerationType(self.parse_enumeration_type(node)?)),
+            gimli::DW_TAG_base_type                 => Ok(DebuggerType::BaseType(self.parse_base_type(unit, pc, node)?)),
+            gimli::DW_TAG_pointer_type              => Ok(DebuggerType::PointerType(self.parse_pointer_type(unit, pc, node)?)),
+            gimli::DW_TAG_array_type                => Ok(DebuggerType::ArrayType(self.parse_array_type(unit, pc, node)?)),
+            gimli::DW_TAG_structure_type            => Ok(DebuggerType::StructuredType(self.parse_structure_type(unit, pc, node)?)),
+            gimli::DW_TAG_union_type                => Ok(DebuggerType::UnionType(self.parse_union_type(unit, pc, node)?)),
+            gimli::DW_TAG_member                    => Ok(DebuggerType::MemberType(self.parse_member_type(unit, pc, node)?)),
+            gimli::DW_TAG_enumeration_type          => Ok(DebuggerType::EnumerationType(self.parse_enumeration_type(unit, pc, node)?)),
 //            gimli::DW_TAG_enumerator                => Ok(DebuggerType::Enumerator(self.parse_enumerator(node)?)),
-            gimli::DW_TAG_string_type               => Ok(DebuggerType::StringType(self.parse_string_type(node)?)),
+            gimli::DW_TAG_string_type               => Ok(DebuggerType::StringType(self.parse_string_type(unit, pc, node)?)),
 //            gimli::DW_TAG_subrange_type             => Ok(DebuggerType::SubrangeType(self.parse_subrange_type(node)?)),
-            gimli::DW_TAG_generic_subrange          => Ok(DebuggerType::GenericSubrangeType(self.parse_generic_subrange_type(node)?)),
-            gimli::DW_TAG_template_type_parameter   => Ok(DebuggerType::TemplateTypeParameter(self.parse_template_type_parameter(node)?)),
-            gimli::DW_TAG_variant_part              => Ok(DebuggerType::VariantPart(self.parse_variant_part(node)?)),
+            gimli::DW_TAG_generic_subrange          => Ok(DebuggerType::GenericSubrangeType(self.parse_generic_subrange_type(unit, pc, node)?)),
+            gimli::DW_TAG_template_type_parameter   => Ok(DebuggerType::TemplateTypeParameter(self.parse_template_type_parameter(unit, pc, node)?)),
+            gimli::DW_TAG_variant_part              => Ok(DebuggerType::VariantPart(self.parse_variant_part(unit, pc, node)?)),
 //            gimli::DW_TAG_variant                   => Ok(DebuggerType::Variant(self.parse_variant(node)?)),
-            gimli::DW_TAG_subroutine_type           => Ok(DebuggerType::SubroutineType(self.parse_subroutine_type(node)?)),
-            gimli::DW_TAG_subprogram                => Ok(DebuggerType::Subprogram(self.parse_subprogram(node)?)),
+            gimli::DW_TAG_subroutine_type           => Ok(DebuggerType::SubroutineType(self.parse_subroutine_type(unit, pc, node)?)),
+            gimli::DW_TAG_subprogram                => Ok(DebuggerType::Subprogram(self.parse_subprogram(unit, pc, node)?)),
             _ => {
                 println!("Start of type tree");
-                self.print_tree(node)?;
+                self.print_tree(unit, pc, node)?;
                 unimplemented!(); //TODO: Add parser if this is reached.
             },
         };
@@ -66,19 +69,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn parse_type_attr(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                            attr_value: AttributeValue<R>
                            ) -> gimli::Result<DebuggerType>
     {
         match attr_value {
             UnitRef(offset) => {
-                let mut tree = self.unit.entries_tree(Some(offset))?;
+                let mut tree = unit.entries_tree(Some(offset))?;
                 let root = tree.root()?;
-                //self.print_tree(root)?;
+                //self.print_tree(unit, pc, root)?;
                 //return Err(gimli::Error::Io);
-                return self.parse_type_node(root);           
+                return self.parse_type_node(unit, pc, root);           
             },
             DebugInfoRef(di_offset) => {
-                let res = self.debug_info_offset_type(di_offset).ok_or_else(|| gimli::Error::Io)?;
+                let res = self.debug_info_offset_type(unit, pc, di_offset).ok_or_else(|| gimli::Error::Io)?;
                 //println!("{:?}", res);
                 return Ok(res);
             },
@@ -91,6 +96,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_structure_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                             node: EntriesTreeNode<R>
                             ) -> gimli::Result<StructuredType>
     {
@@ -104,7 +111,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut children        = node.children();
 
         while let Some(child) = children.next()? { 
-            parsed_children.push(Box::new(self.parse_type_node(child)?));
+            parsed_children.push(Box::new(self.parse_type_node(unit, pc, child)?));
         }
        
         return Ok(StructuredType {
@@ -118,6 +125,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_union_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                         node: EntriesTreeNode<R>
                         ) -> gimli::Result<UnionType>
     {
@@ -131,7 +140,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut children        = node.children();
 
         while let Some(child) = children.next()? { 
-            parsed_children.push(Box::new(self.parse_type_node(child)?));
+            parsed_children.push(Box::new(self.parse_type_node(unit, pc, child)?));
         }
        
         return Ok(UnionType {
@@ -145,6 +154,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_member_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                          node: EntriesTreeNode<R>
                          ) -> gimli::Result<MemberType>
     {
@@ -159,12 +170,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             data_member_location:   self.data_member_location_attribute(&die),
             mutable:                self.mutable_attribute(&die),
             name:                   self.name_attribute(&die),
-            r#type:                 Box::new(self.type_attribute(&die).unwrap()),
+            r#type:                 Box::new(self.type_attribute(unit, pc, &die).unwrap()),
         });
     }
 
 
     fn parse_base_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                        node: EntriesTreeNode<R>
                        ) -> gimli::Result<BaseType>
     {
@@ -191,6 +204,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * Source: Dwarf 5 spec.
      */
     fn parse_array_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                         node: EntriesTreeNode<R>
                         ) -> gimli::Result<ArrayType>
     { 
@@ -199,17 +214,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let bit_size        = self.bit_size_attribute(&die);
         let byte_size       = self.byte_size_attribute(&die);
         let name            = self.name_attribute(&die);
-        let r#type          = Box::new(self.type_attribute(&die).unwrap());
+        let r#type          = Box::new(self.type_attribute(unit, pc, &die).unwrap());
         let mut dimensions  = Vec::new();
 
         let mut children = node.children();
         if let Some(child) = children.next()? { 
             match child.entry().tag() {
-                gimli::DW_TAG_subrange_type     => dimensions.push(ArrayDimension::SubrangeType(self.parse_subrange_type(child)?)),
-                gimli::DW_TAG_enumeration_type  => dimensions.push(ArrayDimension::EnumerationType(self.parse_enumeration_type(child)?)),
+                gimli::DW_TAG_subrange_type     => dimensions.push(ArrayDimension::SubrangeType(self.parse_subrange_type(unit, pc, child)?)),
+                gimli::DW_TAG_enumeration_type  => dimensions.push(ArrayDimension::EnumerationType(self.parse_enumeration_type(unit, pc, child)?)),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child)?;
+                    self.print_tree(unit, pc, child)?;
                     unimplemented!(); //TODO: Add parser for generic_subrange.
                 },
             };
@@ -231,6 +246,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * subprogram dies can also be children.
      */
     fn parse_enumeration_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                               node: EntriesTreeNode<R>
                               ) -> gimli::Result<EnumerationType>
     {
@@ -242,7 +259,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //let data_location   = self.data_location_attribute(&die);
         let enum_class      = self.enum_class_attribute(&die);
         let name            = self.name_attribute(&die);
-        let r#type          = self.type_attribute(&die);
+        let r#type          = self.type_attribute(unit, pc, &die);
         
         let mut enumerators = Vec::new(); 
         let mut methods     = Vec::new();
@@ -250,11 +267,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         while let Some(child) = children.next()? { 
             match child.entry().tag() {
-                gimli::DW_TAG_enumerator    => enumerators.push(self.parse_enumerator(child)?),
-                gimli::DW_TAG_subprogram    => methods.push(self.parse_subprogram(child)?),
+                gimli::DW_TAG_enumerator    => enumerators.push(self.parse_enumerator(unit, pc, child)?),
+                gimli::DW_TAG_subprogram    => methods.push(self.parse_subprogram(unit, pc, child)?),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child)?;
+                    self.print_tree(unit, pc, child)?;
                     unimplemented!(); //TODO: Add parser for generic_subrange.
                 },
             };
@@ -282,6 +299,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * Source: Dwarf 5 spec.
      */
     fn parse_enumerator(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                         node: EntriesTreeNode<R>
                         ) -> gimli::Result<Enumerator>
     {
@@ -297,6 +316,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_pointer_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                           node: EntriesTreeNode<R>
                           ) -> gimli::Result<PointerType>
     {
@@ -307,12 +328,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             bit_size:       self.bit_size_attribute(&die),
             byte_size:      self.byte_size_attribute(&die),
             name:           self.name_attribute(&die),
-            r#type:         Box::new(self.type_attribute(&die).unwrap()),
+            r#type:         Box::new(self.type_attribute(unit, pc, &die).unwrap()),
         });
     }
 
 
     fn debug_info_offset_type(&mut self, // TODO
+                         unit:      &Unit<R>,
+                         pc:        u32,
                               offset: gimli::DebugInfoOffset,
                               ) -> Option<DebuggerType>
     {
@@ -323,7 +346,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             if let Some(offset) = offset.to_unit_offset(&unit) {
                 let mut tree = unit.entries_tree(Some(offset)).ok()?;
                 let root= tree.root().unwrap(); 
-                return Some(self.parse_type_node(root).ok()?);
+                return Some(self.parse_type_node(&unit, pc, root).ok()?);
             }
         }
         None
@@ -331,6 +354,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_string_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                          node: EntriesTreeNode<R>
                          ) -> gimli::Result<StringType>
     {
@@ -349,6 +374,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_subrange_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                            node: EntriesTreeNode<R>
                            ) -> gimli::Result<SubrangeType>
     {
@@ -361,13 +388,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             count:          self.count_attribute(&die),
             lower_bound:    self.lower_bound_attribute(&die),
             name:           self.name_attribute(&die),
-            r#type:         Box::new(self.type_attribute(&die)),
+            r#type:         Box::new(self.type_attribute(unit, pc, &die)),
             upper_bound:    self.upper_bound_attribute(&die),
         });
     }
     
 
     fn parse_generic_subrange_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                                    node: EntriesTreeNode<R>
                                    ) -> gimli::Result<GenericSubrangeType>
     {
@@ -380,13 +409,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             count:          self.count_attribute(&die),
             lower_bound:    self.lower_bound_attribute(&die),
             name:           self.name_attribute(&die),
-            r#type:         Box::new(self.type_attribute(&die)),
+            r#type:         Box::new(self.type_attribute(unit, pc, &die)),
             upper_bound:    self.upper_bound_attribute(&die),
         });
     }
 
 
     fn parse_template_type_parameter(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                                      node: EntriesTreeNode<R>
                                      ) -> gimli::Result<TemplateTypeParameter>
     {
@@ -394,7 +425,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         return Ok(TemplateTypeParameter {
 //            default_value:  self.default_value_attribute(&die), // TODO
             name:           self.name_attribute(&die),
-            r#type:         Box::new(self.type_attribute(&die).unwrap()),
+            r#type:         Box::new(self.type_attribute(unit, pc, &die).unwrap()),
         });
     }
 
@@ -408,6 +439,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * Source: Dwarf 5 spec.
      */
     fn parse_variant_part(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                           node: EntriesTreeNode<R>
                           ) -> gimli::Result<VariantPart>
     {
@@ -425,12 +458,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     if member != None {
                         panic!("Expected only one member");
                     }
-                    member = Some(self.parse_member_type(child)?);
+                    member = Some(self.parse_member_type(unit, pc, child)?);
                 },
-                gimli::DW_TAG_variant   => variants.push(self.parse_variant(child)?),
+                gimli::DW_TAG_variant   => variants.push(self.parse_variant(unit, pc, child)?),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child)?;
+                    self.print_tree(unit, pc, child)?;
                     unimplemented!(); //TODO: Add parser if this is reached.
                 },
             };
@@ -452,6 +485,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * Source: Dwarf 5 spec.
      */
     fn parse_variant(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                      node: EntriesTreeNode<R>
                      ) -> gimli::Result<Variant>
     {
@@ -465,10 +500,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut i = 0;
         while let Some(child) = children.next()? { 
             match child.entry().tag() {
-                gimli::DW_TAG_member    => member = Some(self.parse_member_type(child)?),
+                gimli::DW_TAG_member    => member = Some(self.parse_member_type(unit, pc, child)?),
                 _ => {
                     println!("Start of type tree");
-                    self.print_tree(child)?;
+                    self.print_tree(unit, pc, child)?;
                     unimplemented!(); //TODO: Add parser if this is reached.
                 },
             };
@@ -488,6 +523,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn parse_subroutine_type(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                              node: EntriesTreeNode<R>
                              )-> gimli::Result<SubroutineType>
     {
@@ -498,12 +535,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             alignment:      self.alignment_attribute(&die),
             name:           self.name_attribute(&die),
             linkage_name:   self.linkage_name_attribute(&die),
-            r#type:         Box::new(self.type_attribute(&die)),
+            r#type:         Box::new(self.type_attribute(unit, pc, &die)),
         });
     }
 
 
     fn parse_subprogram(&mut self,
+                         unit:      &Unit<R>,
+                         pc:        u32,
                         node: EntriesTreeNode<R>
                         ) -> gimli::Result<Subprogram>
     {
@@ -511,7 +550,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         return Ok(Subprogram {
             name:               self.name_attribute(&die),
             linkage_name:       self.linkage_name_attribute(&die),
-            //r#type:             Box::new(self.type_attribute(&die)),
+            //r#type:             Box::new(self.type_attribute(unit, pc, &die)),
         });
     }
 }
