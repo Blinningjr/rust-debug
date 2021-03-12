@@ -11,8 +11,15 @@ use anyhow::{
 };
 
 
+use std::time::Duration;
+
+
+use probe_rs::MemoryInterface;
+
+
 pub struct Command<R: Reader<Offset = usize>> {
     pub name:           &'static str,
+    pub short:          &'static str,
     pub description:    &'static str,
     pub function:       fn(debugger: &mut Debugger<R>,
                            args:    &[&str]
@@ -24,23 +31,51 @@ impl<R: Reader<Offset = usize>> Command<R> {
         vec!(
             Command {
                 name:           "exit",
+                short:          "e",
                 description:    "Exit the debugger",
                 function:       |_debugger, _args| exit_command(),
             },
             Command {
                 name:           "status",
+                short:          "s",
                 description:    "Show current status of CPU",
                 function:       |debugger, _args| status_command(&mut debugger.core),
             },
             Command {
                 name:           "print",
+                short:          "p",
                 description:    "Evaluate variable",
                 function:       |debugger, args| print_command(debugger, args),
             },
             Command {
                 name:           "run",
+                short:          "r",
                 description:    "Resume execution of the CPU",
                 function:       |debugger, _args| run_command(&mut debugger.core),
+            },
+            Command {
+                name:           "step",
+                short:          "sp",
+                description:    "Step a single instruction",
+                function:       |debugger, _args| step_command(&mut debugger.core),
+            },
+            Command {
+                name:           "halt",
+                short:          "h",
+                description:    "Stop the CPU",
+                function:       |debugger, _args| halt_command(&mut debugger.core),
+            },
+            Command {
+                name:           "registers",
+                short:          "regs",
+                description:    "Show CPU register values",
+                function:       |debugger, _args| regs_command(&mut debugger.core),
+            },
+            Command {
+                name:           "reset",
+                short:          "rt",
+                description:    "Reset the CPU",
+                function:       |debugger, _args| reset_command(&mut debugger.core),
             },
         )
     }
@@ -73,6 +108,7 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
                                             ) -> Result<bool>
 {
     let status = debugger.core.status()?;
+
     if status.is_halted() {
         let pc  = debugger.core.read_core_reg(debugger.core.registers().program_counter())?;
         let var = args[0];
@@ -82,7 +118,11 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
         
         let value = debugger.find_variable(&unit, pc, var);
         println!("{} = {:#?}", var, value);
+    } else {
+        println!("CPU must be halted to run this command");
+        println!("Status: {:?}", &status);
     }
+
     Ok(false)
 }
 
@@ -90,6 +130,59 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 fn run_command(core: &mut Core) -> Result<bool>
 {
     core.run()?;
+    Ok(false)
+}
+
+
+fn step_command(core: &mut Core) -> Result<bool>
+{
+    let cpu_info = core.step()?;
+    println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+
+    Ok(false)
+}
+
+
+fn halt_command(core: &mut Core) -> Result<bool>
+{
+    let cpu_info = core.halt(Duration::from_millis(100))?;
+    println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+
+    let mut code = [0u8; 16 * 2];
+
+    core.read_8(cpu_info.pc, &mut code)?;
+
+    for (offset, instruction) in code.iter().enumerate() {
+        println!(
+            "{:#010x}: {:010x}",
+            cpu_info.pc + offset as u32,
+            instruction
+        );
+    }
+
+    Ok(false)
+}
+
+
+fn regs_command(core: &mut Core) -> Result<bool>
+{
+    let register_file = core.registers();
+
+    for register in register_file.registers() {
+        let value = core.read_core_reg(register)?;
+
+        println!("{}:\t{:#010x}", register.name(), value)
+    }
+
+    Ok(false)
+}
+
+
+fn reset_command(core: &mut Core) -> Result<bool>
+{
+    core.halt(Duration::from_millis(100))?;
+    core.reset_and_halt(Duration::from_millis(100))?;
+
     Ok(false)
 }
 

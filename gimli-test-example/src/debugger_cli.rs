@@ -85,7 +85,7 @@ impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
                 return Ok(false);
             }
     
-            let cmd = self.commands.iter().find(|c| c.name == command);
+            let cmd = self.commands.iter().find(|c| c.name == command || c.short == command);
     
             if let Some(cmd) = cmd {
                 let remaining_args: Vec<&str> = command_parts.collect();
