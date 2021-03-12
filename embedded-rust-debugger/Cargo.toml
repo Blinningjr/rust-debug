@@ -1,5 +1,5 @@
 [package]
-name = "gimli-test-example"
+name = "embedded-rust-debugger"
 version = "0.1.0"
 authors = ["Niklas <nicke.l@telia.com>"]
 edition = "2018"
