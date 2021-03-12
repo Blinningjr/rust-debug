@@ -120,7 +120,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         return Some(DebuggerValue::Value(eval_base_type(&data,
                                                         encoding,
                                                         byte_size.unwrap())));
-        //return Some(DebuggerValue::Raw(res)); 
     }
 
 

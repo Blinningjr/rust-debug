@@ -200,7 +200,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 self.print_die(&die)?;
-                let value = self.evaluate(unit, pc, expr, frame_base, Some(dtype)).unwrap();
+                let value = self.evaluate(unit, pc, expr, frame_base, Some(dtype))?;
                 println!("\n");
 
                 return Ok(Some(value));
@@ -212,13 +212,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     //let value = self.evaluate(unit, llent.data, frame_base, Some(&dtype)).unwrap();
                     //println!("\n");
                     if in_range(pc, &llent.range) {
-                        let value = self.evaluate(unit, pc, llent.data, frame_base, Some(dtype)).unwrap();
+                        let value = self.evaluate(unit, pc, llent.data, frame_base, Some(dtype))?;
                         println!("\n");
 
                         return Ok(Some(value));
                     }
                 }
-                panic!("Location Out Of Range");
+
+                return Ok(Some(DebuggerValue::OutOfRange));
             },
             None => return Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
             Some(v) => {

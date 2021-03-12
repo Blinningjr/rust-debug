@@ -57,12 +57,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(unit, pc, &die, frame_base).unwrap();
+        frame_base = self.check_frame_base(unit, pc, &die, frame_base)?;
 
         // Check for the searched type.
         if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
-            if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
-                self.print_tree(unit, pc, node).unwrap();
+            if self.dwarf.string(offset)?.to_string()? == search { // Compare the name of the variable.
+                self.print_tree(unit, pc, node)?;
 
                 // Recursively process the children.
                 //let mut i = 0;

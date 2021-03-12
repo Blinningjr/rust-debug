@@ -71,7 +71,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     ) -> Result<DebuggerValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
-        let mut result  = eval.evaluate().unwrap();
+        let mut result  = eval.evaluate()?;
     
         //println!("fb: {:?}", frame_base);
         loop {
@@ -85,17 +85,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                               address,
                                               size,
                                               space,
-                                              base_type),
+                                              base_type)?,
 
                 RequiresRegister{register, base_type} =>
                     self.resolve_requires_reg(unit,
                                               &mut eval,
                                               &mut result,
                                               register,
-                                              base_type),
+                                              base_type)?,
 
                 RequiresFrameBase => 
-                    result = eval.resume_with_frame_base(frame_base.unwrap()).unwrap(), // TODO: Check and test if correct.
+                    result = eval.resume_with_frame_base(frame_base.unwrap())?, // TODO: Check and test if correct.
 
                 RequiresTls(_tls) =>
                     unimplemented!(), // TODO
@@ -112,31 +112,36 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(self.evaluate(unit, pc, e, frame_base, None)?.to_value().unwrap()).unwrap(),
+                  result = eval.resume_with_entry_value(self.evaluate(unit,
+                                                                      pc,
+                                                                      e,
+                                                                      frame_base, 
+                                                                      None
+                                                                      )?.to_value().unwrap())?,
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
-                        let die     = unit.entry(unit_offset).unwrap();
+                        let die     = unit.entry(unit_offset)?;
                         let dtype   = self.type_attribute(unit, pc, &die).unwrap();
-                        let expr    = die.attr_value(gimli::DW_AT_call_value).unwrap().unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(unit, pc, expr, frame_base, Some(&dtype)).unwrap();
+                        let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
+                        let value   = self.evaluate(unit, pc, expr, frame_base, Some(&dtype))?;
 
                         if let DebuggerValue::Value(Value::U64(val)) = value {
-                            result = eval.resume_with_parameter_ref(val).unwrap();
+                            result = eval.resume_with_parameter_ref(val)?;
                         } else {
                             return Err(anyhow!("could not find parameter"));
                         }
                     },
 
                 RequiresRelocatedAddress(num) =>
-                    result = eval.resume_with_relocated_address(num).unwrap(), // TODO: Check and test if correct.
+                    result = eval.resume_with_relocated_address(num)?, // TODO: Check and test if correct.
 
                 RequiresIndexedAddress {index, relocate: _} => //unimplemented!(), // TODO: Check and test if correct. Also handle relocate flag
-                    result = eval.resume_with_indexed_address(self.dwarf.address(unit, index).unwrap()).unwrap(),
+                    result = eval.resume_with_indexed_address(self.dwarf.address(unit, index)?)?,
 
                 RequiresBaseType(unit_offset) => // TODO: Check and test if correct
                     result = eval.resume_with_base_type(
-                        parse_base_type(unit, &[0], unit_offset).value_type()).unwrap(),
+                        parse_base_type(unit, &[0], unit_offset).value_type())?,
             };
         }
     
@@ -164,13 +169,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             _size:       u8, // TODO: Handle size
                             _space:      Option<u64>, // TODO: Handle space
                             base_type:  UnitOffset<usize>
-                            )
+                            ) -> Result<()>
                             where R: Reader<Offset = usize>
     {
         let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
-        self.core.read_32(address as u32, &mut data).unwrap();
+        self.core.read_32(address as u32, &mut data)?;
         let value = parse_base_type(unit, &data, base_type);
-        *result = eval.resume_with_memory(value).unwrap();    
+        *result = eval.resume_with_memory(value)?;    
+
+        Ok(())
         // TODO: Mask the relevant bits?
     }
 
@@ -185,12 +192,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             result:     &mut EvaluationResult<R>,
                             reg:        Register,
                             base_type:  UnitOffset<usize>
-                            ) 
+                            ) -> Result<()>
                             where R: Reader<Offset = usize>
     {
-        let data    = self.core.read_core_reg(reg.0).unwrap();
+        let data    = self.core.read_core_reg(reg.0)?;
         let value   = parse_base_type(unit, &[data], base_type);
-        *result     = eval.resume_with_register(value).unwrap();    
+        *result     = eval.resume_with_register(value)?;    
+
+        Ok(())
     }
 
 
@@ -233,16 +242,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         where R: Reader<Offset = usize>
     {
         let die = unit.entry(unit_offset)?;
-        if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
+        if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
             
             let dtype   = self.type_attribute(unit, pc, &die).unwrap();
             let val     = self.evaluate(&unit, pc, expr, frame_base, Some(&dtype))?;
 
             if let DebuggerValue::Bytes(b) = val {
-               *result =  eval.resume_with_at_location(b).unwrap();
+               *result =  eval.resume_with_at_location(b)?;
                return Ok(());
             } else {
-                panic!("Error expected bytes");
+                return Err(anyhow!("Error expected bytes"));
             }
         }
         else {

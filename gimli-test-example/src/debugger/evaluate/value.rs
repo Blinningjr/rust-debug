@@ -15,7 +15,9 @@ pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Union(Box<UnionValue<R>>),
     Member(Box<MemberValue<R>>),
     Name(String),
-    OptimizedOut,
+
+    OutOfRange,     // NOTE: Variable does not have a value currently.
+    OptimizedOut,   // NOTE: Value is optimized out.
     ZeroSize, 
 }
 

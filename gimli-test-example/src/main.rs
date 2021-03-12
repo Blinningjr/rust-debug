@@ -89,7 +89,7 @@ fn flash_target(session: &mut Session,
 {
     download_file(session, file_path, Format::Elf).context("Failed to flash target")?;
 
-    let mut core = session.core(0).unwrap();
+    let mut core = session.core(0)?;
     let pc = core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?.pc;
  
     Ok(pc)
@@ -97,9 +97,9 @@ fn flash_target(session: &mut Session,
 
 
 fn read_dwarf(core: Core, path: &Path) -> Result<()> {
-    let file = fs::File::open(&path).unwrap();
-    let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
-    let object = object::File::parse(&*mmap).unwrap();
+    let file = fs::File::open(&path)?;
+    let mmap = unsafe { memmap::Mmap::map(&file)? };
+    let object = object::File::parse(&*mmap)?;
     let endian = if object.is_little_endian() {
         gimli::RunTimeEndian::Little
     } else {
