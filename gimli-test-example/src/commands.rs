@@ -14,7 +14,10 @@ use anyhow::{
 use std::time::Duration;
 
 
-use probe_rs::MemoryInterface;
+use probe_rs::{
+    MemoryInterface,
+    CoreInformation,
+};
 
 
 pub struct Command<R: Reader<Offset = usize>> {
@@ -129,17 +132,40 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 
 fn run_command(core: &mut Core) -> Result<bool>
 {
-    core.run()?;
+    let status = core.status()?;
+
+    if status.is_halted() {
+        let _cpu_info = continue_fix(core)?;
+        core.run()?;
+    }
+
     Ok(false)
 }
 
 
 fn step_command(core: &mut Core) -> Result<bool>
 {
-    let cpu_info = core.step()?;
-    println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+    let status = core.status()?;
+
+    if status.is_halted() {
+        let cpu_info = continue_fix(core)?;
+        println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+    }
 
     Ok(false)
+}
+
+fn continue_fix(core: &mut Core) -> Result<CoreInformation, probe_rs::Error>
+{
+        let pc = core.registers().program_counter();
+        let pc_val = core.read_core_reg(pc)?;
+
+        // NOTE: Increment with 2 because ARM instuctions are usually 16-bits.
+        let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.
+
+        core.write_core_reg(pc.into(), step_pc)?;
+
+        core.step()
 }
 
 

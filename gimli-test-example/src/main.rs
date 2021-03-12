@@ -64,7 +64,10 @@ fn main() {
     };
 
     let core = session.core(0).unwrap();
-    read_dwarf(core, &opt.file);
+    match read_dwarf(core, &opt.file) {
+        Ok(_)      => (),
+        Err(err)    => panic!("Error: {:?}", err),
+    };
 }
 
 
@@ -105,7 +108,7 @@ fn read_dwarf(core: Core, path: &Path) -> Result<()> {
     } else {
         gimli::RunTimeEndian::Big
     };
-    let _ = dwarf_cli(object, endian, core);
+    dwarf_cli(object, endian, core)?;
 
     Ok(())
 }
