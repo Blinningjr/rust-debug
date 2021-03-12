@@ -60,7 +60,7 @@ fn main() {
         Err(err)    => panic!("Error: {:?}", err),
     };
 
-    let mut core = session.core(0).unwrap();
+    let core = session.core(0).unwrap();
     read_dwarf(core, &opt.file);
 }
 

@@ -83,7 +83,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Location::Address         { address }             => self.eval_address(address, byte_size, encoding.unwrap()),
             Location::Value           { value }               => Some(DebuggerValue::Value(value)),
             Location::Bytes           { value }               => Some(DebuggerValue::Bytes(value)),
-            Location::ImplicitPointer { value, byte_offset }  => unimplemented!(),
+            Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
         };
     }
 
@@ -126,7 +126,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_basetype(&mut self,
-                         mut pieces: &mut Vec<Piece<R>>,
+                         pieces: &mut Vec<Piece<R>>,
                          base_type: &BaseType
                          ) -> Option<DebuggerValue<R>>
     {
@@ -146,8 +146,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_pointer_type(&mut self,
-                             mut pieces: &mut Vec<Piece<R>>,
-                             pointer_type: &PointerType,
+                             _pieces: &mut Vec<Piece<R>>,
+                             _pointer_type: &PointerType,
                              ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
@@ -165,7 +165,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }.unwrap().to_value().unwrap());
 
         let mut values = Vec::new();
-        for i in 0..count {
+        for _i in 0..count {
             values.push(self.eval_type(pieces,
                                        &array_type.r#type).unwrap());  // TODO: Fix so that it can read multiple of the same type.
         }
@@ -268,16 +268,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_enumerator(&mut self,
-                           mut pieces: &mut Vec<Piece<R>>,
-                           enumerator:  &Enumerator
+                           _pieces: &mut Vec<Piece<R>>,
+                           _enumerator:  &Enumerator
                            ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
 
+
     pub fn eval_string_type(&mut self,
-                            mut pieces:     &mut Vec<Piece<R>>,
-                            string_type:    &StringType
+                            _pieces:     &mut Vec<Piece<R>>,
+                            _string_type:    &StringType
                             ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
@@ -303,16 +304,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_generic_subrange_type(&mut self,
-                                      mut pieces:               &mut Vec<Piece<R>>,
-                                      generic_subrange_type:    &GenericSubrangeType
+                                      _pieces:                  &mut Vec<Piece<R>>,
+                                      _generic_subrange_type:   &GenericSubrangeType
                                       ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
 
+
     pub fn eval_template_type_parameter(&mut self,
-                                        mut pieces: &mut Vec<Piece<R>>,
-                                        template_type_parameter:    &TemplateTypeParameter
+                                        _pieces:                    &mut Vec<Piece<R>>,
+                                        _template_type_parameter:    &TemplateTypeParameter
                                         ) -> Option<DebuggerValue<R>>
     {
         None // NOTE: I think that this is not used when evaluating the value of a type.
@@ -320,7 +322,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_variant_part(&mut self,
-                             mut pieces: &mut Vec<Piece<R>>,
+                             pieces: &mut Vec<Piece<R>>,
                              variant_part: &VariantPart
                              ) -> Option<DebuggerValue<R>>
     {
@@ -347,16 +349,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_subroutine_type(&mut self,
-                                mut pieces:         &mut Vec<Piece<R>>,
-                                subroutine_type:    &SubroutineType
+                                _pieces:            &mut Vec<Piece<R>>,
+                                _subroutine_type:   &SubroutineType
                                 ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
 
+
     pub fn eval_subprogram(&mut self,
-                           mut pieces:  &mut Vec<Piece<R>>,
-                           subprogram:  &Subprogram
+                           _pieces:     &mut Vec<Piece<R>>,
+                           _subprogram: &Subprogram
                            ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();

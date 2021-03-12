@@ -125,7 +125,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 RequiresRelocatedAddress(num) =>
                     result = eval.resume_with_relocated_address(num).unwrap(), // TODO: Check and test if correct.
 
-                RequiresIndexedAddress {index, relocate} => //unimplemented!(), // TODO: Check and test if correct. Also handle relocate flag
+                RequiresIndexedAddress {index, relocate: _} => //unimplemented!(), // TODO: Check and test if correct. Also handle relocate flag
                     result = eval.resume_with_indexed_address(self.dwarf.address(unit, index).unwrap()).unwrap(),
 
                 RequiresBaseType(unit_offset) => // TODO: Check and test if correct

@@ -8,7 +8,7 @@ use gimli::{
 pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),
     Bytes(R),
-    Raw(Vec<u32>),
+//    Raw(Vec<u32>),
     Array(Box<ArrayValue<R>>),
     Struct(Box<StructValue<R>>),
     Enum(Box<EnumValue<R>>),

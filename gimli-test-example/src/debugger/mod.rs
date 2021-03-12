@@ -189,7 +189,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                       pc:       u32,
                      die:               &DebuggingInformationEntry<R>,
                      dtype:             &DebuggerType,
-                     mut frame_base:    Option<u64>
+                     frame_base:    Option<u64>
                      ) -> gimli::Result<Option<DebuggerValue<R>>> 
     {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
