@@ -23,6 +23,11 @@ use probe_rs::{
 };
 
 
+use anyhow::{
+    Result,
+    anyhow,
+};
+
 use gimli::{
     Unit,
     Dwarf,
@@ -36,7 +41,6 @@ use gimli::{
     Reader,
     EntriesTreeNode,
     Value,
-    Error,
 };
 
 
@@ -61,7 +65,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                          search:    &str
-                         ) -> gimli::Result<DebuggerValue<R>>
+                         ) -> Result<DebuggerValue<R>>
     {
         let mut tree    = unit.entries_tree(None)?;
         let root        = tree.root()?;
@@ -71,7 +75,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         return match self.process_tree(unit, pc, root, None, search)? {
             Some(val)   => Ok(val),
-            None        => Err(Error::Io), // TODO: Change to a better error.
+            None        => Err(anyhow!("Can't find value")), // TODO: Change to a better error.
         };
     }
 
@@ -82,7 +86,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         node:           EntriesTreeNode<R>,
                         mut frame_base: Option<u64>,
                         search:         &str
-                        ) -> gimli::Result<Option<DebuggerValue<R>>>
+                        ) -> Result<Option<DebuggerValue<R>>>
     {
         let die = node.entry();
 
@@ -190,16 +194,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      die:               &DebuggingInformationEntry<R>,
                      dtype:             &DebuggerType,
                      frame_base:    Option<u64>
-                     ) -> gimli::Result<Option<DebuggerValue<R>>> 
+                     ) -> Result<Option<DebuggerValue<R>>> 
     {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 self.print_die(&die)?;
-                let value = match self.evaluate(unit, pc, expr, frame_base, Some(dtype)) {
-                    Ok(val) => val,
-                    Err(_) => return Err(Error::Io), // TODO
-                };
+                let value = self.evaluate(unit, pc, expr, frame_base, Some(dtype)).unwrap();
                 println!("\n");
 
                 return Ok(Some(value));
@@ -219,7 +220,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 }
                 panic!("Location Out Of Range");
             },
-            None => return Err(Error::Io),//unimplemented!(), //return Err(Error::Io),
+            None => return Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
             Some(v) => {
                 println!("{:?}", v);
                 unimplemented!();
@@ -233,7 +234,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             pc:       u32,
                             die:        &DebuggingInformationEntry<'_, '_, R>,
                             frame_base: Option<u64>
-                            ) -> gimli::Result<Option<u64>>
+                            ) -> Result<Option<u64>>
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {

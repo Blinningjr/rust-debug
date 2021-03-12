@@ -13,6 +13,11 @@ use gimli::{
 };
 
 
+use anyhow::{
+    Result,
+};
+
+
 use rustyline::Editor;
 
 
@@ -22,7 +27,7 @@ pub struct DebuggerCli<'a, R: Reader<Offset = usize>> {
 }
 
 impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
-    pub fn new(debugger: Debugger<'a, R>) -> Result<DebuggerCli<'a, R>, &'static str>
+    pub fn new(debugger: Debugger<'a, R>) -> Result<DebuggerCli<'a, R>>
     {
         Ok(DebuggerCli {
             commands:   Command::init_commands(),
@@ -31,7 +36,7 @@ impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
     }
 
 
-    pub fn run(&mut self) -> Result<(), &'static str>
+    pub fn run(&mut self) -> Result<()>
     {
         let mut rl = Editor::<()>::new();
     
@@ -66,7 +71,7 @@ impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
     }
 
     
-    pub fn handle_line(&mut self, line: &str) -> Result<bool, &'static str>
+    pub fn handle_line(&mut self, line: &str) -> Result<bool>
     {
         let mut command_parts = line.split_whitespace();
     

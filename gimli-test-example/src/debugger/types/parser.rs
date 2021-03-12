@@ -35,12 +35,17 @@ use gimli::{
 };
 
 
+use anyhow::{
+    Result,
+};
+
+
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn parse_type_node(&mut self,
                          unit:      &Unit<R>,
                          pc:        u32,
                            node: EntriesTreeNode<R>
-                           ) -> gimli::Result<DebuggerType>
+                           ) -> Result<DebuggerType>
     {
         return match node.entry().tag() { 
             gimli::DW_TAG_base_type                 => Ok(DebuggerType::BaseType(self.parse_base_type(node)?)),
@@ -72,7 +77,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                            attr_value: AttributeValue<R>
-                           ) -> gimli::Result<DebuggerType>
+                           ) -> Result<DebuggerType>
     {
         match attr_value {
             UnitRef(offset) => {
@@ -99,7 +104,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                             node: EntriesTreeNode<R>
-                            ) -> gimli::Result<StructuredType>
+                            ) -> Result<StructuredType>
     {
         let die         = node.entry();
         let alignment   = self.alignment_attribute(&die);
@@ -128,7 +133,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                         node: EntriesTreeNode<R>
-                        ) -> gimli::Result<UnionType>
+                        ) -> Result<UnionType>
     {
         let die         = node.entry();
         let alignment   = self.alignment_attribute(&die);
@@ -157,7 +162,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                          node: EntriesTreeNode<R>
-                         ) -> gimli::Result<MemberType>
+                         ) -> Result<MemberType>
     {
         let die = node.entry();
         return Ok(MemberType {
@@ -177,7 +182,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn parse_base_type(&mut self,
                        node: EntriesTreeNode<R>
-                       ) -> gimli::Result<BaseType>
+                       ) -> Result<BaseType>
     {
         let die = node.entry();
         return Ok(BaseType {
@@ -205,7 +210,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                         node: EntriesTreeNode<R>
-                        ) -> gimli::Result<ArrayType>
+                        ) -> Result<ArrayType>
     { 
         let die             = node.entry(); 
         let alignment       = self.alignment_attribute(&die);
@@ -247,7 +252,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                               node: EntriesTreeNode<R>
-                              ) -> gimli::Result<EnumerationType>
+                              ) -> Result<EnumerationType>
     {
         let die             = node.entry();
         let accessibility   = self.accessibility_attribute(&die);
@@ -298,7 +303,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      */
     fn parse_enumerator(&mut self,
                         node: EntriesTreeNode<R>
-                        ) -> gimli::Result<Enumerator>
+                        ) -> Result<Enumerator>
     {
         let die         = node.entry();
         let name        = self.name_attribute(&die).unwrap();
@@ -315,7 +320,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                           node: EntriesTreeNode<R>
-                          ) -> gimli::Result<PointerType>
+                          ) -> Result<PointerType>
     {
         let die = node.entry();
         return Ok(PointerType {
@@ -350,7 +355,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     fn parse_string_type(&mut self,
                          node: EntriesTreeNode<R>
-                         ) -> gimli::Result<StringType>
+                         ) -> Result<StringType>
     {
         let die = node.entry();
         return Ok(StringType {
@@ -370,7 +375,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                            unit:    &Unit<R>,
                            pc:      u32,
                            node:    EntriesTreeNode<R>
-                           ) -> gimli::Result<SubrangeType>
+                           ) -> Result<SubrangeType>
     {
         let die = node.entry();
         return Ok(SubrangeType {
@@ -391,7 +396,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                    unit:    &Unit<R>,
                                    pc:      u32,
                                    node:    EntriesTreeNode<R>
-                                   ) -> gimli::Result<GenericSubrangeType>
+                                   ) -> Result<GenericSubrangeType>
     {
         let die = node.entry();
         return Ok(GenericSubrangeType {
@@ -412,7 +417,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                      unit:  &Unit<R>,
                                      pc:    u32,
                                      node:  EntriesTreeNode<R>
-                                     ) -> gimli::Result<TemplateTypeParameter>
+                                     ) -> Result<TemplateTypeParameter>
     {
         let die = node.entry();
         return Ok(TemplateTypeParameter {
@@ -435,7 +440,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                           unit: &Unit<R>,
                           pc:   u32,
                           node: EntriesTreeNode<R>
-                          ) -> gimli::Result<VariantPart>
+                          ) -> Result<VariantPart>
     {
         let die             = node.entry();
         let accessibility   = self.accessibility_attribute(&die);
@@ -481,7 +486,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      unit:  &Unit<R>,
                      pc:    u32,
                      node:  EntriesTreeNode<R>
-                     ) -> gimli::Result<Variant>
+                     ) -> Result<Variant>
     {
         let die             = node.entry();
         let accessibility   = self.accessibility_attribute(&die);
@@ -519,7 +524,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                              unit:  &Unit<R>,
                              pc:    u32,
                              node:  EntriesTreeNode<R>
-                             )-> gimli::Result<SubroutineType>
+                             )-> Result<SubroutineType>
     {
         let die = node.entry();
         return Ok(SubroutineType {
@@ -537,7 +542,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         _unit:  &Unit<R>,
                         _pc:    u32,
                         node:   EntriesTreeNode<R>
-                        ) -> gimli::Result<Subprogram>
+                        ) -> Result<Subprogram>
     {
         let die = node.entry();
         return Ok(Subprogram {

@@ -38,6 +38,9 @@ use structopt::StructOpt;
 
 use debugger_cli::DebuggerCli;
 
+use anyhow::{Context, Result};
+
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "example", about = "An example of StructOpt usage.")]
 struct Opt {
@@ -65,16 +68,16 @@ fn main() {
 }
 
 
-fn attach_probe() -> Result<Session, &'static str>
+fn attach_probe() -> Result<Session>
 {
     // Get a list of all available debug probes.
     let probes = Probe::list_all();
     
     // Use the first probe found.
-    let probe = probes[0].open().map_err(|_| "Failed to open probe")?; // TODO: User should choose.
+    let probe = probes[0].open().context("Failed to open probe")?; // TODO: User should choose.
     
     // Attach to a chip.
-    let session = probe.attach_under_reset("STM32F411RETx").map_err(|_| "Failed to attach probe to target")?; // TODO: User should choose.
+    let session = probe.attach_under_reset("STM32F411RETx").context("Failed to attach probe to target")?; // TODO: User should choose.
  
     Ok(session)
 }
@@ -82,18 +85,18 @@ fn attach_probe() -> Result<Session, &'static str>
 
 fn flash_target(session: &mut Session,
                 file_path: &PathBuf
-                ) -> Result<u32, &'static str>
+                ) -> Result<u32>
 {
-    download_file(session, file_path, Format::Elf).map_err(|_| "Failed to flash target")?;
+    download_file(session, file_path, Format::Elf).context("Failed to flash target")?;
 
     let mut core = session.core(0).unwrap();
-    let pc = core.reset_and_halt(std::time::Duration::from_millis(10)).map_err(|_| "Failed to reset and halt the core")?.pc;
+    let pc = core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?.pc;
  
     Ok(pc)
 }
 
 
-fn read_dwarf(core: Core, path: &Path) {
+fn read_dwarf(core: Core, path: &Path) -> Result<()> {
     let file = fs::File::open(&path).unwrap();
     let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
     let object = object::File::parse(&*mmap).unwrap();
@@ -103,12 +106,14 @@ fn read_dwarf(core: Core, path: &Path) {
         gimli::RunTimeEndian::Big
     };
     let _ = dwarf_cli(object, endian, core);
+
+    Ok(())
 }
 
 
-fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, core: Core) -> Result<(), gimli::Error> {
+fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, core: Core) -> Result<()> {
     // Load a section and return as `Cow<[u8]>`.
-    let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
+    let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>> {
         match object.section_by_name(id.name()) {
             Some(ref section) => Ok(section
                 .uncompressed_data()
@@ -135,14 +140,8 @@ fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, core: Core) -> 
 
     let debugger = Debugger::new(core, dwarf);
 
-    let mut cli = match DebuggerCli::new(debugger) {
-        Ok(val) => val,
-        Err(err)    => panic!("Error: {:?}", err),
-    };
-    match cli.run() {
-        Ok(())    => (),
-        Err(err)    => panic!("Error: {:?}", err),
-    }; 
+    let mut cli = DebuggerCli::new(debugger)?;
+    cli.run()?;
  
     return Ok(());
 }

@@ -6,12 +6,17 @@ use super::{
 };
 
 
+use anyhow::{
+    Result,
+};
+
+
 pub struct Command<R: Reader<Offset = usize>> {
     pub name:           &'static str,
     pub description:    &'static str,
     pub function:       fn(debugger: &mut Debugger<R>,
                            args:    &[&str]
-                           ) -> Result<bool, &'static str>,
+                           ) -> Result<bool>,
 }
 
 impl<R: Reader<Offset = usize>> Command<R> {
@@ -42,20 +47,20 @@ impl<R: Reader<Offset = usize>> Command<R> {
 }
 
 
-fn exit_command() -> Result<bool, &'static str>
+fn exit_command() -> Result<bool>
 {
     Ok(true)
 }
 
 
-fn status_command(core: &mut Core) -> Result<bool, &'static str>
+fn status_command(core: &mut Core) -> Result<bool>
 {
-    let status = core.status().unwrap();
+    let status = core.status()?;
 
     println!("Status: {:?}", &status);
 
     if status.is_halted() {
-        let pc = core.read_core_reg(core.registers().program_counter()).unwrap();
+        let pc = core.read_core_reg(core.registers().program_counter())?;
         println!("Core halted at address {:#010x}", pc);
     }
 
@@ -65,14 +70,14 @@ fn status_command(core: &mut Core) -> Result<bool, &'static str>
 
 fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
                                             args:   &[&str]
-                                            ) -> Result<bool, &'static str>
+                                            ) -> Result<bool>
 {
-    let status = debugger.core.status().unwrap();
+    let status = debugger.core.status()?;
     if status.is_halted() {
-        let pc  = debugger.core.read_core_reg(debugger.core.registers().program_counter()).unwrap();
+        let pc  = debugger.core.read_core_reg(debugger.core.registers().program_counter())?;
         let var = args[0];
 
-        let unit = get_current_unit(&debugger.dwarf, pc).map_err(|_| "Can't find the current dwarf unit")?;
+        let unit = get_current_unit(&debugger.dwarf, pc)?;
         //println!("{:?}", unit.name.unwrap().to_string());
         
         let value = debugger.find_variable(&unit, pc, var);
@@ -82,9 +87,9 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 }
 
 
-fn run_command(core: &mut Core) -> Result<bool, &'static str>
+fn run_command(core: &mut Core) -> Result<bool>
 {
-    core.run().map_err(|_| "Failed to continue")?;
+    core.run()?;
     Ok(false)
 }
 

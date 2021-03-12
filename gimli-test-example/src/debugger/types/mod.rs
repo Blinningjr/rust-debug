@@ -22,13 +22,17 @@ use gimli::{
     Unit,
 };
 
+use anyhow::{
+    Result,
+};
+
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn find_type(&mut self,
                          unit:      &Unit<R>,
                          pc:        u32,
                      search: &str
-                     ) -> gimli::Result<()> {
+                     ) -> Result<()> {
         let mut tree    = unit.entries_tree(None)?;
         let root        = tree.root()?;
 
@@ -43,7 +47,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                              node: EntriesTreeNode<R>,
                              mut frame_base: Option<u64>,
                              search: &str
-                             ) -> gimli::Result<bool>
+                             ) -> Result<bool>
     {
         let die = node.entry();
 
@@ -53,12 +57,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(unit, pc, &die, frame_base)?;
+        frame_base = self.check_frame_base(unit, pc, &die, frame_base).unwrap();
 
         // Check for the searched type.
         if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
             if self.dwarf.string(offset).unwrap().to_string().unwrap() == search { // Compare the name of the variable.
-                self.print_tree(unit, pc, node)?;
+                self.print_tree(unit, pc, node).unwrap();
 
                 // Recursively process the children.
                 //let mut i = 0;

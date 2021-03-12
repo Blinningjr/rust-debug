@@ -55,6 +55,12 @@ pub use value::{
 };
 
 
+use anyhow::{
+    Result,
+    anyhow,
+};
+
+
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn evaluate(&mut self,
                     unit:       &Unit<R>,
@@ -62,7 +68,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     expr:       Expression<R>,
                     frame_base: Option<u64>,
                     vtype:      Option<&DebuggerType>,
-                    ) -> Result<DebuggerValue<R>, &'static str>
+                    ) -> Result<DebuggerValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate().unwrap();
@@ -118,7 +124,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val).unwrap();
                         } else {
-                            return Err("could not find parameter");
+                            return Err(anyhow!("could not find parameter"));
                         }
                     },
 
@@ -195,7 +201,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                     result:     &mut EvaluationResult<R>,
                                     frame_base: Option<u64>,
                                     die_ref:    DieReference<usize>
-                                    ) -> Result<(), &'static str>
+                                    ) -> Result<()>
                                     where R: Reader<Offset = usize>
     { 
         match die_ref {
@@ -204,12 +210,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             },
 
             DieReference::DebugInfoRef(debug_info_offset) => {
-                let unit_header = self.dwarf.debug_info.header_from_offset(debug_info_offset).map_err(|_| "Can't find debug info header")?;
+                let unit_header = self.dwarf.debug_info.header_from_offset(debug_info_offset)?;
                 if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
-                    let new_unit = self.dwarf.unit(unit_header).map_err(|_| "Can't find unit using unit header")?;
+                    let new_unit = self.dwarf.unit(unit_header)?;
                     return self.help_at_location(&new_unit, pc, eval, result, frame_base, unit_offset);
                 } else {
-                    return Err("Could not find at location");
+                    return Err(anyhow!("Could not find at location"));
                 }    
             },
         };
@@ -223,10 +229,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         result:         &mut EvaluationResult<R>,
                         frame_base:     Option<u64>,
                         unit_offset:    UnitOffset<usize>
-                        ) -> Result<(), &'static str>
+                        ) -> Result<()>
                         where R: Reader<Offset = usize>
     {
-        let die = unit.entry(unit_offset).unwrap();
+        let die = unit.entry(unit_offset)?;
         if let Some(expr) = die.attr_value(gimli::DW_AT_location).unwrap().unwrap().exprloc_value() {
             
             let dtype   = self.type_attribute(unit, pc, &die).unwrap();
@@ -240,7 +246,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }
         }
         else {
-            return Err("die has no at location");
+            return Err(anyhow!("die has no at location"));
         }
     }
 }

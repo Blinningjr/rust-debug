@@ -196,6 +196,7 @@ dependencies = [
 name = "gimli-test-example"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "gimli",
  "memmap",
  "object 0.23.0",

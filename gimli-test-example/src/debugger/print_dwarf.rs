@@ -16,12 +16,17 @@ use gimli::{
 };
 
 
+use anyhow::{
+    Result,
+};
+
+
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn print_tree(&mut self, 
                          unit:      &Unit<R>,
                          pc:        u32,
                       node: EntriesTreeNode<R>
-                      ) -> gimli::Result<()>
+                      ) -> Result<()>
     {
         let die = node.entry();
 
@@ -44,7 +49,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
    
     pub fn print_die(&mut self,
                      die: &DebuggingInformationEntry<'_, '_, R>
-                     ) -> gimli::Result<()>
+                     ) -> Result<()>
     {
         let mut attrs = die.attrs();
         println!("{:?}", die.tag().static_string());
@@ -55,7 +60,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         println!("----------------------------------------------------------------");
         while let Some(attr) = attrs.next().unwrap() {
             let val = match attr.value() {
-                DebugStrRef(offset) => format!("{:?}", self.dwarf.string(offset).unwrap().to_string().unwrap()),
+                DebugStrRef(offset) => format!("{:?}", self.dwarf.string(offset)?.to_string()?),
                 _ => format!("{:?}", attr.value()),
             };
     
