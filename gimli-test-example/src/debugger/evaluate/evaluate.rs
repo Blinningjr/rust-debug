@@ -240,7 +240,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                        ) -> Option<DebuggerValue<R>>
     {
         return Some(DebuggerValue::Member(Box::new(MemberValue{
-            name:   member.name.clone().unwrap(),
+            name:   member.name.clone(),
             value:  self.eval_type(pieces, &member.r#type).unwrap(),
         })));
     }

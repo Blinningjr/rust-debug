@@ -27,7 +27,7 @@ pub struct ArrayValue<R: Reader<Offset = usize>> {
 
 #[derive(Debug)]
 pub struct MemberValue<R: Reader<Offset = usize>> {
-    pub name:   String,
+    pub name:   Option<String>,
     pub value:  DebuggerValue<R>,
 }
 
@@ -54,8 +54,10 @@ pub struct EnumValue<R: Reader<Offset = usize>> {
 impl<R: Reader<Offset = usize>> DebuggerValue<R> {
     pub fn to_value(self) -> Option<Value> {
         match self {
-            DebuggerValue::Value(val)   => Some(val),
-            _                           => None,
+            DebuggerValue::Value    (val)   => Some(val),
+            DebuggerValue::Member   (val)   => val.value.to_value(),
+            DebuggerValue::OptimizedOut     => Some(gimli::Value::U32(0)), // TODO: Check if this is correct. Think gdb does this.
+            _                               => panic!("{:#?}", self), // None,
         }
     }
 }
