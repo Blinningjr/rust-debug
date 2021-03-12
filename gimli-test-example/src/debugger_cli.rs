@@ -7,21 +7,14 @@ use super::{
     },
 };
 
-use probe_rs::{
-    Probe,
-    Core,
-    Session,
-};
 
 use gimli::{
     Reader,
-    Dwarf,
 };
 
+
 use rustyline::Editor;
-use std::path::PathBuf;
-use std::{borrow, env, fs};
-use object::{Object, ObjectSection};
+
 
 pub struct DebuggerCli<'a, R: Reader<Offset = usize>> {
     pub commands:   Vec<Command<R>>,

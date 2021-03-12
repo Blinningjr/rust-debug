@@ -5,7 +5,6 @@ use super::{
     Debugger,
     types::{
         DebuggerType,
-        TypeInfo,
     },
 };
 
@@ -43,8 +42,6 @@ use gimli::{
     Value,
     DwAte,
     Expression,
-    Piece,
-    Location,
     DieReference,
 };
 
@@ -70,7 +67,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate().unwrap();
     
-        println!("fb: {:?}", frame_base);
+        //println!("fb: {:?}", frame_base);
         loop {
             println!("{:#?}", result);
             match result {
@@ -137,14 +134,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
         }
     
-        println!("Type: {:#?}", vtype);
+        //println!("Type: {:#?}", vtype);
         let mut pieces = eval.result();
         println!("{:#?}", pieces);
         let value =  match vtype {
             Some(t) => self.eval_type(&mut pieces, t),
             None => self.eval_piece(pieces.remove(0), None, None),
         };
-        println!("Value: {:#?}", value);
+        //println!("Value: {:#?}", value);
         Ok(value.unwrap())
     }
 
@@ -158,8 +155,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             eval:       &mut Evaluation<R>,
                             result:     &mut EvaluationResult<R>,
                             address:    u64,
-                            size:       u8, // TODO: Handle size
-                            space:      Option<u64>, // TODO: Handle space
+                            _size:       u8, // TODO: Handle size
+                            _space:      Option<u64>, // TODO: Handle space
                             base_type:  UnitOffset<usize>
                             )
                             where R: Reader<Offset = usize>

@@ -9,7 +9,7 @@ use debugger::{
     },
 };
 
-use std::{borrow, env, fs};
+use std::{borrow, fs};
 use std::path::Path;
 
 use probe_rs::{
@@ -23,7 +23,6 @@ use probe_rs::flashing::{
     download_file,
 };
 
-use core::time::Duration;
 
 use object::{Object, ObjectSection};
 
@@ -31,7 +30,6 @@ use gimli::{
     Unit,
     Dwarf,
     Error,
-    DebuggingInformationEntry,
     Reader,
 };
 
@@ -57,13 +55,13 @@ fn main() {
         Err(err)    => panic!("Error: {:?}", err),
     };
 
-    let pc = match flash_target(&mut session, &opt.file) {
+    let _pc = match flash_target(&mut session, &opt.file) {
         Ok(pc)      => pc,
         Err(err)    => panic!("Error: {:?}", err),
     };
 
     let mut core = session.core(0).unwrap();
-    read_dwarf(pc, core, &opt.file);
+    read_dwarf(core, &opt.file);
 }
 
 
@@ -95,7 +93,7 @@ fn flash_target(session: &mut Session,
 }
 
 
-fn read_dwarf(pc: u32, core: Core, path: &Path) {
+fn read_dwarf(core: Core, path: &Path) {
     let file = fs::File::open(&path).unwrap();
     let mmap = unsafe { memmap::Mmap::map(&file).unwrap() };
     let object = object::File::parse(&*mmap).unwrap();
@@ -104,11 +102,11 @@ fn read_dwarf(pc: u32, core: Core, path: &Path) {
     } else {
         gimli::RunTimeEndian::Big
     };
-    let _ = dwarf_cli(object, endian, pc, core);
+    let _ = dwarf_cli(object, endian, core);
 }
 
 
-fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, pc: u32, core: Core) -> Result<(), gimli::Error> {
+fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, core: Core) -> Result<(), gimli::Error> {
     // Load a section and return as `Cow<[u8]>`.
     let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>, gimli::Error> {
         match object.section_by_name(id.name()) {

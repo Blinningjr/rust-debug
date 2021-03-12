@@ -4,9 +4,6 @@ use gimli::{
 };
 
 
-use std::collections::HashMap;
-
-
 #[derive(Debug)]
 pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),

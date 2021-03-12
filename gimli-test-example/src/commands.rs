@@ -1,10 +1,6 @@
 use super::{
     Core,
-    Dwarf,
     Reader,
-    debugger_cli::{
-        DebuggerCli,
-    },
     get_current_unit,
     Debugger,
 };

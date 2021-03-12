@@ -96,8 +96,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         // Check for the searched vairable.
         if self.check_var_name(unit, pc, &die, search) {
-            println!("\n");
-            self.print_die(&die)?;
+            //println!("\n");
+            //self.print_die(&die)?;
             let dtype = self.get_var_type(unit, pc, &die).unwrap();
             //println!("{:#?}", dtype);
             match self.eval_location(unit, pc, &die, &dtype, frame_base) {

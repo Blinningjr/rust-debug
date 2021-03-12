@@ -18,19 +18,24 @@ use crate::debugger::types::types::{
     MemberType,
     StructuredType,
     VariantPart,
-    Variant,
     EnumerationType,
     Enumerator,
     UnionType,
     ArrayType,
     ArrayDimension,
     SubrangeType,
+    PointerType,
+    TemplateTypeParameter,
+    StringType,
+    SubroutineType,
+    Subprogram,
+    GenericSubrangeType,
 };
 
 
 use gimli::{
     Value,
-    Result,
+//    Result,
     Piece,
     Location,
     DwAte,
@@ -48,18 +53,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         return match dtype {
             DebuggerType::BaseType              (bt)    => self.eval_basetype(pieces, bt),
-            DebuggerType::PointerType           (pt)    => self.eval_pointer_type(),
+            DebuggerType::PointerType           (pt)    => self.eval_pointer_type(pieces, pt),
             DebuggerType::ArrayType             (at)    => self.eval_array_type(pieces, at),
             DebuggerType::StructuredType        (st)    => self.eval_structured_type(pieces, st),
             DebuggerType::UnionType             (ut)    => self.eval_union_type(pieces, ut),
             DebuggerType::MemberType            (mt)    => self.eval_member(pieces, mt),
             DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(pieces, et),
-            DebuggerType::StringType            (st)    => self.eval_string_type(),
-            DebuggerType::GenericSubrangeType   (gt)    => self.eval_generic_subrange_type(),
-            DebuggerType::TemplateTypeParameter (tp)    => self.eval_template_type_parameter(),
+            DebuggerType::StringType            (st)    => self.eval_string_type(pieces, st),
+            DebuggerType::GenericSubrangeType   (gt)    => self.eval_generic_subrange_type(pieces, gt),
+            DebuggerType::TemplateTypeParameter (tp)    => self.eval_template_type_parameter(pieces, tp),
             DebuggerType::VariantPart           (vp)    => self.eval_variant_part(pieces, vp),
-            DebuggerType::SubroutineType        (st)    => self.eval_subroutine_type(),
-            DebuggerType::Subprogram            (sp)    => self.eval_subprogram(),
+            DebuggerType::SubroutineType        (st)    => self.eval_subroutine_type(pieces, st),
+            DebuggerType::Subprogram            (sp)    => self.eval_subprogram(pieces, sp),
         };
     }
 
@@ -70,7 +75,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                       encoding: Option<DwAte>
                       ) -> Option<DebuggerValue<R>>
     {
-        println!("{:#?}", piece);
+        //println!("{:#?}", piece);
 
         return match piece.location {
             Location::Empty                                   => Some(DebuggerValue::OptimizedOut),
@@ -140,7 +145,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_pointer_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_pointer_type(&mut self,
+                             mut pieces: &mut Vec<Piece<R>>,
+                             pointer_type: &PointerType,
+                             ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
@@ -259,12 +267,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_enumerator(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_enumerator(&mut self,
+                           mut pieces: &mut Vec<Piece<R>>,
+                           enumerator:  &Enumerator
+                           ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
 
-    pub fn eval_string_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_string_type(&mut self,
+                            mut pieces:     &mut Vec<Piece<R>>,
+                            string_type:    &StringType
+                            ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
@@ -288,12 +302,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_generic_subrange_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_generic_subrange_type(&mut self,
+                                      mut pieces:               &mut Vec<Piece<R>>,
+                                      generic_subrange_type:    &GenericSubrangeType
+                                      ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
 
-    pub fn eval_template_type_parameter(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_template_type_parameter(&mut self,
+                                        mut pieces: &mut Vec<Piece<R>>,
+                                        template_type_parameter:    &TemplateTypeParameter
+                                        ) -> Option<DebuggerValue<R>>
     {
         None // NOTE: I think that this is not used when evaluating the value of a type.
     }
@@ -326,12 +346,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn eval_subroutine_type(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_subroutine_type(&mut self,
+                                mut pieces:         &mut Vec<Piece<R>>,
+                                subroutine_type:    &SubroutineType
+                                ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
 
-    pub fn eval_subprogram(&mut self) -> Option<DebuggerValue<R>>
+    pub fn eval_subprogram(&mut self,
+                           mut pieces:  &mut Vec<Piece<R>>,
+                           subprogram:  &Subprogram
+                           ) -> Option<DebuggerValue<R>>
     {
         unimplemented!();
     }
