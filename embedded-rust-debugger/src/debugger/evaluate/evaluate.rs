@@ -1,14 +1,15 @@
 use super::{
-    Reader,
     Debugger,
     DebuggerValue,
-    value::get_udata,
     eval_base_type,
     EnumValue,
-    StructValue,
-    MemberValue,
-    UnionValue,
-    ArrayValue,
+    value::get_udata,
+    value::StructValue,
+    value::MemberValue,
+    value::UnionValue,
+    value::ArrayValue,
+    value::Value,
+    value::convert_from_gimli_value,
 };
 
 
@@ -34,7 +35,7 @@ use crate::debugger::types::types::{
 
 
 use gimli::{
-    Value,
+    Reader,
     Piece,
     Location,
     DwAte,
@@ -80,7 +81,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Location::Empty                                   => Some(DebuggerValue::OptimizedOut),
             Location::Register        { register }            => self.eval_register(register),
             Location::Address         { address }             => self.eval_address(address, byte_size, encoding.unwrap()),
-            Location::Value           { value }               => Some(DebuggerValue::Value(value)),
+            Location::Value           { value }               => Some(DebuggerValue::Value(convert_from_gimli_value(value))),
             Location::Bytes           { value }               => Some(DebuggerValue::Bytes(value)),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
         };

@@ -39,7 +39,6 @@ use gimli::{
     EvaluationResult,
     UnitOffset,
     Register,
-    Value,
     DwAte,
     Expression,
     DieReference,
@@ -52,6 +51,8 @@ pub use value::{
     MemberValue,
     UnionValue,
     ArrayValue,
+    convert_to_gimli_value,
+    Value,
 };
 
 
@@ -112,12 +113,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(self.evaluate(unit,
+                  result = eval.resume_with_entry_value(convert_to_gimli_value(self.evaluate(unit,
                                                                       pc,
                                                                       e,
                                                                       frame_base, 
                                                                       None
-                                                                      )?.to_value().unwrap())?,
+                                                                      )?.to_value().unwrap()))?,
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
@@ -140,8 +141,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     result = eval.resume_with_indexed_address(self.dwarf.address(unit, index)?)?,
 
                 RequiresBaseType(unit_offset) => // TODO: Check and test if correct
-                    result = eval.resume_with_base_type(
-                        parse_base_type(unit, &[0], unit_offset).value_type())?,
+                    result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)).value_type())?,
             };
         }
     
@@ -175,7 +175,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
         self.core.read_32(address as u32, &mut data)?;
         let value = parse_base_type(unit, &data, base_type);
-        *result = eval.resume_with_memory(value)?;    
+        *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
 
         Ok(())
         // TODO: Mask the relevant bits?
@@ -197,7 +197,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         let data    = self.core.read_core_reg(reg.0)?;
         let value   = parse_base_type(unit, &[data], base_type);
-        *result     = eval.resume_with_register(value)?;    
+        *result     = eval.resume_with_register(convert_to_gimli_value(value))?;    
 
         Ok(())
     }

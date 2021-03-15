@@ -120,7 +120,11 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
         //println!("{:?}", unit.name.unwrap().to_string());
         
         let value = debugger.find_variable(&unit, pc, var);
-        println!("{} = {:#?}", var, value);
+        
+        match value {
+            Ok(val)     => println!("{} = {}", var, val),
+            Err(_err)   => println!("Could not find {}", var),
+        };
     } else {
         println!("CPU must be halted to run this command");
         println!("Status: {:?}", &status);

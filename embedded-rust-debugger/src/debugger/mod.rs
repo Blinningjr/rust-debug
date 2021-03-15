@@ -13,8 +13,9 @@ use utils::{
 use crate::debugger::types::DebuggerType;
 
 
-use evaluate::{
+use evaluate::value::{
     DebuggerValue,
+    Value,
 };
 
 
@@ -40,7 +41,6 @@ use gimli::{
     },
     Reader,
     EntriesTreeNode,
-    Value,
 };
 
 
