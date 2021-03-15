@@ -180,7 +180,7 @@ fn halt_command(core: &mut Core) -> Result<bool>
 
     for (offset, instruction) in code.iter().enumerate() {
         println!(
-            "{:#010x}: {:010x}",
+            "{:#010x}:\t{:010x}",
             cpu_info.pc + offset as u32,
             instruction
         );
