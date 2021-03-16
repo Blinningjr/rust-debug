@@ -103,7 +103,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             //println!("\n");
             //self.print_die(&die)?;
             let dtype = self.get_var_type(unit, pc, &die).unwrap();
-            //println!("{:#?}", dtype);
+            println!("{:#?}", dtype);
             match self.eval_location(unit, pc, &die, &dtype, frame_base) {
                 Ok(v) => return Ok(v),
                 Err(_) => (),
