@@ -149,7 +149,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut pieces = eval.result();
         println!("{:#?}", pieces);
         let value =  match vtype {
-            Some(t) => self.eval_type(&mut pieces, t),
+            Some(t) => self.eval_type(&mut pieces, &mut 0, t),
             None => self.eval_piece(pieces.remove(0), None, None),
         };
         //println!("Value: {:#?}", value);
