@@ -54,22 +54,24 @@ pub enum Value {
     U64(u64),
     F32(f32),
     F64(f64),
+    Address32(u32),
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
-            Value::Generic  (val)   => write!(f, "Generic {}", val),
-            Value::I8       (val)   => write!(f, "I8 {}", val),
-            Value::U8       (val)   => write!(f, "U8 {}", val),
-            Value::I16      (val)   => write!(f, "I16 {}", val),
-            Value::U16      (val)   => write!(f, "U16 {}", val),
-            Value::I32      (val)   => write!(f, "I32 {}", val),
-            Value::U32      (val)   => write!(f, "U32 {}", val),
-            Value::I64      (val)   => write!(f, "I64 {}", val),
-            Value::U64      (val)   => write!(f, "U64 {}", val),
-            Value::F32      (val)   => write!(f, "F32 {}", val),
-            Value::F64      (val)   => write!(f, "F64 {}", val),
+            Value::Generic      (val)   => write!(f, "Generic {}", val),
+            Value::I8           (val)   => write!(f, "I8 {}", val),
+            Value::U8           (val)   => write!(f, "U8 {}", val),
+            Value::I16          (val)   => write!(f, "I16 {}", val),
+            Value::U16          (val)   => write!(f, "U16 {}", val),
+            Value::I32          (val)   => write!(f, "I32 {}", val),
+            Value::U32          (val)   => write!(f, "U32 {}", val),
+            Value::I64          (val)   => write!(f, "I64 {}", val),
+            Value::U64          (val)   => write!(f, "U64 {}", val),
+            Value::F32          (val)   => write!(f, "F32 {}", val),
+            Value::F64          (val)   => write!(f, "F64 {}", val),
+            Value::Address32    (val)   => write!(f, "'Address' {:#10x}", val),
         };
     }
 }
@@ -185,17 +187,18 @@ fn format_values<R: Reader<Offset = usize>>(values: &Vec<DebuggerValue<R>>) -> S
 
 pub fn convert_to_gimli_value(value: Value) -> gimli::Value {
     match value {
-        Value::Generic  (val)   => gimli::Value::Generic(val),
-        Value::I8       (val)   => gimli::Value::I8(val),
-        Value::U8       (val)   => gimli::Value::U8(val),
-        Value::I16      (val)   => gimli::Value::I16(val),
-        Value::U16      (val)   => gimli::Value::U16(val),
-        Value::I32      (val)   => gimli::Value::I32(val),
-        Value::U32      (val)   => gimli::Value::U32(val),
-        Value::I64      (val)   => gimli::Value::I64(val),
-        Value::U64      (val)   => gimli::Value::U64(val),
-        Value::F32      (val)   => gimli::Value::F32(val),
-        Value::F64      (val)   => gimli::Value::F64(val),
+        Value::Generic      (val)   => gimli::Value::Generic(val),
+        Value::I8           (val)   => gimli::Value::I8(val),
+        Value::U8           (val)   => gimli::Value::U8(val),
+        Value::I16          (val)   => gimli::Value::I16(val),
+        Value::U16          (val)   => gimli::Value::U16(val),
+        Value::I32          (val)   => gimli::Value::I32(val),
+        Value::U32          (val)   => gimli::Value::U32(val),
+        Value::I64          (val)   => gimli::Value::I64(val),
+        Value::U64          (val)   => gimli::Value::U64(val),
+        Value::F32          (val)   => gimli::Value::F32(val),
+        Value::F64          (val)   => gimli::Value::F64(val),
+        Value::Address32    (val)   => gimli::Value::Generic(val as u64),
     }
 }
 

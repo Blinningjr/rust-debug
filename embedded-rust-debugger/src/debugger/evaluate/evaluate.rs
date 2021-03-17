@@ -112,9 +112,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             None        => 1,
         };
 
-        println!("Address: {:#64x}", address);
+        println!("Address: {:#10x}", address);
+        println!("data_offset: {}", data_offset);
         address += (data_offset/4) * 4;
-        println!("Address: {:#64x}", address);
+        println!("Address: {:#10x}", address);
 
         //address -= address%4; // TODO: Is this correct?
 
@@ -163,18 +164,20 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                              pointer_type:  &PointerType,
                              ) -> Option<DebuggerValue<R>>
     {
-
         match pointer_type.address_class.unwrap().0 { // TODO: remove unwrap and the option around address_type.
-            0 => (),
-            1 => (),
-            2 => (),
-            3 => (),
-            4 => (),
-            5 => (),
-            _ => panic!("Undefined DwAddr code"),
-        };
+            0 => {
+                let res = self.eval_piece(pieces[*index].clone(),
+                                          Some(4),
+                                          data_offset, // TODO
+                                          Some(DwAte(1)));
+                if *index < pieces.len() - 1 {
+                    *index += 1;
+                }
 
-        return self.eval_type(pieces, index, data_offset, &(*pointer_type.r#type));
+                return res;        
+            },
+            _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
+        };
     }
 
 

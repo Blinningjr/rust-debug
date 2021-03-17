@@ -80,6 +80,12 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 description:    "Reset the CPU",
                 function:       |debugger, _args| reset_command(&mut debugger.core),
             },
+            Command {
+                name:           "read",
+                short:          "rd",
+                description:    "Read 32bit value from memory",
+                function:       |debugger, args| read_command(&mut debugger.core, args),
+            },
         )
     }
 }
@@ -212,6 +218,22 @@ fn reset_command(core: &mut Core) -> Result<bool>
 {
     core.halt(Duration::from_millis(100))?;
     core.reset_and_halt(Duration::from_millis(100))?;
+
+    Ok(false)
+}
+
+
+fn read_command(core: &mut Core,
+                args:   &[&str]
+                ) -> Result<bool>
+{
+    let address = args[0].parse::<u32>()?;
+
+    let mut buff = vec![0u32; 1];
+
+    core.read_32(address, &mut buff)?;
+
+    println!("{:#10x} = {:#10x}", address, buff[0]);
 
     Ok(false)
 }

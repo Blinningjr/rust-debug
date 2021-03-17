@@ -313,6 +313,7 @@ pub fn eval_base_type(data:         &[u32],
         (DwAte(5), 8) => Value::I64(value as i64),     // (signed, 64)
 
         (DwAte(2), 1) => Value::Generic((value as u8) as u64), // Should be returned as bool?
+        (DwAte(1), 4) => Value::Address32(value as u32),
         _ => {
             println!("{:?}, {:?}", encoding, byte_size);
             unimplemented!()
