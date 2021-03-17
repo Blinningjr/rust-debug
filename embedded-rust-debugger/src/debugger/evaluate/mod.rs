@@ -153,7 +153,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             None => self.eval_piece(pieces.remove(0), None, 0, None),
         };
         //println!("Value: {:#?}", value);
-        Ok(value.unwrap())
+        Ok(value?.unwrap())
     }
 
 

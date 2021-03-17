@@ -1,4 +1,7 @@
-Comand to see all the codegen options.
+Information on GDB and rust
+https://sourceware.org/gdb/onlinedocs/gdb/Rust.html#Rust
+
+Command to see all the codegen options.
 ```rustc -C help```
 ```rustc -C llvm-args=--help```
 
