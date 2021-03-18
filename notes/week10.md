@@ -16,6 +16,7 @@
 # Thursday
 * Restructured the CLI so that the print  command works now.
 * Removed some of the code used for debugging the debugger.
+* Meeting with Per and the others.
 
 
 # Friday
