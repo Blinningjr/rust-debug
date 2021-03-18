@@ -55,7 +55,7 @@ use probe_rs::MemoryInterface;
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn eval_type(&mut self,
-                     pieces:        &Vec<Piece<R>>,
+                     pieces:        &mut Vec<Piece<R>>,
                      index:         &mut usize,
                      data_offset:   u64,
                      dtype:         &DebuggerType
@@ -140,7 +140,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_basetype(&mut self,
-                         pieces:        &Vec<Piece<R>>,
+                         pieces:        &mut Vec<Piece<R>>,
                          index:         &mut usize,
                          data_offset:   u64,
                          base_type:     &BaseType
@@ -151,20 +151,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _       => (),
         };
 
-        let res = self.eval_piece(pieces[*index].clone(),
-                                  base_type.byte_size,
-                                  data_offset, // TODO
-                                  Some(base_type.encoding));
-        if *index < pieces.len() - 1 {
-            *index += 1;
-        }
+        let res = self.handle_eval_piece(pieces,
+                                         index,
+                                         base_type.byte_size,
+                                         data_offset, // TODO
+                                         Some(base_type.encoding));
 
         return res;
     }
 
 
     pub fn eval_pointer_type(&mut self,
-                             pieces:        &Vec<Piece<R>>,
+                             pieces:        &mut Vec<Piece<R>>,
                              index:         &mut usize,
                              data_offset:   u64,
                              pointer_type:  &PointerType,
@@ -172,14 +170,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         match pointer_type.address_class.unwrap().0 { // TODO: remove unwrap and the option around address_type.
             0 => {
-                let res = self.eval_piece(pieces[*index].clone(),
-                                          Some(4),
-                                          data_offset, // TODO
-                                          Some(DwAte(1)));
-                if *index < pieces.len() - 1 {
-                    *index += 1;
-                }
-
+                let res = self.handle_eval_piece(pieces,
+                                                 index,
+                                                 Some(4),
+                                                 data_offset, // TODO
+                                                 Some(DwAte(1)));
                 return res;        
             },
             _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
@@ -188,7 +183,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_array_type(&mut self,
-                           pieces:      &Vec<Piece<R>>,
+                           pieces:      &mut Vec<Piece<R>>,
                            index:       &mut usize,
                            data_offset: u64,
                            array_type:  &ArrayType
@@ -214,7 +209,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_structured_type(&mut self,
-                                pieces:             &Vec<Piece<R>>,
+                                pieces:             &mut Vec<Piece<R>>,
                                 index:              &mut usize,
                                 data_offset:        u64,
                                 structured_type:    &StructuredType
@@ -250,7 +245,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_union_type(&mut self,
-                           pieces:      &Vec<Piece<R>>,
+                           pieces:      &mut Vec<Piece<R>>,
                            index:       &mut usize,
                            data_offset: u64,
                            union_type:  &UnionType
@@ -277,7 +272,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_member(&mut self,
-                       pieces:          &Vec<Piece<R>>,
+                       pieces:          &mut Vec<Piece<R>>,
                        index:           &mut usize,
                        mut data_offset: u64,
                        member:          &MemberType
@@ -296,7 +291,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_enumeration_type(&mut self,
-                                 pieces:            &Vec<Piece<R>>,
+                                 pieces:            &mut Vec<Piece<R>>,
                                  index:             &mut usize,
                                  data_offset:       u64,
                                  enumeration_type:  &EnumerationType
@@ -321,7 +316,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_enumerator(&mut self,
-                           _pieces:         &Vec<Piece<R>>,
+                           _pieces:         &mut Vec<Piece<R>>,
                            _index:          &mut usize,
                            _data_offset:    u64,
                            _enumerator:     &Enumerator
@@ -332,7 +327,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_string_type(&mut self,
-                            _pieces:        &Vec<Piece<R>>,
+                            _pieces:        &mut Vec<Piece<R>>,
                             _index:         &mut usize,
                             _data_offset:   u64,
                             _string_type:   &StringType
@@ -343,7 +338,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_subrange_type(&mut self,
-                              pieces:           &Vec<Piece<R>>,
+                              pieces:           &mut Vec<Piece<R>>,
                               index:            &mut usize,
                               data_offset:      u64,
                               subrange_type:    &SubrangeType
@@ -364,7 +359,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_generic_subrange_type(&mut self,
-                                      _pieces:                  &Vec<Piece<R>>,
+                                      _pieces:                  &mut Vec<Piece<R>>,
                                       _index:                   &mut usize,
                                       _data_offset:             u64,
                                       _generic_subrange_type:   &GenericSubrangeType
@@ -375,7 +370,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_template_type_parameter(&mut self,
-                                        _pieces:                    &Vec<Piece<R>>,
+                                        _pieces:                    &mut Vec<Piece<R>>,
                                         _index:                     &mut usize,
                                         _data_offset:               u64,
                                         _template_type_parameter:   &TemplateTypeParameter
@@ -386,7 +381,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_variant_part(&mut self,
-                             pieces:        &Vec<Piece<R>>,
+                             pieces:        &mut Vec<Piece<R>>,
                              index:         &mut usize,
                              data_offset:   u64,
                              variant_part:  &VariantPart
@@ -417,7 +412,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_subroutine_type(&mut self,
-                                _pieces:            &Vec<Piece<R>>,
+                                _pieces:            &mut Vec<Piece<R>>,
                                 _index:             &mut usize,
                                 _data_offset:       u64,
                                 _subroutine_type:   &SubroutineType
@@ -428,13 +423,55 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_subprogram(&mut self,
-                           _pieces:         &Vec<Piece<R>>,
+                           _pieces:         &mut Vec<Piece<R>>,
                            _index:          &mut usize,
                            _data_offset:    u64,
                            _subprogram:     &Subprogram
                            ) -> Result<Option<DebuggerValue<R>>>
     {
         unimplemented!();
+    }
+
+
+    pub fn handle_eval_piece(&mut self,
+                             pieces:            &mut Vec<Piece<R>>,
+                             index:             &mut usize,
+                             byte_size:         Option<u64>,
+                             mut data_offset:   u64,
+                             encoding:          Option<DwAte>
+                             ) -> Result<Option<DebuggerValue<R>>>
+    {
+        if pieces.len() <= *index {
+            return Ok(Some(DebuggerValue::OptimizedOut));
+        }
+        
+        if pieces.len() > 1 {
+            data_offset = 0;
+        }
+        
+        let res = self.eval_piece(pieces[*index].clone(),
+                                  byte_size,
+                                  data_offset,
+                                  encoding);
+
+        match pieces[*index].size_in_bits {
+            Some(val)   => {
+                let bytes: i32 = match byte_size {
+                    Some(val)   => (val*8) as i32,
+                    None        => 32,
+                };
+
+                if (val as i32) - bytes < 1 {
+                    pieces[*index].size_in_bits = Some(0);
+                    *index += 1;
+                } else {
+                    pieces[*index].size_in_bits = Some(val - bytes as u64);
+                }
+            },
+            None        => (),
+        }
+
+        return res;
     }
 }
 
