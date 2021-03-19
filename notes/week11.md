@@ -18,6 +18,8 @@
 
 
 # Friday
+* Reading up on Microsoft Debug Adapter Protocol.
+
 
 # Saturday
 
