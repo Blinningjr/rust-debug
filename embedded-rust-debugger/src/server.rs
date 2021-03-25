@@ -24,6 +24,8 @@ use debugserver_types::{
     ProtocolMessage,
     Response,
     Request,
+    InitializeRequestArguments,
+    Capabilities,
 };
 
 use std::io;
@@ -33,8 +35,11 @@ use std::io::{Read, Write};
 use std::str::FromStr;
 use std::string::ParseError;
 
+use serde::{de::DeserializeOwned, Deserialize};
 
-pub fn start_server(port: u16) -> Result<(), anyhow::Error> {
+
+pub fn start_server(port: u16) -> Result<(), anyhow::Error>
+{
     info!("Starting debug-adapter server on port: {}", port);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -43,16 +48,44 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error> {
     let (socket, addr) = listener.accept()?;
     info!("Accepted connection from {}", addr);
 
-    let reader = socket.try_clone()?;
+    let reader = BufReader::new(socket.try_clone()?);
     let writer = socket;
 
-    println!("{:#?}", handle_connection(BufReader::new(reader)));
+    start_session(reader, writer)
+}
+
+
+fn start_session<R: Read, W: Write>(reader: BufReader<R>, writer: W) -> Result<()>
+{
+    verify_init_msg(read_dap_msg(reader)?)?;
 
     Ok(())
 }
 
 
-fn handle_connection<R: Read>(mut reader: BufReader<R>) -> Result<DebugAdapterMessage, anyhow::Error> {
+fn verify_init_msg(msg: DebugAdapterMessage) -> Result<()>
+{
+    match msg {
+        DebugAdapterMessage::Request(req)   => {
+            if req.command != "initialize" {
+                return Err(anyhow!("Error: Expected command initialize got {}", req.command));
+            }
+            
+            let arguments: InitializeRequestArguments = get_arguments(&req)?;
+            debug!("Initialization request from client '{}'",
+                   arguments.client_name.unwrap_or("<unknown>".to_owned()));
+            Ok(())
+        },
+
+        _                                   =>
+            Err(anyhow!("Error: initial message should be of type request")),
+    }
+}
+
+
+
+fn read_dap_msg<R: Read>(mut reader: BufReader<R>) -> Result<DebugAdapterMessage, anyhow::Error>
+{
     let mut header = String::new();
 
     reader.read_line(&mut header)?;
@@ -71,21 +104,17 @@ fn handle_connection<R: Read>(mut reader: BufReader<R>) -> Result<DebugAdapterMe
 //    assert!(bytes_read == len);
 
     // Extract protocol message
-    let protocol_message: ProtocolMessage = serde_json::from_slice(&content)?;
-    println!("{:#?}", protocol_message);
+    let protocol_msg: ProtocolMessage = serde_json::from_slice(&content)?;
+    println!("{:#?}", protocol_msg);
 
-    match protocol_message.type_.as_ref() {
-        "request" => Ok(DebugAdapterMessage::Request(serde_json::from_slice(
-            &content,
-        )?)),
-        "response" => Ok(DebugAdapterMessage::Response(serde_json::from_slice(
-            &content,
-        )?)),
-        "event" => Ok(DebugAdapterMessage::Event(serde_json::from_slice(
-            &content,
-        )?)),
-        other => Err(anyhow!("Unknown message type: {}", other)),
-    }
+    let msg = match protocol_msg.type_.as_ref() {
+        "request" => DebugAdapterMessage::Request(serde_json::from_slice(&content,)?),
+        "response" => DebugAdapterMessage::Response(serde_json::from_slice(&content,)?),
+        "event" => DebugAdapterMessage::Event(serde_json::from_slice(&content,)?),
+        other => return Err(anyhow!("Unknown message type: {}", other)),
+    };
+    debug!("Got msg: {:?}", msg);
+    Ok(msg)
 }
 
 
@@ -94,7 +123,6 @@ fn get_content_len(header: &str) -> Option<usize> {
 
     // discard first part
     parts.next()?;
-
     parts.next()?.parse::<usize>().ok()
 }
 
@@ -105,4 +133,8 @@ pub enum DebugAdapterMessage {
     Event(debugserver_types::Event),
 }
 
+pub fn get_arguments<T: DeserializeOwned>(req: &Request) -> Result<T> {
+    let value = req.arguments.as_ref().unwrap();
+    serde_json::from_value(value.to_owned()).map_err(|e| e.into())
+}
 
