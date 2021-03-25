@@ -1,6 +1,7 @@
 mod debugger;
 mod debugger_cli;
 mod commands;
+mod server;
 
 use debugger::{
     Debugger,
@@ -43,6 +44,9 @@ use anyhow::{Context, Result};
 use std::str::FromStr;
 use std::string::ParseError;
 
+
+use simplelog::*;
+
 #[derive(Debug)]
 enum Mode {
     Debug,
@@ -70,6 +74,10 @@ struct Opt {
     #[structopt(short = "m", long = "mode", default_value = "Debug")]
     mode: Mode,
 
+    /// Set log level
+    #[structopt(short = "v", long = "verbosity", default_value = "Off")]
+    verbosity: LevelFilter,
+
     /// Dwarf file path: only required when `mode` is set to `Debug`
     #[structopt(name = "FILE", required_if("mode", "Debug"), parse(from_os_str))]
     file_path: Option<PathBuf>,
@@ -83,9 +91,15 @@ struct Opt {
 
 fn main() -> Result<()> {
     let opt = Opt::from_args();
+    
+    // Setup log
+    let cfg = ConfigBuilder::new().build();
+    let log_level = opt.verbosity;
+    let _ = TermLogger::init(log_level, cfg, TerminalMode::Mixed);
+    
     match opt.mode {
         Mode::Debug => debug_mode(opt.file_path.unwrap()),
-        Mode::DebugAdapter => Ok(()),
+        Mode::DebugAdapter => server::start_server(opt.port),
     }
 }
 
