@@ -40,34 +40,64 @@ use debugger_cli::DebuggerCli;
 
 use anyhow::{Context, Result};
 
+use std::str::FromStr;
+use std::string::ParseError;
+
+#[derive(Debug)]
+enum Mode {
+    Debug,
+    DebugAdapter,
+}
+
+impl FromStr for Mode {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Debug"         => Ok(Mode::Debug),
+            "debug"         => Ok(Mode::Debug),
+            "DebugAdapter"  => Ok(Mode::DebugAdapter),
+            "server"        => Ok(Mode::DebugAdapter),
+            _               => Err("Error: invalid mode"),
+        }
+    }
+}
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "example", about = "An example of StructOpt usage.")]
 struct Opt {
-    /// Input dwarf file
-    #[structopt(parse(from_os_str))]
-    file: PathBuf,
+    /// Set Mode
+    #[structopt(short = "m", long = "mode", default_value = "Debug")]
+    mode: Mode,
+
+    /// Dwarf file path: only required when `mode` is set to `Debug`
+    #[structopt(name = "FILE", required_if("mode", "Debug"), parse(from_os_str))]
+    file_path: Option<PathBuf>,
+
+    /// Set Port: only required when `mode` is set to `DebugAdapter`
+    #[structopt(short = "p", long = "port", required_if("mode", "DebugAdapter"), default_value = "8800")]
+    port: u16,
+
 }
 
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Opt::from_args();
+    match opt.mode {
+        Mode::Debug => debug_mode(opt.file_path.unwrap()),
+        Mode::DebugAdapter => Ok(()),
+    }
+}
 
-    let mut session = match attach_probe() {
-        Ok(session) => session,
-        Err(err)    => panic!("Error: {:?}", err),
-    };
 
-    let _pc = match flash_target(&mut session, &opt.file) {
-        Ok(pc)      => pc,
-        Err(err)    => panic!("Error: {:?}", err),
-    };
+fn debug_mode(file_path: PathBuf) -> Result<()>
+{
+    let mut session = attach_probe()?;
+
+    let _pc = flash_target(&mut session, &file_path)?;
 
     let core = session.core(0).unwrap();
-    match read_dwarf(core, &opt.file) {
-        Ok(_)      => (),
-        Err(err)    => panic!("Error: {:?}", err),
-    };
+    read_dwarf(core, &file_path)
 }
 
 
