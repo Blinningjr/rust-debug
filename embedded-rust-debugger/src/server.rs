@@ -26,6 +26,7 @@ use debugserver_types::{
     Request,
     InitializeRequestArguments,
     Capabilities,
+    InitializedEvent,
 };
 
 use std::io;
@@ -62,9 +63,9 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
 }
 
 
-fn start_session<R: Read, W: Write>(reader: BufReader<R>, writer: W) -> Result<()>
+fn start_session<R: Read, W: Write>(mut reader: BufReader<R>, mut writer: W) -> Result<()>
 {
-    let req = verify_init_msg(read_dap_msg(reader)?)?;
+    let req = verify_init_msg(read_dap_msg(&mut reader)?)?;
 
     let capabilities = Capabilities {..Default::default()};
     let resp = Response {
@@ -77,10 +78,24 @@ fn start_session<R: Read, W: Write>(reader: BufReader<R>, writer: W) -> Result<(
         type_:          "response".to_string(),
     };
     
-    send_data(writer, &to_vec(&resp)?, 0)?;
+    let mut seq = send_data(&mut writer, &to_vec(&resp)?, 0)?;
+    seq = send_data(&mut writer,
+                    &to_vec(&InitializedEvent {
+                        seq,
+                        body: None,
+                        type_: "event".to_owned(),
+                        event: "initialized".to_owned(),
+                    })?,
+                    seq)?;
 
 
-    Ok(())
+    loop {
+        let msg = read_dap_msg(&mut reader)?;
+        trace!("< {:?}", msg);
+    }
+
+
+    //Ok(())
 }
 
 
@@ -105,7 +120,7 @@ fn verify_init_msg(msg: DebugAdapterMessage) -> Result<Request>
 
 
 
-fn read_dap_msg<R: Read>(mut reader: BufReader<R>) -> Result<DebugAdapterMessage, anyhow::Error>
+fn read_dap_msg<R: Read>(reader: &mut BufReader<R>) -> Result<DebugAdapterMessage, anyhow::Error>
 {
     let mut header = String::new();
 
@@ -121,8 +136,6 @@ fn read_dap_msg<R: Read>(mut reader: BufReader<R>) -> Result<DebugAdapterMessage
 
     let mut content = vec![0u8; len];
     let bytes_read = reader.read(&mut content)?;
-
-//    assert!(bytes_read == len);
 
     // Extract protocol message
     let protocol_msg: ProtocolMessage = from_slice(&content)?;
@@ -162,7 +175,7 @@ pub fn get_arguments<T: DeserializeOwned>(req: &Request) -> Result<T> {
 }
 
 
-fn send_data<W: Write>(mut writer: W, raw_data: &[u8], seq: i64) -> Result<i64> {
+fn send_data<W: Write>(writer: &mut W, raw_data: &[u8], seq: i64) -> Result<i64> {
     let resp_body = raw_data;
 
     let resp_header = format!("Content-Length: {}\r\n\r\n", resp_body.len());
