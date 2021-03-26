@@ -37,6 +37,13 @@ use std::string::ParseError;
 
 use serde::{de::DeserializeOwned, Deserialize};
 
+use serde_json::{
+    from_slice,
+    from_value,
+    json,
+    to_vec,
+};
+
 
 pub fn start_server(port: u16) -> Result<(), anyhow::Error>
 {
@@ -57,13 +64,27 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
 
 fn start_session<R: Read, W: Write>(reader: BufReader<R>, writer: W) -> Result<()>
 {
-    verify_init_msg(read_dap_msg(reader)?)?;
+    let req = verify_init_msg(read_dap_msg(reader)?)?;
+
+    let capabilities = Capabilities {..Default::default()};
+    let resp = Response {
+        body:           Some(json!(capabilities)),
+        command:        req.command.clone(),
+        message:        None,
+        request_seq:    req.seq,
+        seq:            req.seq,
+        success:        true,
+        type_:          "response".to_string(),
+    };
+    
+    send_data(writer, &to_vec(&resp)?, 0)?;
+
 
     Ok(())
 }
 
 
-fn verify_init_msg(msg: DebugAdapterMessage) -> Result<()>
+fn verify_init_msg(msg: DebugAdapterMessage) -> Result<Request>
 {
     match msg {
         DebugAdapterMessage::Request(req)   => {
@@ -74,7 +95,7 @@ fn verify_init_msg(msg: DebugAdapterMessage) -> Result<()>
             let arguments: InitializeRequestArguments = get_arguments(&req)?;
             debug!("Initialization request from client '{}'",
                    arguments.client_name.unwrap_or("<unknown>".to_owned()));
-            Ok(())
+            Ok(req)
         },
 
         _                                   =>
@@ -104,13 +125,13 @@ fn read_dap_msg<R: Read>(mut reader: BufReader<R>) -> Result<DebugAdapterMessage
 //    assert!(bytes_read == len);
 
     // Extract protocol message
-    let protocol_msg: ProtocolMessage = serde_json::from_slice(&content)?;
-    println!("{:#?}", protocol_msg);
+    let protocol_msg: ProtocolMessage = from_slice(&content)?;
+    trace!("{:#?}", protocol_msg);
 
     let msg = match protocol_msg.type_.as_ref() {
-        "request" => DebugAdapterMessage::Request(serde_json::from_slice(&content,)?),
-        "response" => DebugAdapterMessage::Response(serde_json::from_slice(&content,)?),
-        "event" => DebugAdapterMessage::Event(serde_json::from_slice(&content,)?),
+        "request" => DebugAdapterMessage::Request(from_slice(&content,)?),
+        "response" => DebugAdapterMessage::Response(from_slice(&content,)?),
+        "event" => DebugAdapterMessage::Event(from_slice(&content,)?),
         other => return Err(anyhow!("Unknown message type: {}", other)),
     };
     debug!("Got msg: {:?}", msg);
@@ -126,6 +147,7 @@ fn get_content_len(header: &str) -> Option<usize> {
     parts.next()?.parse::<usize>().ok()
 }
 
+
 #[derive(Debug)]
 pub enum DebugAdapterMessage {
     Request(Request),
@@ -133,8 +155,26 @@ pub enum DebugAdapterMessage {
     Event(debugserver_types::Event),
 }
 
+
 pub fn get_arguments<T: DeserializeOwned>(req: &Request) -> Result<T> {
     let value = req.arguments.as_ref().unwrap();
-    serde_json::from_value(value.to_owned()).map_err(|e| e.into())
+    from_value(value.to_owned()).map_err(|e| e.into())
+}
+
+
+fn send_data<W: Write>(mut writer: W, raw_data: &[u8], seq: i64) -> Result<i64> {
+    let resp_body = raw_data;
+
+    let resp_header = format!("Content-Length: {}\r\n\r\n", resp_body.len());
+
+    trace!("> {}", resp_header.trim_end());
+    trace!("> {}", std::str::from_utf8(resp_body)?);
+
+    writer.write(resp_header.as_bytes())?;
+    writer.write(resp_body)?;
+
+    writer.flush()?;
+
+    Ok(seq + 1)
 }
 
