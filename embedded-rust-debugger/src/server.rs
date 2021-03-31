@@ -28,8 +28,6 @@ use debugserver_types::{
     Capabilities,
     InitializedEvent,
     Event,
-    ThreadsResponseBody,
-    Thread,
 };
 
 use std::io;
@@ -47,6 +45,7 @@ use serde_json::{
     json,
     to_vec,
 };
+
 
 
 pub fn start_server(port: u16) -> Result<(), anyhow::Error>
@@ -96,14 +95,16 @@ impl<R: Read, W: Write> Session<R, W> {
         };
         
         let mut seq = send_data(&mut writer, &to_vec(&resp)?, 0)?;
+
         seq = send_data(&mut writer,
                         &to_vec(&InitializedEvent {
-                            seq,
-                            body: None,
-                            type_: "event".to_owned(),
-                            event: "initialized".to_owned(),
+                            seq:    seq,
+                            body:   None,
+                            type_:  "event".to_owned(),
+                            event:  "initialized".to_owned(),
                         })?,
                         seq)?;
+
 
         let mut session = Session {
             reader: reader,
@@ -128,88 +129,22 @@ impl<R: Read, W: Write> Session<R, W> {
         match msg {
             DebugAdapterMessage::Request    (req)   => self.handle_request(req),
             DebugAdapterMessage::Response   (resp)  => unimplemented!(), 
-            DebugAdapterMessage::Event      (event) => unimplemented!(),
-        }
+            DebugAdapterMessage::Event      (event) => unimplemented!(), }
     }
 
 
     fn handle_request(&mut self, req: Request) -> Result<()>
     {
         match req.command.as_ref() {
-            "launch"                    => {
-                // TODO start the debugee
-
-                let resp = Response {
-                    body:           None,
-                    command:        req.command.clone(),
-                    message:        None,
-                    request_seq:    req.seq,
-                    seq:            req.seq,
-                    success:        true,
-                    type_:          "response".to_string(),
-                };
-                
-                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
-    
-                Ok(())
-            },
-            "attach"                    => {
-                // TODO attach the debugee
-
-                let resp = Response {
-                    body:           None,
-                    command:        req.command.clone(),
-                    message:        None,
-                    request_seq:    req.seq,
-                    seq:            req.seq,
-                    success:        true,
-                    type_:          "response".to_string(),
-                };
-                
-                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
-    
-                Ok(())
-            },
+            "launch"                    => self.launch_command_request(req),
+            "attach"                    => self.attach_command_request(req),
             "setBreakpoints"            => Ok(()), // TODO
-            "threads"                   => {
-                let body = ThreadsResponseBody {
-                    threads: vec!(Thread {
-                        id:     0,
-                        name:   "Main Thread".to_string(),
-                    }),
-                };
-
-                let resp = Response {
-                    body:           Some(json!(body)),
-                    command:        req.command.clone(),
-                    message:        None,
-                    request_seq:    req.seq,
-                    seq:            req.seq,
-                    success:        true,
-                    type_:          "response".to_string(),
-                };
-                
-                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?; 
-
-                Ok(())
-            },
+            "threads"                   => self.threads_command_request(req),
 //            "setDataBreakpoints"        => Ok(()), // TODO
 //            "setExceptionBreakpoints"   => Ok(()), // TODO
-            "configurationDone"         => {
-                let resp = Response {
-                    body:           None,
-                    command:        req.command.clone(),
-                    message:        None,
-                    request_seq:    req.seq,
-                    seq:            req.seq,
-                    success:        true,
-                    type_:          "response".to_string(),
-                };
-                
-                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
-    
-                Ok(())
-            },
+            "configurationDone"         => self.configuration_done_command_request(req),
+            "pause"                     => self.pause_command_request(req),
+            "stackTrace" => Ok(()), // TODO
             _ => panic!("command: {}", req.command),
         }
     }
@@ -241,7 +176,7 @@ fn read_dap_msg<R: Read>(reader: &mut BufReader<R>) -> Result<DebugAdapterMessag
     let mut header = String::new();
 
     reader.read_line(&mut header)?;
-    trace!("< {}", header.trim_end());
+    //trace!("< {}", header.trim_end());
 
     // we should read an empty line here
     let mut buff = String::new();
@@ -255,7 +190,7 @@ fn read_dap_msg<R: Read>(reader: &mut BufReader<R>) -> Result<DebugAdapterMessag
 
     // Extract protocol message
     let protocol_msg: ProtocolMessage = from_slice(&content)?;
-    trace!("{:#?}", protocol_msg);
+    //trace!("{:#?}", protocol_msg);
 
     let msg = match protocol_msg.type_.as_ref() {
         "request" => DebugAdapterMessage::Request(from_slice(&content,)?),
@@ -290,12 +225,12 @@ pub fn get_arguments<T: DeserializeOwned>(req: &Request) -> Result<T> {
 }
 
 
-fn send_data<W: Write>(writer: &mut W, raw_data: &[u8], seq: i64) -> Result<i64> {
+pub fn send_data<W: Write>(writer: &mut W, raw_data: &[u8], seq: i64) -> Result<i64> {
     let resp_body = raw_data;
 
     let resp_header = format!("Content-Length: {}\r\n\r\n", resp_body.len());
 
-    trace!("> {}", resp_header.trim_end());
+    //trace!("> {}", resp_header.trim_end());
     trace!("> {}", std::str::from_utf8(resp_body)?);
 
     writer.write(resp_header.as_bytes())?;

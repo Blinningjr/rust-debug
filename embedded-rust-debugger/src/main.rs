@@ -2,6 +2,7 @@ mod debugger;
 mod debugger_cli;
 mod commands;
 mod server;
+mod request_command_handlers;
 
 use debugger::{
     Debugger,
