@@ -27,6 +27,7 @@ use debugserver_types::{
     InitializeRequestArguments,
     Capabilities,
     InitializedEvent,
+    Event,
 };
 
 use std::io;
@@ -67,7 +68,12 @@ fn start_session<R: Read, W: Write>(mut reader: BufReader<R>, mut writer: W) -> 
 {
     let req = verify_init_msg(read_dap_msg(&mut reader)?)?;
 
-    let capabilities = Capabilities {..Default::default()};
+    let capabilities = Capabilities {
+        supports_configuration_done_request:    Some(true), // Supports config after init request
+        supports_data_breakpoints:              Some(true),
+//        supportsCancelRequest:                  Some(true),
+        ..Default::default()
+    };
     let resp = Response {
         body:           Some(json!(capabilities)),
         command:        req.command.clone(),
@@ -92,10 +98,47 @@ fn start_session<R: Read, W: Write>(mut reader: BufReader<R>, mut writer: W) -> 
     loop {
         let msg = read_dap_msg(&mut reader)?;
         trace!("< {:?}", msg);
+        handle_message(msg, &mut writer, &mut seq);
     }
 
-
     //Ok(())
+}
+
+
+fn handle_message<W: Write>(msg: DebugAdapterMessage, writer: &mut W, seq: &mut i64) -> Result<()>
+{
+    match msg {
+        DebugAdapterMessage::Request    (req)   => handle_request(req, writer, seq),
+        DebugAdapterMessage::Response   (resp)  => unimplemented!(), 
+        DebugAdapterMessage::Event      (event) => unimplemented!(),
+    }
+}
+
+
+fn handle_request<W: Write>(req: Request, writer: &mut W, seq: &mut i64) -> Result<()>
+{
+    match req.command.as_ref() {
+        "launch"                    => Ok(()), // TODO
+        "attach"                    => Ok(()), // TODO
+        "setBreakpoints"            => Ok(()), // TODO
+        "setExceptionBreakpoints"   => Ok(()), // TODO
+        "configurationDone"         => {
+            let resp = Response {
+                body:           None,
+                command:        req.command.clone(),
+                message:        None,
+                request_seq:    req.seq,
+                seq:            req.seq,
+                success:        true,
+                type_:          "response".to_string(),
+            };
+            
+            *seq = send_data(writer, &to_vec(&resp)?, *seq)?;
+
+            Ok(())
+        },
+        _ => panic!("command: {}", req.command),
+    }
 }
 
 
@@ -147,7 +190,6 @@ fn read_dap_msg<R: Read>(reader: &mut BufReader<R>) -> Result<DebugAdapterMessag
         "event" => DebugAdapterMessage::Event(from_slice(&content,)?),
         other => return Err(anyhow!("Unknown message type: {}", other)),
     };
-    debug!("Got msg: {:?}", msg);
     Ok(msg)
 }
 
@@ -165,7 +207,7 @@ fn get_content_len(header: &str) -> Option<usize> {
 pub enum DebugAdapterMessage {
     Request(Request),
     Response(Response),
-    Event(debugserver_types::Event),
+    Event(Event),
 }
 
 
