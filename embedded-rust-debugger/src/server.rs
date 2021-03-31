@@ -28,6 +28,8 @@ use debugserver_types::{
     Capabilities,
     InitializedEvent,
     Event,
+    ThreadsResponseBody,
+    Thread,
 };
 
 use std::io;
@@ -60,84 +62,156 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
     let reader = BufReader::new(socket.try_clone()?);
     let writer = socket;
 
-    start_session(reader, writer)
+    Session::start_session(reader, writer)
 }
 
 
-fn start_session<R: Read, W: Write>(mut reader: BufReader<R>, mut writer: W) -> Result<()>
-{
-    let req = verify_init_msg(read_dap_msg(&mut reader)?)?;
 
-    let capabilities = Capabilities {
-        supports_configuration_done_request:    Some(true), // Supports config after init request
-        supports_data_breakpoints:              Some(true),
-//        supportsCancelRequest:                  Some(true),
-        ..Default::default()
-    };
-    let resp = Response {
-        body:           Some(json!(capabilities)),
-        command:        req.command.clone(),
-        message:        None,
-        request_seq:    req.seq,
-        seq:            req.seq,
-        success:        true,
-        type_:          "response".to_string(),
-    };
+#[derive(Debug)]
+pub struct Session<R: Read, W: Write> {
+    pub reader: BufReader<R>,
+    pub writer: W,
+    pub seq:    i64,
+}
+
+impl<R: Read, W: Write> Session<R, W> {
+    fn start_session(mut reader: BufReader<R>, mut writer: W) -> Result<()>
+    {
+        let req = verify_init_msg(read_dap_msg(&mut reader)?)?;
     
-    let mut seq = send_data(&mut writer, &to_vec(&resp)?, 0)?;
-    seq = send_data(&mut writer,
-                    &to_vec(&InitializedEvent {
-                        seq,
-                        body: None,
-                        type_: "event".to_owned(),
-                        event: "initialized".to_owned(),
-                    })?,
-                    seq)?;
+        let capabilities = Capabilities {
+            supports_configuration_done_request:    Some(true), // Supports config after init request
+//            supports_data_breakpoints:              Some(true),
+    //        supportsCancelRequest:                  Some(true),
+            ..Default::default()
+        };
+        let resp = Response {
+            body:           Some(json!(capabilities)),
+            command:        req.command.clone(),
+            message:        None,
+            request_seq:    req.seq,
+            seq:            req.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+        
+        let mut seq = send_data(&mut writer, &to_vec(&resp)?, 0)?;
+        seq = send_data(&mut writer,
+                        &to_vec(&InitializedEvent {
+                            seq,
+                            body: None,
+                            type_: "event".to_owned(),
+                            event: "initialized".to_owned(),
+                        })?,
+                        seq)?;
 
-
-    loop {
-        let msg = read_dap_msg(&mut reader)?;
-        trace!("< {:?}", msg);
-        handle_message(msg, &mut writer, &mut seq);
+        let mut session = Session {
+            reader: reader,
+            writer: writer,
+            seq:    seq,
+        };
+ 
+        session.run() 
     }
 
-    //Ok(())
-}
-
-
-fn handle_message<W: Write>(msg: DebugAdapterMessage, writer: &mut W, seq: &mut i64) -> Result<()>
-{
-    match msg {
-        DebugAdapterMessage::Request    (req)   => handle_request(req, writer, seq),
-        DebugAdapterMessage::Response   (resp)  => unimplemented!(), 
-        DebugAdapterMessage::Event      (event) => unimplemented!(),
+    fn run(&mut self) -> Result<()>
+    {
+        loop {
+            let msg = read_dap_msg(&mut self.reader)?;
+            trace!("< {:?}", msg);
+            self.handle_message(msg);
+        }
     }
-}
+
+    fn handle_message(&mut self, msg: DebugAdapterMessage) -> Result<()>
+    {
+        match msg {
+            DebugAdapterMessage::Request    (req)   => self.handle_request(req),
+            DebugAdapterMessage::Response   (resp)  => unimplemented!(), 
+            DebugAdapterMessage::Event      (event) => unimplemented!(),
+        }
+    }
 
 
-fn handle_request<W: Write>(req: Request, writer: &mut W, seq: &mut i64) -> Result<()>
-{
-    match req.command.as_ref() {
-        "launch"                    => Ok(()), // TODO
-        "attach"                    => Ok(()), // TODO
-        "setBreakpoints"            => Ok(()), // TODO
-        "setExceptionBreakpoints"   => Ok(()), // TODO
-        "configurationDone"         => {
-            let resp = Response {
-                body:           None,
-                command:        req.command.clone(),
-                message:        None,
-                request_seq:    req.seq,
-                seq:            req.seq,
-                success:        true,
-                type_:          "response".to_string(),
-            };
-            
-            *seq = send_data(writer, &to_vec(&resp)?, *seq)?;
+    fn handle_request(&mut self, req: Request) -> Result<()>
+    {
+        match req.command.as_ref() {
+            "launch"                    => {
+                // TODO start the debugee
 
-            Ok(())
-        },
-        _ => panic!("command: {}", req.command),
+                let resp = Response {
+                    body:           None,
+                    command:        req.command.clone(),
+                    message:        None,
+                    request_seq:    req.seq,
+                    seq:            req.seq,
+                    success:        true,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+    
+                Ok(())
+            },
+            "attach"                    => {
+                // TODO attach the debugee
+
+                let resp = Response {
+                    body:           None,
+                    command:        req.command.clone(),
+                    message:        None,
+                    request_seq:    req.seq,
+                    seq:            req.seq,
+                    success:        true,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+    
+                Ok(())
+            },
+            "setBreakpoints"            => Ok(()), // TODO
+            "threads"                   => {
+                let body = ThreadsResponseBody {
+                    threads: vec!(Thread {
+                        id:     0,
+                        name:   "Main Thread".to_string(),
+                    }),
+                };
+
+                let resp = Response {
+                    body:           Some(json!(body)),
+                    command:        req.command.clone(),
+                    message:        None,
+                    request_seq:    req.seq,
+                    seq:            req.seq,
+                    success:        true,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?; 
+
+                Ok(())
+            },
+//            "setDataBreakpoints"        => Ok(()), // TODO
+//            "setExceptionBreakpoints"   => Ok(()), // TODO
+            "configurationDone"         => {
+                let resp = Response {
+                    body:           None,
+                    command:        req.command.clone(),
+                    message:        None,
+                    request_seq:    req.seq,
+                    seq:            req.seq,
+                    success:        true,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+    
+                Ok(())
+            },
+            _ => panic!("command: {}", req.command),
+        }
     }
 }
 
@@ -160,7 +234,6 @@ fn verify_init_msg(msg: DebugAdapterMessage) -> Result<Request>
             Err(anyhow!("Error: initial message should be of type request")),
     }
 }
-
 
 
 fn read_dap_msg<R: Read>(reader: &mut BufReader<R>) -> Result<DebugAdapterMessage, anyhow::Error>
