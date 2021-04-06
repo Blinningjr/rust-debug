@@ -111,8 +111,18 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 
     let _pc = flash_target(&mut session, &file_path)?;
 
-    let core = session.core(0).unwrap();
-    read_dwarf(core, &file_path)
+    let mut core = session.core(0).unwrap();
+    let owned_dwarf = read_dwarf(&mut core, &file_path)?;
+    let dwarf = owned_dwarf.borrow(|section| {
+        gimli::EndianSlice::new(&section, gimli::LittleEndian)
+    });
+    
+    let debugger = Debugger::new(core, dwarf);
+
+    let mut cli = DebuggerCli::new(debugger)?;
+    cli.run()?;
+
+    Ok(())
 }
 
 
@@ -144,7 +154,7 @@ fn flash_target(session: &mut Session,
 }
 
 
-fn read_dwarf(core: Core, path: &Path) -> Result<()> {
+fn read_dwarf<'a>(core: &mut Core, path: &Path) -> Result<Dwarf<Vec<u8>>> {
     let file = fs::File::open(&path)?;
     let mmap = unsafe { memmap::Mmap::map(&file)? };
     let object = object::File::parse(&*mmap)?;
@@ -153,45 +163,25 @@ fn read_dwarf(core: Core, path: &Path) -> Result<()> {
     } else {
         gimli::RunTimeEndian::Big
     };
-    dwarf_cli(object, endian, core)?;
 
-    Ok(())
-}
-
-
-fn dwarf_cli(object: object::File, endian: gimli::RunTimeEndian, core: Core) -> Result<()> {
     // Load a section and return as `Cow<[u8]>`.
-    let loader = |id: gimli::SectionId| -> Result<borrow::Cow<[u8]>> {
+    let loader = |id: gimli::SectionId| -> Result<Vec<u8>> {
         match object.section_by_name(id.name()) {
             Some(ref section) => Ok(section
                 .uncompressed_data()
-                .unwrap_or(borrow::Cow::Borrowed(&[][..]))),
-            None => Ok(borrow::Cow::Borrowed(&[][..])),
+                .unwrap_or(borrow::Cow::Borrowed(&[][..])).to_vec()),
+            None => Ok(vec!()),
         }
     };
 
     // Load a supplementary section. We don't have a supplementary object file,
     // so always return an empty slice.
-    let sup_loader = |_| Ok(borrow::Cow::Borrowed(&[][..]));
+    let sup_loader = |_| Ok(vec!());
 
     // Load all of the sections.
-    let dwarf_cow = gimli::Dwarf::load(&loader, &sup_loader)?;
+    let dwarf= gimli::Dwarf::load(&loader, &sup_loader)?;
 
-    // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
-    let borrow_section: &dyn for<'b> Fn(
-        &'b borrow::Cow<[u8]>,
-    ) -> gimli::EndianSlice<'b, gimli::RunTimeEndian> =
-        &|section| gimli::EndianSlice::new(&*section, endian);
-
-    // Create `EndianSlice`s for all of the sections.
-    let dwarf = dwarf_cow.borrow(&borrow_section);
-
-    let debugger = Debugger::new(core, dwarf);
-
-    let mut cli = DebuggerCli::new(debugger)?;
-    cli.run()?;
- 
-    return Ok(());
+    Ok(dwarf)
 }
 
 
