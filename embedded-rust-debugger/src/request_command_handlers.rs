@@ -37,8 +37,16 @@ use log::{
     error,
     info,
     trace,
+    warn,
 };
 
+
+use super::{
+    read_dwarf,
+    attach_probe,
+};
+
+use std::path::PathBuf;
 
 impl<R: Read, W: Write> Session<R, W> {
     pub fn launch_command_request(&mut self, req: Request) -> Result<()> 
@@ -65,21 +73,37 @@ impl<R: Read, W: Write> Session<R, W> {
     {
         let args: AttachRequestArguments = get_arguments(&req)?;
         debug!("> program: {:?}", args.program);
-        // TODO attach the debugee
+        self.file_path = Some(PathBuf::from(args.program));
 
-        let resp = Response {
-            body:           None,
-            command:        req.command.clone(),
-            message:        None,
-            request_seq:    req.seq,
-            seq:            req.seq,
-            success:        true,
-            type_:          "response".to_string(),
+        self.dwarf = Some(read_dwarf(self.file_path.as_ref().unwrap())?);
+        debug!("> Readed dwarf file");
+
+        match attach_probe() {
+            Ok(s) => {
+                debug!("> probe attached");
+                self.sess = Some(s);
+
+                let resp = Response {
+                    body:           None,
+                    command:        req.command.clone(),
+                    message:        None,
+                    request_seq:    req.seq,
+                    seq:            req.seq,
+                    success:        true,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+
+                // TODO: Add breakpoints
+
+                return Ok(());
+            },
+            Err(e) => {
+                warn!("> probe failed to attach");
+                return Err(e);
+            },
         };
-        
-        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
-    
-        Ok(())
     }
 
 

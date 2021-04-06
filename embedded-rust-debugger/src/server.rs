@@ -6,6 +6,7 @@ use std::net::{
 };
 
 
+
 use anyhow::{
     anyhow,
     Result,
@@ -29,6 +30,8 @@ use debugserver_types::{
     InitializedEvent,
     Event,
 };
+
+use std::path::PathBuf;
 
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -66,11 +69,14 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
 
 
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Session<R: Read, W: Write> {
     pub reader: BufReader<R>,
     pub writer: W,
     pub seq:    i64,
+    pub sess:   Option<probe_rs::Session>,
+    pub file_path:  Option<PathBuf>,
+    pub dwarf:  Option<gimli::Dwarf<Vec<u8>>>,
 }
 
 impl<R: Read, W: Write> Session<R, W> {
@@ -110,6 +116,9 @@ impl<R: Read, W: Write> Session<R, W> {
             reader: reader,
             writer: writer,
             seq:    seq,
+            sess:   None,
+            file_path: None,
+            dwarf:  None,
         };
  
         session.run() 

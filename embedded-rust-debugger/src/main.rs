@@ -111,8 +111,8 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 
     let _pc = flash_target(&mut session, &file_path)?;
 
-    let mut core = session.core(0).unwrap();
-    let owned_dwarf = read_dwarf(&mut core, &file_path)?;
+    let core = session.core(0).unwrap();
+    let owned_dwarf = read_dwarf(&file_path)?;
     let dwarf = owned_dwarf.borrow(|section| {
         gimli::EndianSlice::new(&section, gimli::LittleEndian)
     });
@@ -154,7 +154,7 @@ fn flash_target(session: &mut Session,
 }
 
 
-fn read_dwarf<'a>(core: &mut Core, path: &Path) -> Result<Dwarf<Vec<u8>>> {
+fn read_dwarf<'a>(path: &Path) -> Result<Dwarf<Vec<u8>>> {
     let file = fs::File::open(&path)?;
     let mmap = unsafe { memmap::Mmap::map(&file)? };
     let object = object::File::parse(&*mmap)?;
