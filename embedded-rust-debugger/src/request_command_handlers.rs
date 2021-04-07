@@ -168,7 +168,6 @@ impl<R: Read, W: Write> Session<R, W> {
             success:        true,
             type_:          "response".to_string(),
         };
-        
         self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
 
         match self.halt_core() {
@@ -267,6 +266,51 @@ impl<R: Read, W: Write> Session<R, W> {
         };
         
         self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+    
+        Ok(false)
+    }
+
+
+    pub fn next_command_request(&mut self, req: &Request) -> Result<bool>
+    {
+        let resp = Response {
+            body:           None,
+            command:        req.command.clone(),
+            message:        None,
+            request_seq:    req.seq,
+            seq:            req.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+        
+        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+
+        match self.step_core() {
+            Ok(_)      => {
+                // TODO: send Stopped event.
+                let body = StoppedEventBody {
+                    reason: "step".to_owned(),
+                    description: Some("Target paused due to step request.".to_owned()),
+                    thread_id: Some(0),
+                    preserve_focus_hint: None,
+                    text: None,
+                    all_threads_stopped: None,
+                };
+
+                self.seq = send_data(&mut self.writer,
+                                     &to_vec(&StoppedEvent {
+                                        body:   body,
+                                        event:  "stopped".to_owned(),
+                                        seq:    self.seq,
+                                        type_:  "event".to_owned(),
+                                    })?,
+                                    self.seq)?;
+            },
+            Err(err)    => {
+                warn!("Faild to step");
+                trace!("Faild to step because: {}", err);
+            },
+        };
     
         Ok(false)
     }

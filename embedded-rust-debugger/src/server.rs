@@ -65,13 +65,17 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(addr)?;
 
-    let (socket, addr) = listener.accept()?;
-    info!("Accepted connection from {}", addr);
+    loop {
+        let (socket, addr) = listener.accept()?;
+        info!("Accepted connection from {}", addr);
 
-    let reader = BufReader::new(socket.try_clone()?);
-    let writer = socket;
+        let reader = BufReader::new(socket.try_clone()?);
+        let writer = socket;
 
-    Session::start_session(reader, writer)
+        Session::start_session(reader, writer);
+    }
+
+    Ok(())
 }
 
 
@@ -166,6 +170,11 @@ impl<R: Read, W: Write> Session<R, W> {
             "stackTrace"                => self.stack_trace_command_request(&req),
             "disconnect"                => self.disconnect_command_request(&req),
             "continue"                  => self.continue_command_request(&req),
+            "scopes"                    => unimplemented!(), // TODO
+            "source"                    => unimplemented!(), // TODO
+            "variables"                 => unimplemented!(), // TODO
+            "next"                      => self.next_command_request(&req), // TODO
+            "stepOut"                   => unimplemented!(), // TODO
             _ => panic!("command: {}", req.command),
         };
 
@@ -208,6 +217,19 @@ impl<R: Read, W: Write> Session<R, W> {
             let mut core = s.core(0)?;
             
             let _res = commands::run_command(&mut core)?;
+
+            return Ok(());
+        } else {
+            return Err(anyhow!("Not attached to target"));
+        } 
+    }
+
+
+    pub fn step_core(&mut self) -> Result<()> {
+        if let Some(s) = &mut self.sess {
+            let mut core = s.core(0)?;
+            
+            let _res = commands::step_command(&mut core, false)?;
 
             return Ok(());
         } else {

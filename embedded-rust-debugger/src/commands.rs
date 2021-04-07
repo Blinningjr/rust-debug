@@ -64,7 +64,7 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "step",
                 short:          "sp",
                 description:    "Step a single instruction",
-                function:       |debugger, _args| step_command(&mut debugger.core),
+                function:       |debugger, _args| step_command(&mut debugger.core, true),
             },
             Command {
                 name:           "halt",
@@ -159,13 +159,17 @@ pub fn run_command(core: &mut Core) -> Result<bool>
 }
 
 
-fn step_command(core: &mut Core) -> Result<bool>
+pub fn step_command(core: &mut Core, print: bool) -> Result<bool>
 {
     let status = core.status()?;
 
     if status.is_halted() {
         let cpu_info = continue_fix(core)?;
-        println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+        info!("Stept to pc = 0x{:08x}", cpu_info.pc);
+
+        if print {
+            println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+        }
     }
 
     Ok(false)
