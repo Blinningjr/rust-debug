@@ -49,7 +49,7 @@ use super::{
 use std::path::PathBuf;
 
 impl<R: Read, W: Write> Session<R, W> {
-    pub fn launch_command_request(&mut self, req: Request) -> Result<()> 
+    pub fn launch_command_request(&mut self, req: &Request) -> Result<bool> 
     {
         // TODO start the debugee
 
@@ -65,11 +65,11 @@ impl<R: Read, W: Write> Session<R, W> {
         
         self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
     
-        Ok(())
+        Ok(false)
     }
 
 
-    pub fn attach_command_request(&mut self, req: Request) -> Result<()> 
+    pub fn attach_command_request(&mut self, req: &Request) -> Result<bool> 
     {
         let args: AttachRequestArguments = get_arguments(&req)?;
         debug!("> program: {:?}", args.program);
@@ -97,7 +97,7 @@ impl<R: Read, W: Write> Session<R, W> {
 
                 // TODO: Add breakpoints
 
-                return Ok(());
+                return Ok(false);
             },
             Err(e) => {
                 warn!("> probe failed to attach");
@@ -107,7 +107,7 @@ impl<R: Read, W: Write> Session<R, W> {
     }
 
 
-    pub fn threads_command_request(&mut self, req: Request) -> Result<()> 
+    pub fn threads_command_request(&mut self, req: &Request) -> Result<bool> 
     {
         let body = ThreadsResponseBody {
             threads: vec!(Thread {
@@ -128,11 +128,11 @@ impl<R: Read, W: Write> Session<R, W> {
         
         self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?; 
 
-        Ok(())
+        Ok(false)
     }
 
 
-    pub fn configuration_done_command_request(&mut self, req: Request) -> Result<()>
+    pub fn configuration_done_command_request(&mut self, req: &Request) -> Result<bool>
     {
         let resp = Response {
             body:           None,
@@ -146,11 +146,11 @@ impl<R: Read, W: Write> Session<R, W> {
         
         self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
     
-        Ok(())
+        Ok(false)
     }
 
 
-    pub fn pause_command_request(&mut self, req: Request) -> Result<()>
+    pub fn pause_command_request(&mut self, req: &Request) -> Result<bool>
     {
         let resp = Response {
             body:           None,
@@ -183,7 +183,27 @@ impl<R: Read, W: Write> Session<R, W> {
                             })?,
                             self.seq)?;
  
-        Ok(())
+        Ok(false)
+    }
+
+
+    pub fn disconnect_command_request(&mut self, req: &Request) -> Result<bool>
+    {
+        // TODO: Stop the debuggee, if conditions are meet
+
+        let resp = Response {
+            body:           None,
+            command:        req.command.clone(),
+            message:        None,
+            request_seq:    req.seq,
+            seq:            req.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+        
+        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+    
+        Ok(true)
     }
 }
 

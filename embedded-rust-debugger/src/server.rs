@@ -17,6 +17,7 @@ use log::{
     error,
     info,
     trace,
+    warn,
 };
 
 use simplelog::*;
@@ -129,33 +130,57 @@ impl<R: Read, W: Write> Session<R, W> {
         loop {
             let msg = read_dap_msg(&mut self.reader)?;
             trace!("< {:?}", msg);
-            self.handle_message(msg);
+            if self.handle_message(msg)? {
+                return Ok(());
+            }
         }
     }
 
-    fn handle_message(&mut self, msg: DebugAdapterMessage) -> Result<()>
+    fn handle_message(&mut self, msg: DebugAdapterMessage) -> Result<bool>
     {
         match msg {
             DebugAdapterMessage::Request    (req)   => self.handle_request(req),
             DebugAdapterMessage::Response   (resp)  => unimplemented!(), 
-            DebugAdapterMessage::Event      (event) => unimplemented!(), }
+            DebugAdapterMessage::Event      (event) => unimplemented!(),
+        }
     }
 
 
-    fn handle_request(&mut self, req: Request) -> Result<()>
+    fn handle_request(&mut self, req: Request) -> Result<bool>
     {
-        match req.command.as_ref() {
-            "launch"                    => self.launch_command_request(req),
-            "attach"                    => self.attach_command_request(req),
-            "setBreakpoints"            => Ok(()), // TODO
-            "threads"                   => self.threads_command_request(req),
+        let res = match req.command.as_ref() {
+            "launch"                    => self.launch_command_request(&req),
+            "attach"                    => self.attach_command_request(&req),
+            "setBreakpoints"            => Ok(false), // TODO
+            "threads"                   => self.threads_command_request(&req),
 //            "setDataBreakpoints"        => Ok(()), // TODO
 //            "setExceptionBreakpoints"   => Ok(()), // TODO
-            "configurationDone"         => self.configuration_done_command_request(req),
-            "pause"                     => self.pause_command_request(req),
-            "stackTrace" => Ok(()), // TODO
+            "configurationDone"         => self.configuration_done_command_request(&req),
+            "pause"                     => self.pause_command_request(&req),
+            "stackTrace"                => Ok(false), // TODO
+            "disconnect"                => self.disconnect_command_request(&req),
             _ => panic!("command: {}", req.command),
-        }
+        };
+
+        match res {
+            Ok(v)       => return Ok(v),
+            Err(err)    => {
+                warn!("{}", err.to_string());
+                let resp = Response {
+                    body:           None,
+                    command:        req.command.clone(),
+                    message:        Some(err.to_string()),
+                    request_seq:    req.seq,
+                    seq:            req.seq,
+                    success:        false,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?; 
+
+                return Ok(false);
+            },
+        };
     }
 }
 
