@@ -50,6 +50,12 @@ use serde_json::{
     to_vec,
 };
 
+use std::time::Duration;
+
+use super::{
+    commands,
+};
+
 
 
 pub fn start_server(port: u16) -> Result<(), anyhow::Error>
@@ -157,8 +163,9 @@ impl<R: Read, W: Write> Session<R, W> {
 //            "setExceptionBreakpoints"   => Ok(()), // TODO
             "configurationDone"         => self.configuration_done_command_request(&req),
             "pause"                     => self.pause_command_request(&req),
-            "stackTrace"                => Ok(false), // TODO
+            "stackTrace"                => self.stack_trace_command_request(&req),
             "disconnect"                => self.disconnect_command_request(&req),
+            "continue"                  => self.continue_command_request(&req),
             _ => panic!("command: {}", req.command),
         };
 
@@ -181,6 +188,31 @@ impl<R: Read, W: Write> Session<R, W> {
                 return Ok(false);
             },
         };
+    }
+
+    pub fn halt_core(&mut self) -> Result<()> {
+        if let Some(s) = &mut self.sess {
+            let mut core = s.core(0)?;
+    
+            let _res = commands::halt_command(&mut core, false)?;
+
+            return Ok(());
+        } else {
+            return Err(anyhow!("Not attached to target"));
+        } 
+    }
+    
+
+    pub fn run_core(&mut self) -> Result<()> {
+        if let Some(s) = &mut self.sess {
+            let mut core = s.core(0)?;
+            
+            let _res = commands::run_command(&mut core)?;
+
+            return Ok(());
+        } else {
+            return Err(anyhow!("Not attached to target"));
+        } 
     }
 }
 

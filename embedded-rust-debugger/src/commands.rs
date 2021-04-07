@@ -19,6 +19,10 @@ use probe_rs::{
     CoreInformation,
 };
 
+use log::{
+    info,
+};
+
 
 pub struct Command<R: Reader<Offset = usize>> {
     pub name:           &'static str,
@@ -66,7 +70,7 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "halt",
                 short:          "h",
                 description:    "Stop the CPU",
-                function:       |debugger, _args| halt_command(&mut debugger.core),
+                function:       |debugger, _args| halt_command(&mut debugger.core, true),
             },
             Command {
                 name:           "registers",
@@ -140,13 +144,15 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 }
 
 
-fn run_command(core: &mut Core) -> Result<bool>
+pub fn run_command(core: &mut Core) -> Result<bool>
 {
     let status = core.status()?;
 
     if status.is_halted() {
         let _cpu_info = continue_fix(core)?;
         core.run()?;
+        
+        info!("Core running");
     }
 
     Ok(false)
@@ -179,21 +185,25 @@ fn continue_fix(core: &mut Core) -> Result<CoreInformation, probe_rs::Error>
 }
 
 
-fn halt_command(core: &mut Core) -> Result<bool>
+pub fn halt_command(core: &mut Core, print: bool) -> Result<bool>
 {
     let cpu_info = core.halt(Duration::from_millis(100))?;
-    println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+    info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
 
-    let mut code = [0u8; 16 * 2];
+    if print {
+        println!("Core stopped at address 0x{:08x}", cpu_info.pc);
 
-    core.read_8(cpu_info.pc, &mut code)?;
+        let mut code = [0u8; 16 * 2];
 
-    for (offset, instruction) in code.iter().enumerate() {
-        println!(
-            "{:#010x}:\t{:010x}",
-            cpu_info.pc + offset as u32,
-            instruction
-        );
+        core.read_8(cpu_info.pc, &mut code)?;
+
+        for (offset, instruction) in code.iter().enumerate() {
+            println!(
+                "{:#010x}:\t{:010x}",
+                cpu_info.pc + offset as u32,
+                instruction
+            );
+        }
     }
 
     Ok(false)
