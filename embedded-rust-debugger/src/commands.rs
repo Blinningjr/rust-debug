@@ -21,6 +21,7 @@ use probe_rs::{
 
 use log::{
     info,
+    debug,
 };
 
 
@@ -94,25 +95,25 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "set_breakpoint",
                 short:          "bkpt",
                 description:    "Set breakpoint at an address",
-                function:       |debugger, args| set_breakpoint_command(&mut debugger.core, args),
+                function:       |debugger, args| set_breakpoint_command(debugger, args, true),
             },
             Command {
                 name:           "clear_breakpoint",
                 short:          "cbkpt",
                 description:    "Clear breakpoint from an address",
-                function:       |debugger, args| clear_breakpoint_command(&mut debugger.core, args),
+                function:       |debugger, args| clear_breakpoint_command(debugger, args, true),
             },
             Command {
                 name:           "clear_all_breakpoints",
                 short:          "cabkpt",
                 description:    "Clear all breakpoints",
-                function:       |debugger, _args| clear_all_breakpoints_command(&mut debugger.core),
+                function:       |debugger, _args| clear_all_breakpoints_command(debugger, true),
             },
             Command {
                 name:           "num_breakpoints",
                 short:          "nbkpt",
                 description:    "Get total number of hw breakpoints",
-                function:       |debugger, _args| num_breakpoints_command(&mut debugger.core),
+                function:       |debugger, _args| num_breakpoints_command(debugger),
             },
         )
     }
@@ -277,54 +278,95 @@ fn read_command(core: &mut Core,
 }
 
 
-fn set_breakpoint_command(core: &mut Core,
-                          args:   &[&str]
-                          ) -> Result<bool>
+fn set_breakpoint_command<R: Reader<Offset = usize>>(debugger:  &mut Debugger<R>,
+                                                     args:      &[&str],
+                                                     print:     bool
+                                                     ) -> Result<bool>
 {
     let address = args[0].parse::<u32>()?; 
-    match core.set_hw_breakpoint(address) {
-        Ok(_) => {
+    let num_bkpt = debugger.breakpoints.len() as u32;
+    let tot_bkpt = debugger.core.get_available_breakpoint_units()?;
+
+    if num_bkpt < tot_bkpt {
+        debugger.core.set_hw_breakpoint(address)?;
+        debugger.breakpoints.push(address);
+
+        
+        info!("Breakpoint set at: 0x{:08x}", address);
+        if print {
             println!("Breakpoint set at: 0x{:08x}", address);
-        },
-        Err(err) => {
-            println!("Error: {:?}", err);
+        }
+    } else {
+        if print {
+            println!("All hw breakpoints are already set");
+        }
+    }
+
+    Ok(false)
+}
+
+
+fn clear_breakpoint_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                                       args:   &[&str],
+                                                       print: bool
+                                                       ) -> Result<bool>
+{
+    if args.len() < 1 {
+        if print {
+            println!("Command requires an address(decimal number)");
+        }
+        return Ok(false);
+    }
+
+    let address = match args[0].parse::<u32>() {
+        Ok(val)     => val,
+        Err(err)    => {
+            debug!("Failed to parse argument: {:?}", err);
+            if print {
+                println!("Command requires an address(decimal number)");
+            }
+            return Ok(false);
         },
     };
 
+    for i in 0..debugger.breakpoints.len() {
+        if address == debugger.breakpoints[i] {
+            debugger.core.clear_hw_breakpoint(address)?;
+            debugger.breakpoints.remove(i);
+
+            info!("Breakpoint cleared from: 0x{:08x}", address);
+            if print {
+                println!("Breakpoint cleared from: 0x{:08x}", address);
+            }
+            break;
+        }
+    }
+
     Ok(false)
 }
 
 
-fn clear_breakpoint_command(core: &mut Core,
-                            args:   &[&str]
-                            ) -> Result<bool>
+fn clear_all_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>, print: bool) -> Result<bool>
 {
-    let address = args[0].parse::<u32>()?;
-    match core.clear_hw_breakpoint(address) {
-        Ok(_) => {
-            println!("Breakpoint cleared from: 0x{:08x}", address);
-        },
-        Err(err) => {
-            println!("Error: {:?}", err);
-        },
-    };
+    for bkpt in &debugger.breakpoints {
+        debugger.core.clear_hw_breakpoint(*bkpt)?;
+    }
+    debugger.breakpoints = vec!();
+
+    info!("All breakpoints cleard");
+    if print {
+        println!("All breakpoints cleared");
+    }
 
     Ok(false)
 }
 
 
-fn clear_all_breakpoints_command(core: &mut Core) -> Result<bool>
-{
-    core.clear_all_hw_breakpoints()?;
-    println!("All breakpoints cleared");
-
-    Ok(false)
-}
-
-
-fn num_breakpoints_command(core: &mut Core) -> Result<bool>
+fn num_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<bool>
 { 
-    println!("Total number of hw breakpoints: {}", core.get_available_breakpoint_units()?);
+    println!("Number of hw breakpoints: {}/{}",
+             debugger.breakpoints.len(),
+             debugger.core.get_available_breakpoint_units()?);
     Ok(false)
 }
 

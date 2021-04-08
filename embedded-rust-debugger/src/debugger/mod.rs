@@ -45,8 +45,9 @@ use gimli::{
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
-    pub core:   Core<'a>,
-    pub dwarf:  Dwarf<R>,
+    pub core:           Core<'a>,
+    pub dwarf:          Dwarf<R>,
+    pub breakpoints:    Vec<u32>,
 }
 
 
@@ -55,8 +56,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                dwarf:   Dwarf<R>,
                ) -> Debugger<'a, R> {
         Debugger{
-            core:   core,
-            dwarf:  dwarf,
+            core:           core,
+            dwarf:          dwarf,
+            breakpoints:    vec!(),
         }
     }
 
