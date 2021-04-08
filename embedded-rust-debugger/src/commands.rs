@@ -90,6 +90,30 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 description:    "Read 32bit value from memory",
                 function:       |debugger, args| read_command(&mut debugger.core, args),
             },
+            Command {
+                name:           "set_breakpoint",
+                short:          "bkpt",
+                description:    "Set breakpoint at an address",
+                function:       |debugger, args| set_breakpoint_command(&mut debugger.core, args),
+            },
+            Command {
+                name:           "clear_breakpoint",
+                short:          "cbkpt",
+                description:    "Clear breakpoint from an address",
+                function:       |debugger, args| clear_breakpoint_command(&mut debugger.core, args),
+            },
+            Command {
+                name:           "clear_all_breakpoints",
+                short:          "cabkpt",
+                description:    "Clear all breakpoints",
+                function:       |debugger, _args| clear_all_breakpoints_command(&mut debugger.core),
+            },
+            Command {
+                name:           "num_breakpoints",
+                short:          "nbkpt",
+                description:    "Get total number of hw breakpoints",
+                function:       |debugger, _args| num_breakpoints_command(&mut debugger.core),
+            },
         )
     }
 }
@@ -249,6 +273,58 @@ fn read_command(core: &mut Core,
 
     println!("{:#10x} = {:#10x}", address, buff[0]);
 
+    Ok(false)
+}
+
+
+fn set_breakpoint_command(core: &mut Core,
+                          args:   &[&str]
+                          ) -> Result<bool>
+{
+    let address = args[0].parse::<u32>()?; 
+    match core.set_hw_breakpoint(address) {
+        Ok(_) => {
+            println!("Breakpoint set at: 0x{:08x}", address);
+        },
+        Err(err) => {
+            println!("Error: {:?}", err);
+        },
+    };
+
+    Ok(false)
+}
+
+
+fn clear_breakpoint_command(core: &mut Core,
+                            args:   &[&str]
+                            ) -> Result<bool>
+{
+    let address = args[0].parse::<u32>()?;
+    match core.clear_hw_breakpoint(address) {
+        Ok(_) => {
+            println!("Breakpoint cleared from: 0x{:08x}", address);
+        },
+        Err(err) => {
+            println!("Error: {:?}", err);
+        },
+    };
+
+    Ok(false)
+}
+
+
+fn clear_all_breakpoints_command(core: &mut Core) -> Result<bool>
+{
+    core.clear_all_hw_breakpoints()?;
+    println!("All breakpoints cleared");
+
+    Ok(false)
+}
+
+
+fn num_breakpoints_command(core: &mut Core) -> Result<bool>
+{ 
+    println!("Total number of hw breakpoints: {}", core.get_available_breakpoint_units()?);
     Ok(false)
 }
 

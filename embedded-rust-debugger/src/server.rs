@@ -199,6 +199,7 @@ impl<R: Read, W: Write> Session<R, W> {
         };
     }
 
+
     pub fn halt_core(&mut self) -> Result<()> {
         if let Some(s) = &mut self.sess {
             let mut core = s.core(0)?;
