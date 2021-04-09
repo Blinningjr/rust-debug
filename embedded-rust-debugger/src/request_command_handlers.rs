@@ -33,6 +33,10 @@ use debugserver_types::{
     StackTraceResponseBody,
     ContinueResponseBody,
     DisconnectArguments,
+    SetBreakpointsArguments,
+    SetBreakpointsResponseBody,
+    SourceBreakpoint,
+    Breakpoint,
 };
 
 use log::{
@@ -312,6 +316,39 @@ impl<R: Read, W: Write> Session<R, W> {
             },
         };
     
+        Ok(false)
+    }
+
+
+    pub fn set_breakpoints_command_request(&mut self, req: &Request) -> Result<bool>
+    {
+        let args: SetBreakpointsArguments = get_arguments(req)?;
+
+        let breakpoints = match args.breakpoints {
+            Some(bkpts) => bkpts,
+            None        => vec!(),
+        };
+
+        debug!("source: {:#?}", args.source);
+        debug!("sourceModified: {:#?}", args.source_modified);
+        debug!("BreakPoints: {:#?}", breakpoints);
+
+        let body = SetBreakpointsResponseBody {
+            breakpoints: vec!(),
+        };
+
+        let resp = Response {
+            body:           Some(json!(body)),
+            command:        req.command.clone(),
+            message:        None,
+            request_seq:    req.seq,
+            seq:            req.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+
+        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+
         Ok(false)
     }
 }

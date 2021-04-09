@@ -34,6 +34,7 @@ pub struct Command<R: Reader<Offset = usize>> {
                            ) -> Result<bool>,
 }
 
+
 impl<R: Reader<Offset = usize>> Command<R> {
     pub fn init_commands() -> Vec<Command<R>> {
         vec!(

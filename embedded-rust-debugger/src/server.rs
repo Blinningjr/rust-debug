@@ -161,7 +161,7 @@ impl<R: Read, W: Write> Session<R, W> {
         let res = match req.command.as_ref() {
             "launch"                    => self.launch_command_request(&req),
             "attach"                    => self.attach_command_request(&req),
-            "setBreakpoints"            => Ok(false), // TODO
+            "setBreakpoints"            => self.set_breakpoints_command_request(&req),
             "threads"                   => self.threads_command_request(&req),
 //            "setDataBreakpoints"        => Ok(()), // TODO
 //            "setExceptionBreakpoints"   => Ok(()), // TODO
