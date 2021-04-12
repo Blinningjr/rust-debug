@@ -54,7 +54,13 @@ use super::{
     attach_probe,
 };
 
-use std::path::PathBuf;
+use probe_rs;
+
+use std::path::{
+    PathBuf,
+    Path,
+};
+
 
 impl<R: Read, W: Write> Session<R, W> {
     pub fn launch_command_request(&mut self, req: &Request) -> Result<bool> 
@@ -327,14 +333,12 @@ impl<R: Read, W: Write> Session<R, W> {
         let breakpoints = match args.breakpoints {
             Some(bkpts) => bkpts,
             None        => vec!(),
-        };
+        };        
 
-        debug!("source: {:#?}", args.source);
-        debug!("sourceModified: {:#?}", args.source_modified);
-        debug!("BreakPoints: {:#?}", breakpoints);
-
+        let new_breakpoints = self.update_breakpoints(breakpoints, args.source.path)?;
+       
         let body = SetBreakpointsResponseBody {
-            breakpoints: vec!(),
+            breakpoints: new_breakpoints,
         };
 
         let resp = Response {

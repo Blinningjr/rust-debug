@@ -30,9 +30,14 @@ use debugserver_types::{
     Capabilities,
     InitializedEvent,
     Event,
+    SourceBreakpoint,
+    Breakpoint,
 };
 
-use std::path::PathBuf;
+use std::path::{
+    PathBuf,
+    Path,
+};
 
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -78,7 +83,14 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-
+#[derive(Debug)]
+pub struct BreakpointInfo {
+    id: u32,
+    verified: bool,
+    info: SourceBreakpoint,
+    address: Option<u64>,
+    location: Option<u32>,
+}
 
 //#[derive(Debug)]
 pub struct Session<R: Read, W: Write> {
@@ -88,6 +100,8 @@ pub struct Session<R: Read, W: Write> {
     pub sess:   Option<probe_rs::Session>,
     pub file_path:  Option<PathBuf>,
     pub dwarf:  Option<gimli::Dwarf<Vec<u8>>>,
+    pub breakpoints: Vec<BreakpointInfo>,
+    pub bkpt_id: u32,
 }
 
 impl<R: Read, W: Write> Session<R, W> {
@@ -130,6 +144,8 @@ impl<R: Read, W: Write> Session<R, W> {
             sess:   None,
             file_path: None,
             dwarf:  None,
+            breakpoints: vec!(),
+            bkpt_id: 0,
         };
  
         session.run() 
@@ -236,6 +252,109 @@ impl<R: Read, W: Write> Session<R, W> {
         } else {
             return Err(anyhow!("Not attached to target"));
         } 
+    }
+    
+    pub fn set_breakpoint(&mut self, bkpt: &SourceBreakpoint, source_location: Option<u64>, location: u32) -> Result<bool>
+    {
+        let verified = if let Some(mut core) =
+            self.sess.as_mut().and_then(|s| s.core(0).ok())
+        {
+            core.set_hw_breakpoint(location)?;
+            true
+        } else {
+            false
+        };
+
+        let id = self.bkpt_id;
+        self.bkpt_id += 1;
+
+        self.breakpoints.push(BreakpointInfo {
+            id,
+            verified,
+            info:       bkpt.to_owned(),
+            address:    source_location,
+            location:   Some(location),
+        });
+
+        Ok(verified)
+    }
+
+    pub fn clear_all_breakpoints(&mut self) -> Result<()>
+    {
+        let session = self.sess.as_mut().unwrap();
+        let mut core = session.core(0).ok().unwrap();
+
+        for bkpt in &self.breakpoints {
+            if bkpt.verified {
+                core.clear_hw_breakpoint(bkpt.location.unwrap())?;
+            }
+        }
+
+        self.breakpoints = vec!();
+
+        Ok(())
+    }
+
+
+    pub fn update_breakpoints(&mut self,
+                              breakpoints: Vec<SourceBreakpoint>,
+                              raw_path: Option<String>
+                              ) -> Result<Vec<Breakpoint>>
+    {
+        let mut new_breakpoints = Vec::new();
+        let source_path = raw_path.as_ref().map(Path::new);
+
+        if let Some(path) = &self.file_path {
+            let debug_info = probe_rs::debug::DebugInfo::from_file(path)?;
+
+            self.clear_all_breakpoints()?;
+            
+            for bkpt in breakpoints {
+                debug!(
+                    "Trying to set breakpoint {:?}, source_file {:?}",
+                    bkpt, source_path
+                );
+
+                let source_location: Option<u64> = debug_info.get_breakpoint_location(
+                            dbg!(source_path.unwrap()),
+                            dbg!(bkpt.line as u64),
+                            bkpt.column.map(|c| c as u64),
+                        )
+                        .unwrap_or(None);
+
+                if let Some(location) = source_location {
+                    debug!("Found source location: {:#08x}!", location);
+
+                    let verified = self.set_breakpoint(&bkpt, source_location, location as u32)?;
+
+                    new_breakpoints.push(Breakpoint {
+                        column: bkpt.column,
+                        end_column: None,
+                        end_line: None,
+                        id: None,
+                        line: Some(bkpt.line),
+                        message: None,
+                        source: None,
+                        verified,
+                    });
+                } else {
+                       warn!("Could not find brekpoint location {:?}", bkpt);
+
+                       new_breakpoints.push(Breakpoint {
+                           column: bkpt.column,
+                           end_column: None,
+                           end_line: None,
+                           id: None,
+                           line: Some(bkpt.line),
+                           message: None,
+                           source: None,
+                           verified: false,
+                       });
+                }
+            } 
+        }
+        
+        return Ok(new_breakpoints);
     }
 }
 

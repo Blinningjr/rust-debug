@@ -44,6 +44,7 @@ use gimli::{
 };
 
 
+
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
     pub core:           Core<'a>,
     pub dwarf:          Dwarf<R>,
@@ -61,6 +62,26 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             breakpoints:    vec!(),
         }
     }
+
+
+//    pub fn find_location(&mut self,
+//                         path: &str,
+//                         line: i64
+//                         ) -> Result<()>
+//    {
+//
+//        let mut units = self.dwarf.units();
+//        while let Some(unit_header) = units.next()? {
+//            let unit = self.dwarf.unit(unit_header)?;
+//            if path == unit.comp_dir.unwrap() {
+//                println!("Found unit");
+//                break;
+//            }
+//        }
+//
+//        Ok(())
+//    }
+
 
 
     pub fn find_variable(&mut self,
