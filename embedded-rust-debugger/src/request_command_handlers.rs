@@ -151,6 +151,8 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn configuration_done_command_request(&mut self, req: &Request) -> Result<bool>
     {
+        self.run_core()?;
+
         let resp = Response {
             body:           None,
             command:        req.command.clone(),

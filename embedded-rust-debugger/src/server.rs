@@ -32,6 +32,8 @@ use debugserver_types::{
     Event,
     SourceBreakpoint,
     Breakpoint,
+    StoppedEvent,
+    StoppedEventBody,
 };
 
 use std::path::{
@@ -159,7 +161,37 @@ impl<R: Read, W: Write> Session<R, W> {
             if self.handle_message(msg)? {
                 return Ok(());
             }
+            //self.check_bkpt();
         }
+    }
+
+    fn check_bkpt(&mut self) -> Result<()>
+    {
+        if let Some(s) = &mut self.sess {
+            let mut core = s.core(0)?;
+
+            if commands::hit_breakpoint(&mut core)? {
+                let body = StoppedEventBody {
+                    reason: "breakpoint".to_owned(),
+                    description: Some("Target stopped due to breakpoint.".to_owned()),
+                    thread_id: Some(0),
+                    preserve_focus_hint: None,
+                    text: None,
+                    all_threads_stopped: None,
+                };
+
+                self.seq = send_data(&mut self.writer,
+                                     &to_vec(&StoppedEvent {
+                                        body:   body,
+                                        event:  "stopped".to_owned(),
+                                        seq:    self.seq,
+                                        type_:  "event".to_owned(),
+                                    })?,
+                                    self.seq)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn handle_message(&mut self, msg: DebugAdapterMessage) -> Result<bool>
@@ -253,6 +285,7 @@ impl<R: Read, W: Write> Session<R, W> {
             return Err(anyhow!("Not attached to target"));
         } 
     }
+
     
     pub fn set_breakpoint(&mut self, bkpt: &SourceBreakpoint, source_location: Option<u64>, location: u32) -> Result<bool>
     {
@@ -281,17 +314,20 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn clear_all_breakpoints(&mut self) -> Result<()>
     {
-        let session = self.sess.as_mut().unwrap();
-        let mut core = session.core(0).ok().unwrap();
+        if let Some(session) = &mut self.sess {
+            let mut core = session.core(0).ok().unwrap();
 
-        for bkpt in &self.breakpoints {
-            if bkpt.verified {
-                core.clear_hw_breakpoint(bkpt.location.unwrap())?;
+            for bkpt in &self.breakpoints {
+                if bkpt.verified {
+                    core.clear_hw_breakpoint(bkpt.location.unwrap())?;
+                }
             }
+
+            self.breakpoints = vec!();
+        } else {
+            return Err(anyhow!("Probe not attached"));
         }
-
-        self.breakpoints = vec!();
-
+        
         Ok(())
     }
 

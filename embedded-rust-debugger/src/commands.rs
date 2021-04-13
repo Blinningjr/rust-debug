@@ -22,6 +22,7 @@ use probe_rs::{
 use log::{
     info,
     debug,
+    warn,
 };
 
 
@@ -176,10 +177,10 @@ pub fn run_command(core: &mut Core) -> Result<bool>
 
     if status.is_halted() {
         let _cpu_info = continue_fix(core)?;
-        core.run()?;
-        
-        info!("Core running");
+        core.run()?;    
     }
+
+    info!("Core status: {:?}", core.status()?);
 
     Ok(false)
 }
@@ -217,22 +218,31 @@ fn continue_fix(core: &mut Core) -> Result<CoreInformation, probe_rs::Error>
 
 pub fn halt_command(core: &mut Core, print: bool) -> Result<bool>
 {
-    let cpu_info = core.halt(Duration::from_millis(100))?;
-    info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
+    let status = core.status()?;
 
-    if print {
-        println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+    if status.is_halted() {
+        warn!("Core is already halted, status: {:?}", status);
+        if print {
+            println!("Core is already halted, status: {:?}", status);
+        }
+    } else {
+        let cpu_info = core.halt(Duration::from_millis(100))?;
+        info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
 
-        let mut code = [0u8; 16 * 2];
+        if print {
+            println!("Core stopped at address 0x{:08x}", cpu_info.pc);
 
-        core.read_8(cpu_info.pc, &mut code)?;
+            let mut code = [0u8; 16 * 2];
 
-        for (offset, instruction) in code.iter().enumerate() {
-            println!(
-                "{:#010x}:\t{:010x}",
-                cpu_info.pc + offset as u32,
-                instruction
-            );
+            core.read_8(cpu_info.pc, &mut code)?;
+
+            for (offset, instruction) in code.iter().enumerate() {
+                println!(
+                    "{:#010x}:\t{:010x}",
+                    cpu_info.pc + offset as u32,
+                    instruction
+                );
+            }
         }
     }
 
@@ -369,5 +379,26 @@ fn num_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>
              debugger.breakpoints.len(),
              debugger.core.get_available_breakpoint_units()?);
     Ok(false)
+}
+
+
+// Returns true if it has hit a brekpoint
+pub fn hit_breakpoint(core: &mut Core) -> Result<bool>
+{
+    let status = core.status()?;
+
+    debug!("Status: {:?}", &status);
+
+    match status {
+        probe_rs::CoreStatus::Halted(r)  => {
+            match r {
+                probe_rs::HaltReason::Breakpoint => {
+                    return Ok(true);
+                },
+                _ => return Ok(false),
+            };
+        },
+        _ => return Ok(false),
+    };
 }
 
