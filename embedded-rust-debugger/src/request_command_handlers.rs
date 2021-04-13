@@ -261,7 +261,10 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn continue_command_request(&mut self, req: &Request) -> Result<bool>
     {
-        let _res = self.run_core();
+        match self.run_core() {
+            Ok(_) => (),
+            Err(err) => debug!("Error: {:?}", err),
+        };
         
         let body = ContinueResponseBody {
             all_threads_continued: Some(true),

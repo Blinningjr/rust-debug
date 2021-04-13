@@ -204,15 +204,28 @@ pub fn step_command(core: &mut Core, print: bool) -> Result<bool>
 
 fn continue_fix(core: &mut Core) -> Result<CoreInformation, probe_rs::Error>
 {
-        let pc = core.registers().program_counter();
-        let pc_val = core.read_core_reg(pc)?;
+    match core.status()? {
+        probe_rs::CoreStatus::Halted(r)  => {
+            match r {
+                probe_rs::HaltReason::Breakpoint => {
 
-        // NOTE: Increment with 2 because ARM instuctions are usually 16-bits.
-        let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.
+                    let pc = core.registers().program_counter();
+                    let pc_val = core.read_core_reg(pc)?;
+                    core.clear_hw_breakpoint(pc_val)?;
 
-        core.write_core_reg(pc.into(), step_pc)?;
+                    let res = core.step();
 
-        core.step()
+                    core.set_hw_breakpoint(pc_val)?;
+
+                    return res;
+                },
+                _ => (),
+            };
+        },
+        _ => (),
+    };
+
+    core.step()
 }
 
 

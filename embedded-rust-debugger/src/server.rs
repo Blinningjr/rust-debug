@@ -326,6 +326,7 @@ impl<R: Read, W: Write> Session<R, W> {
             self.sess.as_mut().and_then(|s| s.core(0).ok())
         {
             core.set_hw_breakpoint(location)?;
+            debug!("Breakpoint set at: {:?}", location);
             true
         } else {
             false
