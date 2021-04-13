@@ -32,8 +32,6 @@ use debugserver_types::{
     Event,
     SourceBreakpoint,
     Breakpoint,
-    StoppedEvent,
-    StoppedEventBody,
 };
 
 use std::path::{
@@ -48,7 +46,7 @@ use std::io::{Read, Write};
 use std::str::FromStr;
 use std::string::ParseError;
 
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use serde_json::{
     from_slice,
@@ -94,6 +92,20 @@ pub struct BreakpointInfo {
     location: Option<u32>,
 }
 
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StoppedEventBody {
+    pub all_threads_stopped: Option<bool>,
+    pub description: Option<String>,
+    pub preserve_focus_hint: Option<bool>,
+    pub reason: String,
+    pub text: Option<String>,
+    pub thread_id: Option<i64>,
+    pub hit_breakpoint_ids: Option<Vec<u32>>,
+}
+
+
 //#[derive(Debug)]
 pub struct Session<R: Read, W: Write> {
     pub reader: BufReader<R>,
@@ -104,7 +116,9 @@ pub struct Session<R: Read, W: Write> {
     pub dwarf:  Option<gimli::Dwarf<Vec<u8>>>,
     pub breakpoints: Vec<BreakpointInfo>,
     pub bkpt_id: u32,
+    pub status: bool,
 }
+
 
 impl<R: Read, W: Write> Session<R, W> {
     fn start_session(mut reader: BufReader<R>, mut writer: W) -> Result<()>
@@ -148,6 +162,7 @@ impl<R: Read, W: Write> Session<R, W> {
             dwarf:  None,
             breakpoints: vec!(),
             bkpt_id: 0,
+            status: false,
         };
  
         session.run() 
@@ -161,7 +176,9 @@ impl<R: Read, W: Write> Session<R, W> {
             if self.handle_message(msg)? {
                 return Ok(());
             }
-            //self.check_bkpt();
+            if self.status {
+                self.check_bkpt();
+            }
         }
     }
 
@@ -171,18 +188,32 @@ impl<R: Read, W: Write> Session<R, W> {
             let mut core = s.core(0)?;
 
             if commands::hit_breakpoint(&mut core)? {
-                let body = StoppedEventBody {
+                self.status = false;
+
+                let pc = core.read_core_reg(core.registers().program_counter())?;
+
+                let mut hit_breakpoint_ids = vec!();
+                for bkpt in &self.breakpoints {
+                    if let Some(loc) = bkpt.location {
+                        if loc == pc {
+                            hit_breakpoint_ids.push(bkpt.id);
+                        }
+                    }
+                }
+
+                let body = StoppedEventBody { 
                     reason: "breakpoint".to_owned(),
                     description: Some("Target stopped due to breakpoint.".to_owned()),
                     thread_id: Some(0),
                     preserve_focus_hint: None,
                     text: None,
                     all_threads_stopped: None,
+                    hit_breakpoint_ids: Some(hit_breakpoint_ids),
                 };
 
                 self.seq = send_data(&mut self.writer,
-                                     &to_vec(&StoppedEvent {
-                                        body:   body,
+                                     &to_vec(&Event {
+                                        body:   Some(json!(body)),
                                         event:  "stopped".to_owned(),
                                         seq:    self.seq,
                                         type_:  "event".to_owned(),
@@ -253,6 +284,7 @@ impl<R: Read, W: Write> Session<R, W> {
             let mut core = s.core(0)?;
     
             let _res = commands::halt_command(&mut core, false)?;
+            self.status = false;
 
             return Ok(());
         } else {
@@ -266,6 +298,7 @@ impl<R: Read, W: Write> Session<R, W> {
             let mut core = s.core(0)?;
             
             let _res = commands::run_command(&mut core)?;
+            self.status = true;
 
             return Ok(());
         } else {
