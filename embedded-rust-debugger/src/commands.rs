@@ -210,8 +210,6 @@ pub fn step_command(core: &mut Core, breakpoints: &Vec<u32>, print: bool) -> Res
 
 fn continue_fix(core: &mut Core, breakpoints: &Vec<u32>) -> Result<CoreInformation, probe_rs::Error>
 {
-
-    // TODO: Read current instruction and decide if it is hw or sw breakpoint.
     match core.status()? {
         probe_rs::CoreStatus::Halted(r)  => {
             match r {
@@ -219,21 +217,28 @@ fn continue_fix(core: &mut Core, breakpoints: &Vec<u32>) -> Result<CoreInformati
                     let pc = core.registers().program_counter();
                     let pc_val = core.read_core_reg(pc)?;
 
-                    for bkpt in breakpoints {
-                        if pc_val == *bkpt {
-                            core.clear_hw_breakpoint(pc_val)?;
+                    let mut code = [0u8; 2];
+                    core.read_8(pc_val, &mut code)?;
+                    if code[1] == 190 && code[0] == 0 { // bkpt == 0xbe00 for coretex-m
+                        // NOTE: Increment with 2 because bkpt is 2 byte instruction.
+                        let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.        
+                        core.write_core_reg(pc.into(), step_pc)?;
 
-                            let res = core.step();
+                        return core.step();
+                    } else {
+                        for bkpt in breakpoints {
+                            if pc_val == *bkpt {
+                                core.clear_hw_breakpoint(pc_val)?;
 
-                            core.set_hw_breakpoint(pc_val)?;
+                                let res = core.step();
 
-                            return res;
+                                core.set_hw_breakpoint(pc_val)?;
+
+                                return res;
+                            }
                         }
+                        return core.step();
                     }
-                    
-                    // NOTE: Increment with 2 because ARM instuctions are usually 16-bits.
-                    let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.        
-                    core.write_core_reg(pc.into(), step_pc)?;
                 },
                 _ => (),
             };
