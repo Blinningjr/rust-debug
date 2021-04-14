@@ -61,13 +61,13 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "run",
                 short:          "r",
                 description:    "Resume execution of the CPU",
-                function:       |debugger, _args| run_command(&mut debugger.core),
+                function:       |debugger, _args| run_command(&mut debugger.core, &debugger.breakpoints),
             },
             Command {
                 name:           "step",
                 short:          "sp",
                 description:    "Step a single instruction",
-                function:       |debugger, _args| step_command(&mut debugger.core, true),
+                function:       |debugger, _args| step_command(&mut debugger.core, &debugger.breakpoints, true),
             },
             Command {
                 name:           "halt",
@@ -116,6 +116,12 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 short:          "nbkpt",
                 description:    "Get total number of hw breakpoints",
                 function:       |debugger, _args| num_breakpoints_command(debugger),
+            },
+            Command {
+                name:           "code",
+                short:          "ce",
+                description:    "Print first 16 lines of assembly code",
+                function:       |debugger, _args| code_command(&mut debugger.core),
             },
         )
     }
@@ -171,12 +177,12 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 }
 
 
-pub fn run_command(core: &mut Core) -> Result<bool>
+pub fn run_command(core: &mut Core, breakpoints: &Vec<u32>) -> Result<bool>
 {
     let status = core.status()?;
 
     if status.is_halted() {
-        let _cpu_info = continue_fix(core)?;
+        let _cpu_info = continue_fix(core, breakpoints)?;
         core.run()?;    
     }
 
@@ -186,12 +192,12 @@ pub fn run_command(core: &mut Core) -> Result<bool>
 }
 
 
-pub fn step_command(core: &mut Core, print: bool) -> Result<bool>
+pub fn step_command(core: &mut Core, breakpoints: &Vec<u32>, print: bool) -> Result<bool>
 {
     let status = core.status()?;
 
     if status.is_halted() {
-        let cpu_info = continue_fix(core)?;
+        let cpu_info = continue_fix(core, breakpoints)?;
         info!("Stept to pc = 0x{:08x}", cpu_info.pc);
 
         if print {
@@ -202,22 +208,32 @@ pub fn step_command(core: &mut Core, print: bool) -> Result<bool>
     Ok(false)
 }
 
-fn continue_fix(core: &mut Core) -> Result<CoreInformation, probe_rs::Error>
+fn continue_fix(core: &mut Core, breakpoints: &Vec<u32>) -> Result<CoreInformation, probe_rs::Error>
 {
+
+    // TODO: Read current instruction and decide if it is hw or sw breakpoint.
     match core.status()? {
         probe_rs::CoreStatus::Halted(r)  => {
             match r {
                 probe_rs::HaltReason::Breakpoint => {
-
                     let pc = core.registers().program_counter();
                     let pc_val = core.read_core_reg(pc)?;
-                    core.clear_hw_breakpoint(pc_val)?;
 
-                    let res = core.step();
+                    for bkpt in breakpoints {
+                        if pc_val == *bkpt {
+                            core.clear_hw_breakpoint(pc_val)?;
 
-                    core.set_hw_breakpoint(pc_val)?;
+                            let res = core.step();
 
-                    return res;
+                            core.set_hw_breakpoint(pc_val)?;
+
+                            return res;
+                        }
+                    }
+                    
+                    // NOTE: Increment with 2 because ARM instuctions are usually 16-bits.
+                    let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.        
+                    core.write_core_reg(pc.into(), step_pc)?;
                 },
                 _ => (),
             };
@@ -391,6 +407,36 @@ fn num_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>
     println!("Number of hw breakpoints: {}/{}",
              debugger.breakpoints.len(),
              debugger.core.get_available_breakpoint_units()?);
+    Ok(false)
+}
+
+
+fn code_command(core: &mut Core) -> Result<bool>
+{
+    let status = core.status()?;
+
+    if status.is_halted() {
+        let pc = core.registers().program_counter();
+        let pc_val = core.read_core_reg(pc)?;
+
+        println!("Core stopped at address 0x{:08x}", pc_val);
+
+        let mut code = [0u8; 16 * 2];
+
+        core.read_8(pc_val, &mut code)?;
+
+        for (offset, instruction) in code.iter().enumerate() {
+            println!(
+                "{:#010x}:\t{:010x}",
+                pc_val + offset as u32,
+                instruction
+            );
+        }
+    } else {
+        warn!("Core is not halted, status: {:?}", status);
+        println!("Core is not halted, status: {:?}", status);
+    }
+
     Ok(false)
 }
 

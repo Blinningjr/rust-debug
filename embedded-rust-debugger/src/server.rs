@@ -297,7 +297,8 @@ impl<R: Read, W: Write> Session<R, W> {
         if let Some(s) = &mut self.sess {
             let mut core = s.core(0)?;
             
-            let _res = commands::run_command(&mut core)?;
+            let bkpts = self.breakpoints.iter().filter(|bkpt| bkpt.verified).map(|bkpt| bkpt.location.unwrap()).collect();
+            let _res = commands::run_command(&mut core, &bkpts)?;
             self.status = true;
 
             return Ok(());
@@ -310,8 +311,9 @@ impl<R: Read, W: Write> Session<R, W> {
     pub fn step_core(&mut self) -> Result<()> {
         if let Some(s) = &mut self.sess {
             let mut core = s.core(0)?;
-            
-            let _res = commands::step_command(&mut core, false)?;
+           
+            let bkpts = self.breakpoints.iter().filter(|bkpt| bkpt.verified).map(|bkpt| bkpt.location.unwrap()).collect();
+            let _res = commands::step_command(&mut core, &bkpts, false)?;
 
             return Ok(());
         } else {
