@@ -61,6 +61,12 @@ use super::{
     commands,
 };
 
+use gimli::{
+    Dwarf,
+    EndianRcSlice,
+    LittleEndian,
+};
+
 
 
 pub fn start_server(port: u16) -> Result<(), anyhow::Error>
@@ -113,7 +119,7 @@ pub struct Session<R: Read, W: Write> {
     pub seq:    i64,
     pub sess:   Option<probe_rs::Session>,
     pub file_path:  Option<PathBuf>,
-    pub dwarf:  Option<gimli::Dwarf<Vec<u8>>>,
+    pub dwarf:  Option<Dwarf<EndianRcSlice<LittleEndian>>>,
     pub breakpoints: Vec<BreakpointInfo>,
     pub bkpt_id: u32,
     pub status: bool,

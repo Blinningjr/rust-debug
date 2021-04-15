@@ -92,7 +92,8 @@ impl<R: Read, W: Write> Session<R, W> {
         info!("> program: {:?}", args.program);
         self.file_path = Some(PathBuf::from(args.program));
 
-        self.dwarf = Some(read_dwarf(self.file_path.as_ref().unwrap())?);
+        let (dwarf, _) = read_dwarf(self.file_path.as_ref().unwrap())?;
+        self.dwarf = Some(dwarf);
         debug!("> Read dwarf file");
 
         match attach_probe() {
