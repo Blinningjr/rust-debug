@@ -4,6 +4,7 @@ pub mod evaluate;
 pub mod types;
 //pub mod type_value;
 pub mod attributes;
+pub mod stacktrace;
 
 
 use utils::{
@@ -41,6 +42,9 @@ use gimli::{
     },
     Reader,
     EntriesTreeNode,
+
+    DebugFrame,
+    UnwindSection,
 };
 
 
@@ -48,20 +52,44 @@ use gimli::{
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
     pub core:           Core<'a>,
     pub dwarf:          Dwarf<R>,
+    pub debug_frame:    DebugFrame<R>,
     pub breakpoints:    Vec<u32>,
 }
 
 
 impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new(core:    Core<'a>,
-               dwarf:   Dwarf<R>,
+    pub fn new(core:        Core<'a>,
+               dwarf:       Dwarf<R>,
+               debug_frame: DebugFrame<R>,
                ) -> Debugger<'a, R> {
         Debugger{
             core:           core,
             dwarf:          dwarf,
+            debug_frame:    debug_frame,
             breakpoints:    vec!(),
         }
     }
+
+
+    pub fn get_current_stacktrace(&mut self) -> Result<()>
+    {
+        let pc = self.core.registers().program_counter();
+        let pc_val = self.core.read_core_reg(pc)?;
+
+        let mut cfi = stacktrace::CallFrameIterator::new(self)?;
+        let mut stacktrace = vec!();
+        loop {
+            match cfi.next()? {
+                Some(val)   => stacktrace.push(val),
+                None        => {
+                    println!("StackTrace: {:#?}", stacktrace);
+                    return Ok(());
+                },
+
+            };
+        }
+    }
+
 
 
 //    pub fn find_location(&mut self,

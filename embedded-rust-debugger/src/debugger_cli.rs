@@ -20,18 +20,28 @@ use anyhow::{
 
 use rustyline::Editor;
 
+use capstone::arch::BuildsCapstone;
+
 
 pub struct DebuggerCli<'a, R: Reader<Offset = usize>> {
     pub commands:   Vec<Command<R>>,
     pub debugger:   Debugger<'a, R>,
+    pub capstone:   capstone::Capstone,
 }
 
 impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
     pub fn new(debugger: Debugger<'a, R>) -> Result<DebuggerCli<'a, R>>
     {
+        let cs = capstone::Capstone::new() // TODO: Set the capstone base on the arch of the chip.
+            .arm()
+            .mode(capstone::arch::arm::ArchMode::Thumb)
+            .build()
+            .expect("Failed to create Capstone object");
+
         Ok(DebuggerCli {
             commands:   Command::init_commands(),
             debugger:   debugger,
+            capstone:   cs,
         })
     }
 
@@ -90,7 +100,7 @@ impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
             if let Some(cmd) = cmd {
                 let remaining_args: Vec<&str> = command_parts.collect();
 
-                (cmd.function)(&mut self.debugger, &remaining_args)
+                (cmd.function)(&mut self.debugger, &mut self.capstone, &remaining_args)
             } else {
                 println!("Unknown command '{}'", command);
                 println!("Enter 'help' for a list of commands");

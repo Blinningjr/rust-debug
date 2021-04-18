@@ -26,11 +26,13 @@ use log::{
 };
 
 
+
 pub struct Command<R: Reader<Offset = usize>> {
     pub name:           &'static str,
     pub short:          &'static str,
     pub description:    &'static str,
     pub function:       fn(debugger: &mut Debugger<R>,
+                           cs: &mut capstone::Capstone,
                            args:    &[&str]
                            ) -> Result<bool>,
 }
@@ -43,85 +45,91 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "exit",
                 short:          "e",
                 description:    "Exit the debugger",
-                function:       |_debugger, _args| exit_command(),
+                function:       |_debugger, _cs, _args| exit_command(),
             },
             Command {
                 name:           "status",
                 short:          "s",
                 description:    "Show current status of CPU",
-                function:       |debugger, _args| status_command(&mut debugger.core),
+                function:       |debugger, _cs, _args| status_command(&mut debugger.core),
             },
             Command {
                 name:           "print",
                 short:          "p",
                 description:    "Evaluate variable",
-                function:       |debugger, args| print_command(debugger, args),
+                function:       |debugger, _cs, args| print_command(debugger, args),
             },
             Command {
                 name:           "run",
                 short:          "r",
                 description:    "Resume execution of the CPU",
-                function:       |debugger, _args| run_command(&mut debugger.core, &debugger.breakpoints),
+                function:       |debugger, _cs, _args| run_command(&mut debugger.core, &debugger.breakpoints),
             },
             Command {
                 name:           "step",
                 short:          "sp",
                 description:    "Step a single instruction",
-                function:       |debugger, _args| step_command(&mut debugger.core, &debugger.breakpoints, true),
+                function:       |debugger, _cs, _args| step_command(&mut debugger.core, &debugger.breakpoints, true),
             },
             Command {
                 name:           "halt",
                 short:          "h",
                 description:    "Stop the CPU",
-                function:       |debugger, _args| halt_command(&mut debugger.core, true),
+                function:       |debugger, cs, _args| halt_command(&mut debugger.core, cs, true),
             },
             Command {
                 name:           "registers",
                 short:          "regs",
                 description:    "Show CPU register values",
-                function:       |debugger, _args| regs_command(&mut debugger.core),
+                function:       |debugger, _cs, _args| regs_command(&mut debugger.core),
             },
             Command {
                 name:           "reset",
                 short:          "rt",
                 description:    "Reset the CPU",
-                function:       |debugger, _args| reset_command(&mut debugger.core),
+                function:       |debugger, _cs, _args| reset_command(&mut debugger.core),
             },
             Command {
                 name:           "read",
                 short:          "rd",
                 description:    "Read 32bit value from memory",
-                function:       |debugger, args| read_command(&mut debugger.core, args),
+                function:       |debugger, _cs, args| read_command(&mut debugger.core, args),
             },
             Command {
                 name:           "set_breakpoint",
                 short:          "bkpt",
                 description:    "Set breakpoint at an address",
-                function:       |debugger, args| set_breakpoint_command(debugger, args, true),
+                function:       |debugger, _cs, args| set_breakpoint_command(debugger, args, true),
             },
             Command {
                 name:           "clear_breakpoint",
                 short:          "cbkpt",
                 description:    "Clear breakpoint from an address",
-                function:       |debugger, args| clear_breakpoint_command(debugger, args, true),
+                function:       |debugger, _cs, args| clear_breakpoint_command(debugger, args, true),
             },
             Command {
                 name:           "clear_all_breakpoints",
                 short:          "cabkpt",
                 description:    "Clear all breakpoints",
-                function:       |debugger, _args| clear_all_breakpoints_command(debugger, true),
+                function:       |debugger, _cs, _args| clear_all_breakpoints_command(debugger, true),
             },
             Command {
                 name:           "num_breakpoints",
                 short:          "nbkpt",
                 description:    "Get total number of hw breakpoints",
-                function:       |debugger, _args| num_breakpoints_command(debugger),
+                function:       |debugger, _cs, _args| num_breakpoints_command(debugger),
             },
             Command {
                 name:           "code",
                 short:          "ce",
                 description:    "Print first 16 lines of assembly code",
-                function:       |debugger, _args| code_command(&mut debugger.core),
+                function:       |debugger, cs, _args| code_command(&mut debugger.core, cs),
+            },
+            Command {
+                name:           "stacktrace",
+                short:          "st",
+                description:    "Print stack trace",
+                function:       |debugger, _cs, _args| stacktrace_command(debugger),
             },
         )
     }
@@ -250,7 +258,7 @@ fn continue_fix(core: &mut Core, breakpoints: &Vec<u32>) -> Result<CoreInformati
 }
 
 
-pub fn halt_command(core: &mut Core, print: bool) -> Result<bool>
+pub fn halt_command(core: &mut Core, cs: &mut capstone::Capstone, print: bool) -> Result<bool>
 {
     let status = core.status()?;
 
@@ -264,18 +272,20 @@ pub fn halt_command(core: &mut Core, print: bool) -> Result<bool>
         info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
 
         if print {
-            println!("Core stopped at address 0x{:08x}", cpu_info.pc);
-
             let mut code = [0u8; 16 * 2];
 
             core.read_8(cpu_info.pc, &mut code)?;
 
-            for (offset, instruction) in code.iter().enumerate() {
-                println!(
-                    "{:#010x}:\t{:010x}",
-                    cpu_info.pc + offset as u32,
-                    instruction
-                );
+
+            let insns = cs.disasm_all(&code, cpu_info.pc as u64)
+                .expect("Failed to disassemble");
+            
+            for i in insns.iter() {
+                let mut spacer = "  ";
+                if i.address() == cpu_info.pc as u64 {
+                    spacer = "> ";
+                }
+                println!("{}{}", spacer, i);
             }
         }
     }
@@ -416,7 +426,7 @@ fn num_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>
 }
 
 
-fn code_command(core: &mut Core) -> Result<bool>
+fn code_command(core: &mut Core, cs: &mut capstone::Capstone) -> Result<bool>
 {
     let status = core.status()?;
 
@@ -424,24 +434,33 @@ fn code_command(core: &mut Core) -> Result<bool>
         let pc = core.registers().program_counter();
         let pc_val = core.read_core_reg(pc)?;
 
-        println!("Core stopped at address 0x{:08x}", pc_val);
-
         let mut code = [0u8; 16 * 2];
 
         core.read_8(pc_val, &mut code)?;
 
-        for (offset, instruction) in code.iter().enumerate() {
-            println!(
-                "{:#010x}:\t{:010x}",
-                pc_val + offset as u32,
-                instruction
-            );
+        let insns = cs.disasm_all(&code, pc_val as u64)
+            .expect("Failed to disassemble");
+        
+        for i in insns.iter() {
+            let mut spacer = "  ";
+            if i.address() == pc_val as u64 {
+                spacer = "> ";
+            }
+            println!("{}{}", spacer, i);
         }
+
     } else {
         warn!("Core is not halted, status: {:?}", status);
         println!("Core is not halted, status: {:?}", status);
     }
 
+    Ok(false)
+}
+
+
+fn stacktrace_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<bool>
+{ 
+    println!("result: {:#?}", debugger.get_current_stacktrace());
     Ok(false)
 }
 

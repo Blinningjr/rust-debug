@@ -67,6 +67,7 @@ use gimli::{
     LittleEndian,
 };
 
+use capstone::arch::BuildsCapstone;
 
 
 pub fn start_server(port: u16) -> Result<(), anyhow::Error>
@@ -123,6 +124,7 @@ pub struct Session<R: Read, W: Write> {
     pub breakpoints: Vec<BreakpointInfo>,
     pub bkpt_id: u32,
     pub status: bool,
+    pub capstone: capstone::Capstone,
 }
 
 
@@ -159,6 +161,13 @@ impl<R: Read, W: Write> Session<R, W> {
                         seq)?;
 
 
+        let cs = capstone::Capstone::new() // TODO: Set the capstone base on the arch of the chip.
+            .arm()
+            .mode(capstone::arch::arm::ArchMode::Thumb)
+            .build()
+            .expect("Failed to create Capstone object");
+
+
         let mut session = Session {
             reader: reader,
             writer: writer,
@@ -169,6 +178,7 @@ impl<R: Read, W: Write> Session<R, W> {
             breakpoints: vec!(),
             bkpt_id: 0,
             status: false,
+            capstone: cs,
         };
  
         session.run() 
@@ -289,7 +299,7 @@ impl<R: Read, W: Write> Session<R, W> {
         if let Some(s) = &mut self.sess {
             let mut core = s.core(0)?;
     
-            let _res = commands::halt_command(&mut core, false)?;
+            let _res = commands::halt_command(&mut core, &mut self.capstone, false)?;
             self.status = false;
 
             return Ok(());
