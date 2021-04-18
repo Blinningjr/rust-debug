@@ -24,5 +24,7 @@
 # Saturday
 * Did nothing.
 
+
 # Sunday
+* Added a disassembler that will convert the machine code to assembly language, this makes it a lot easier to read the code that is currently executing.
 
