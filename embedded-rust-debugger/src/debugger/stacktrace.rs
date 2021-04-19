@@ -30,20 +30,22 @@ use log::{
 };
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallFrame {
-    pub id: u64,
-    pub registers: [Option<u32>; 16],
-    pub code_location: u64,
-    pub cfa: u32,
+    pub id:             u64,
+    pub registers:      [Option<u32>; 16],
+    pub code_location:  u64,
+    pub cfa:            Option<u32>,
+    pub start_address:  u64,
+    pub end_address:    u64,
 }
 
 
 pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
-    debugger: &'b mut Debugger<'a, R>,
+    debugger:       &'b mut Debugger<'a, R>,
     frame_counter:  u64,
-    code_location: Option<u64>,
-    registers: [Option<u32>; 16],
+    code_location:  Option<u64>,
+    registers:      [Option<u32>; 16],
         
     // Optionally provide base addresses for any relative pointers. If a
     // base address isn't provided and a pointer is found that is relative to
@@ -58,8 +60,8 @@ pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
 impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
     pub fn new(debugger: &'b mut Debugger<'a, R>) -> Result<CallFrameIterator<'a, 'b, R>>
     {
-        let pc = debugger.core.registers().program_counter();
-        let pc_val = debugger.core.read_core_reg(pc)?;
+        let pc =        debugger.core.registers().program_counter();
+        let pc_val =    debugger.core.read_core_reg(pc)?;
 
         let mut register = [None; 16];
         for i in 0..16 {
@@ -67,47 +69,56 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
         }
 
         Ok(CallFrameIterator {
-            debugger: debugger,
-            frame_counter: 0,
-            code_location: Some(pc_val as u64),
-            registers: register, 
-            bases:  gimli::BaseAddresses::default(),
-            ctx:    gimli::UninitializedUnwindContext::new(),
+            debugger:       debugger,
+            frame_counter:  0,
+            code_location:  Some(pc_val as u64),
+            registers:      register, 
+            bases:          gimli::BaseAddresses::default(),
+            ctx:            gimli::UninitializedUnwindContext::new(),
         })
     }
 
     pub fn next(&mut self) -> Result<Option<CallFrame>> {
+        let pc_reg: u16 = probe_rs::CoreRegisterAddress::from(self.debugger.core.registers().program_counter()).0;
+        let link_reg: u16 = probe_rs::CoreRegisterAddress::from(self.debugger.core.registers().return_address()).0;
+        let sp_reg: u16 = probe_rs::CoreRegisterAddress::from(self.debugger.core.registers().stack_pointer()).0;
+
         let code_location = match self.code_location {
             Some(val) => val,
             None    => return Ok(None),
         };
 
-        let unwind_info = self.debugger.debug_frame.unwind_info_for_address(
+        let unwind_info = match self.debugger.debug_frame.unwind_info_for_address(
             &self.bases,
             &mut self.ctx,
             code_location,
             gimli::DebugFrame::cie_from_offset,
-        )?;
+        ) {
+            Ok(val) => val,
+            Err(_)  => return Ok(None),
+        };
 
         let cfa = self.eval_cfa(&unwind_info)?;
 
         let mut registers = [None; 16];
         for i in 0..16 {
-            //if i == 13 {
-            //    continue
-            //}
             let reg_rule = unwind_info.register(gimli::Register(i));
 
             registers[i as usize] = match reg_rule {
                 Undefined => {
-                    // If we get undefined for the LR register (register 14) or any callee saved register,
-                    // we assume that it is unchanged. Gimli doesn't allow us
-                    // to distinguish if  a rule is not present or actually set to Undefined
-                    // in the call frame information.
-
-                    match i {
-                        4 | 5 | 6 | 7 | 8 | 10 | 11 | 14 => self.registers[i as usize],
-                        _ => None,
+                    // Gimli doesn't allow us to distinguish if a rule is not
+                    // present or actually set to Undefined in the call frame
+                    // information.
+                    // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L254-L257
+                    if i == sp_reg {
+                        cfa
+                    } else if i == link_reg {
+                       self.registers[i as usize] 
+                    } else if i == pc_reg {
+                        Some(code_location as u32)
+                    } else {
+                        self.registers[i as usize] 
+                        //None
                     }
                 },
                 SameValue => self.registers[i as usize],
@@ -138,18 +149,19 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
             };
         }
 
-        registers[13] = cfa;
-        
-        self.registers = registers;
         
         let cf = CallFrame {
-            id: self.frame_counter,
-            registers: self.registers,
-            code_location: code_location,
-            cfa: cfa.unwrap(),
+            id:             self.frame_counter,
+            registers:      registers,
+            code_location:  code_location,
+            cfa:            cfa,
+            start_address:  unwind_info.start_address(),
+            end_address:    unwind_info.end_address(),
         };
 
-        debug!("frame_counter: {}", self.frame_counter);
+        self.registers = registers;
+
+        //println!("call frame: {:#?}", cf);
 
         self.frame_counter += 1;
 
@@ -159,7 +171,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
         //
         // We also have to subtract one, as we want the calling instruction for
         // a backtrace, not the next instruction to be executed.
-        self.code_location = self.registers[14].map(|pc| u64::from(pc));
+        self.code_location = self.registers[link_reg as usize].map(|pc| u64::from(pc & !1) - 1);
         
         return Ok(Some(cf));
     }

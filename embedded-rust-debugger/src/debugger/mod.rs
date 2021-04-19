@@ -82,6 +82,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             match cfi.next()? {
                 Some(val)   => stacktrace.push(val),
                 None        => {
+                    stacktrace = stacktrace.iter().rev().cloned().collect();
                     println!("StackTrace: {:#?}", stacktrace);
                     return Ok(());
                 },
