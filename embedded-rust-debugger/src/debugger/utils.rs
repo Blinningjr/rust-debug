@@ -7,7 +7,6 @@ use gimli::{
     Reader,
 };
 
-
 pub fn in_ranges<R>(pc:     u32,
                     rang:   &mut RangeIter<R>
                     ) -> Option<bool>

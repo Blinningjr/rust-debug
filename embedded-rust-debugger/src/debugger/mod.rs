@@ -47,6 +47,14 @@ use gimli::{
     UnwindSection,
 };
 
+use super::get_current_unit;
+
+
+#[derive(Debug, Clone)]
+pub struct StackFrame {
+    pub call_frame: stacktrace::CallFrame,
+    pub name: String,
+}
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
@@ -73,14 +81,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     pub fn get_current_stacktrace(&mut self) -> Result<()>
     {
-        let pc = self.core.registers().program_counter();
-        let pc_val = self.core.read_core_reg(pc)?;
-
         let mut cfi = stacktrace::CallFrameIterator::new(self)?;
         let mut stacktrace = vec!();
         loop {
             match cfi.next()? {
-                Some(val)   => stacktrace.push(val),
+                Some(val)   => {
+                    //self.create_stackframe(&val)?;
+                    stacktrace.push(val);
+                },
                 None        => {
                     stacktrace = stacktrace.iter().rev().cloned().collect();
                     println!("StackTrace: {:#?}", stacktrace);
@@ -111,6 +119,74 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 //        Ok(())
 //    }
 
+
+
+    pub fn create_stackframe(&mut self, call_frame: &stacktrace::CallFrame) -> Result<StackFrame> {
+        let (section_offset, unit_offset) = self.find_function_die(call_frame.code_location as u32)?;
+        let header = self.dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
+        let unit = gimli::Unit::new(&self.dwarf, header)?;
+        let die = unit.entry(unit_offset)?;
+
+        let name = match die.attr_value(gimli::DW_AT_name)? {
+            Some(DebugStrRef(offset)) => format!("{:?}", self.dwarf.string(offset)?.to_string()?),
+            _ => "<unknown>".to_string(),
+        };
+
+        Ok(StackFrame{
+            call_frame: call_frame.clone(),
+            name: name,
+        })
+    }
+
+    pub fn find_function_die(&mut self, address: u32) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)> {
+        let unit = get_current_unit(&self.dwarf, address)?;
+        let mut cursor = unit.entries();
+
+        let mut depth = 0;
+        let mut res = None; 
+        let mut die = None;
+
+        assert!(cursor.next_dfs().unwrap().is_some());
+        while let Some((delta_depth, current)) = cursor.next_dfs()? {
+            // Update depth value, and break out of the loop when we
+            // return to the original starting position.
+            depth += delta_depth;
+            if depth <= 0 {
+                break;
+            }
+
+            match current.tag() {
+                gimli::DW_TAG_subprogram | gimli::DW_TAG_inlined_subroutine => {
+                    if let Some(true) = die_in_range(&self.dwarf, &unit, current, address) {
+                        match res {
+                            Some(val) => {
+                                if val > depth {
+                                    res = Some(depth);
+                                    die = Some(current.clone());
+                                } else if val == depth {
+                                    panic!("multiple");
+                                }
+                            },
+                            None => {
+                                res = Some(depth);
+                                die = Some(current.clone());
+                            },
+                        };
+                    }
+                },
+                _ => (),
+            }; 
+        }
+
+        match die {
+            Some(d) => {
+                return Ok((unit.header.offset(), d.offset()));
+            },
+            None => {
+                return Err(anyhow!("Could not find function for address {}", address));
+            },
+        };
+    }
 
 
     pub fn find_variable(&mut self,
