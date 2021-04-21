@@ -54,7 +54,17 @@ use super::get_current_unit;
 pub struct StackFrame {
     pub call_frame: stacktrace::CallFrame,
     pub name: String,
+    pub source: SourceReference,
 }
+
+#[derive(Debug, Clone)]
+pub struct SourceReference {
+    pub directory:  Option<String>,
+    pub file:       Option<String>,
+    pub line:       Option<u64>,
+    pub column:     Option<u64>,
+}
+
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
@@ -132,9 +142,64 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => "<unknown>".to_string(),
         };
 
+
         Ok(StackFrame{
             call_frame: call_frame.clone(),
             name: name,
+            source: self.get_die_source_reference(&unit, &die)?,
+        })
+    }
+
+    pub fn get_die_source_reference(&mut self,
+                                unit:   &Unit<R>,
+                                die:    &DebuggingInformationEntry<'_, '_, R>
+                                ) -> Result<SourceReference>
+    {
+        let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
+            Some(gimli::AttributeValue::FileIndex(v)) => {
+                match &unit.line_program {
+                    Some(lp) => {
+                        let header = lp.header();
+                        match header.file(v) {
+                            Some(file_entry)    => {
+                                let directory = match file_entry.directory(header) {
+                                    Some(dir_av) => {
+                                        let dir_raw = self.dwarf.attr_string(&unit, dir_av)?;
+                                        Some(dir_raw.to_string()?.to_string()) 
+                                    },
+                                    None => None,
+                                };
+
+                                let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
+                                (Some(file_raw.to_string()?.to_string()), directory)
+                            },
+                            None        => (None, None),
+                        }
+                    },
+                    None    => (None, None),
+                }
+            },
+            None => (None, None),
+            Some(v) => unimplemented!("{:?}", v),
+        };
+
+        let line = match die.attr_value(gimli::DW_AT_decl_line)? {
+            Some(gimli::AttributeValue::Udata(v)) => Some(v),
+            None => None,
+            Some(v) => unimplemented!("{:?}", v),
+        };
+
+        let column = match die.attr_value(gimli::DW_AT_decl_column)? {
+            Some(gimli::AttributeValue::Udata(v)) => Some(v),
+            None => None,
+            Some(v) => unimplemented!("{:?}", v),
+        };
+
+        Ok(SourceReference {
+            directory: directory,
+            file: file,
+            line: line,
+            column: column,
         })
     }
 

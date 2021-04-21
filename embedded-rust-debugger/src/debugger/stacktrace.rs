@@ -159,7 +159,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
             end_address:    unwind_info.end_address(),
         };
 
-//        println!("stackframe: {:#?}", self.debugger.create_stackframe(&cf)?);
+        println!("stackframe: {:#?}", self.debugger.create_stackframe(&cf)?);
 
         self.registers = registers;
 
