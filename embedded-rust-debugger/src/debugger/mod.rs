@@ -86,25 +86,69 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
+    // Good source: DWARF section 6.2
+    // TODO: Create a function that correcly gets the directory and file_name;
+    pub fn find_location(&mut self,
+                         path: &str,
+                         line: u64
+                         ) -> Result<Option<u64>>
+    {
+        let mut units = self.dwarf.units();
+        while let Some(unit_header) = units.next()? {
+            let unit = self.dwarf.unit(unit_header)?; 
 
-//    pub fn find_location(&mut self,
-//                         path: &str,
-//                         line: i64
-//                         ) -> Result<()>
-//    {
-//
-//        let mut units = self.dwarf.units();
-//        while let Some(unit_header) = units.next()? {
-//            let unit = self.dwarf.unit(unit_header)?;
-//            if path == unit.comp_dir.unwrap() {
-//                println!("Found unit");
-//                break;
-//            }
-//        }
-//
-//        Ok(())
-//    }
+            if let Some(ref line_program) = unit.line_program {
+                let lp_header = line_program.header();
+                
+                for file_entry in lp_header.file_names() {
 
+                    let directory = match file_entry.directory(lp_header) {
+                        Some(dir_av) => {
+                            let dir_raw = self.dwarf.attr_string(&unit, dir_av)?;
+                            dir_raw.to_string()?.to_string()
+                        },
+                        None => continue,
+                    };
+                    
+                    let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
+                    let file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+
+                    if path == &file_path {
+                        let mut rows = line_program.clone().rows();
+                        while let Some((header, row)) = rows.next_row()? {
+
+                            let file_entry = match row.file(header) {
+                                Some(v) => v,
+                                None => continue,
+                            };
+
+                            let directory = match file_entry.directory(header) {
+                                Some(dir_av) => {
+                                    let dir_raw = self.dwarf.attr_string(&unit, dir_av)?;
+                                    dir_raw.to_string()?.to_string()
+                                },
+                                None => continue,
+                            };
+                            
+                            let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
+                            let file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+
+                            if path == &file_path {
+                                if let Some(l) = row.line() {
+                                    if line == l {
+                                        return Ok(Some(row.address()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+
+        Ok(None)
+    }
 
 
     pub fn create_stackframe(&mut self,
@@ -129,6 +173,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         })
     }
 
+
+    // TODO: Create a function that correcly gets the directory and file_name;
     pub fn get_die_source_reference(&mut self,
                                 unit:   &Unit<R>,
                                 die:    &DebuggingInformationEntry<'_, '_, R>
