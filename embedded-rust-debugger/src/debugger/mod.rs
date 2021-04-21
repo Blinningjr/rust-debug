@@ -90,9 +90,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     // TODO: Create a function that correcly gets the directory and file_name;
     pub fn find_location(&mut self,
                          path: &str,
-                         line: u64
+                         line: u64,
+                         column: Option<u64>
                          ) -> Result<Option<u64>>
     {
+        let mut locations = vec!();
+
         let mut units = self.dwarf.units();
         while let Some(unit_header) = units.next()? {
             let unit = self.dwarf.unit(unit_header)?; 
@@ -136,7 +139,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             if path == &file_path {
                                 if let Some(l) = row.line() {
                                     if line == l {
-                                        return Ok(Some(row.address()));
+                                        locations.push((row.column(), row.address()));
                                     }
                                 }
                             }
@@ -147,7 +150,24 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }
         }
 
-        Ok(None)
+        match locations.len() {
+            0 => return Ok(None),
+            len => {
+                let search = match column {
+                    Some(v) => gimli::ColumnType::Column(v),
+                    None    => gimli::ColumnType::LeftEdge,
+                };
+
+                let mut res = locations[0];
+                for i in 1..len {
+                    if locations[i].0 <= search && locations[i].0 > res.0 {
+                        res = locations[i];
+                    }
+                }
+
+                return Ok(Some(res.1));
+            },
+        };
     }
 
 
