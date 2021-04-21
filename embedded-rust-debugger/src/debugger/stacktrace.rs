@@ -31,6 +31,23 @@ use log::{
 
 
 #[derive(Debug, Clone)]
+pub struct StackFrame {
+    pub call_frame: CallFrame,
+    pub name: String,
+    pub source: SourceReference,
+}
+
+
+#[derive(Debug, Clone)]
+pub struct SourceReference {
+    pub directory:  Option<String>,
+    pub file:       Option<String>,
+    pub line:       Option<u64>,
+    pub column:     Option<u64>,
+}
+
+
+#[derive(Debug, Clone)]
 pub struct CallFrame {
     pub id:             u64,
     pub registers:      [Option<u32>; 16],
@@ -38,6 +55,25 @@ pub struct CallFrame {
     pub cfa:            Option<u32>,
     pub start_address:  u64,
     pub end_address:    u64,
+}
+
+
+pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<Vec<CallFrame>> {
+    let mut cfi = CallFrameIterator::new(debugger)?;
+    let mut stacktrace = vec!();
+
+    loop {
+        match cfi.next()? {
+            Some(val)   => {
+                stacktrace.push(val);
+            },
+            None        => {
+                stacktrace = stacktrace.iter().rev().cloned().collect();
+                return Ok(stacktrace);
+            },
+
+        };
+    }
 }
 
 
@@ -159,11 +195,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
             end_address:    unwind_info.end_address(),
         };
 
-        println!("stackframe: {:#?}", self.debugger.create_stackframe(&cf)?);
-
         self.registers = registers;
-
-        //println!("call frame: {:#?}", cf);
 
         self.frame_counter += 1;
 

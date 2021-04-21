@@ -460,7 +460,7 @@ fn code_command(core: &mut Core, cs: &mut capstone::Capstone) -> Result<bool>
 
 fn stacktrace_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<bool>
 { 
-    println!("result: {:#?}", debugger.get_current_stacktrace());
+    println!("result: {:#?}", debugger.get_current_stacktrace()?);
     Ok(false)
 }
 

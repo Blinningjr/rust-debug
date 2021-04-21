@@ -50,20 +50,6 @@ use gimli::{
 use super::get_current_unit;
 
 
-#[derive(Debug, Clone)]
-pub struct StackFrame {
-    pub call_frame: stacktrace::CallFrame,
-    pub name: String,
-    pub source: SourceReference,
-}
-
-#[derive(Debug, Clone)]
-pub struct SourceReference {
-    pub directory:  Option<String>,
-    pub file:       Option<String>,
-    pub line:       Option<u64>,
-    pub column:     Option<u64>,
-}
 
 
 
@@ -89,24 +75,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn get_current_stacktrace(&mut self) -> Result<()>
+    pub fn get_current_stacktrace(&mut self) -> Result<Vec<stacktrace::StackFrame>>
     {
-        let mut cfi = stacktrace::CallFrameIterator::new(self)?;
+        let call_stacktrace = stacktrace::create_call_stacktrace(self)?;
         let mut stacktrace = vec!();
-        loop {
-            match cfi.next()? {
-                Some(val)   => {
-                    //self.create_stackframe(&val)?;
-                    stacktrace.push(val);
-                },
-                None        => {
-                    stacktrace = stacktrace.iter().rev().cloned().collect();
-                    println!("StackTrace: {:#?}", stacktrace);
-                    return Ok(());
-                },
-
-            };
+        for cst in &call_stacktrace {
+            stacktrace.push(self.create_stackframe(cst)?);
         }
+        Ok(stacktrace)
     }
 
 
@@ -131,7 +107,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
 
-    pub fn create_stackframe(&mut self, call_frame: &stacktrace::CallFrame) -> Result<StackFrame> {
+    pub fn create_stackframe(&mut self,
+                             call_frame: &stacktrace::CallFrame
+                             ) -> Result<stacktrace::StackFrame>
+    {
         let (section_offset, unit_offset) = self.find_function_die(call_frame.code_location as u32)?;
         let header = self.dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
         let unit = gimli::Unit::new(&self.dwarf, header)?;
@@ -143,7 +122,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         };
 
 
-        Ok(StackFrame{
+        Ok(stacktrace::StackFrame{
             call_frame: call_frame.clone(),
             name: name,
             source: self.get_die_source_reference(&unit, &die)?,
@@ -153,7 +132,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn get_die_source_reference(&mut self,
                                 unit:   &Unit<R>,
                                 die:    &DebuggingInformationEntry<'_, '_, R>
-                                ) -> Result<SourceReference>
+                                ) -> Result<stacktrace::SourceReference>
     {
         let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
             Some(gimli::AttributeValue::FileIndex(v)) => {
@@ -195,7 +174,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             Some(v) => unimplemented!("{:?}", v),
         };
 
-        Ok(SourceReference {
+        Ok(stacktrace::SourceReference {
             directory: directory,
             file: file,
             line: line,
