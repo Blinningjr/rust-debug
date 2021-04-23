@@ -58,12 +58,12 @@ pub struct CallFrame {
 }
 
 
-pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<Vec<CallFrame>> {
-    let mut cfi = CallFrameIterator::new(debugger)?;
+pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>, core: &mut probe_rs::Core) -> Result<Vec<CallFrame>> {
+    let mut cfi = CallFrameIterator::new(debugger, core)?;
     let mut stacktrace = vec!();
 
     loop {
-        match cfi.next()? {
+        match cfi.next(core)? {
             Some(val)   => {
                 stacktrace.push(val);
             },
@@ -77,8 +77,8 @@ pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger
 }
 
 
-pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
-    debugger:       &'b mut Debugger<'a, R>,
+pub struct CallFrameIterator<'b, R: Reader<Offset = usize>> {
+    debugger:       &'b mut Debugger<R>,
     frame_counter:  u64,
     code_location:  Option<u64>,
     registers:      [Option<u32>; 16],
@@ -93,15 +93,15 @@ pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
 }
 
 
-impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
-    pub fn new(debugger: &'b mut Debugger<'a, R>) -> Result<CallFrameIterator<'a, 'b, R>>
+impl<'b, R: Reader<Offset = usize>> CallFrameIterator<'b, R> {
+    pub fn new(debugger: &'b mut Debugger<R>, core: &mut probe_rs::Core) -> Result<CallFrameIterator<'b, R>>
     {
-        let pc =        debugger.core.registers().program_counter();
-        let pc_val =    debugger.core.read_core_reg(pc)?;
+        let pc =        core.registers().program_counter();
+        let pc_val =    core.read_core_reg(pc)?;
 
         let mut register = [None; 16];
         for i in 0..16 {
-            register[i as usize] = debugger.core.read_core_reg(i).ok();
+            register[i as usize] = core.read_core_reg(i).ok();
         }
 
         Ok(CallFrameIterator {
@@ -114,10 +114,10 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
         })
     }
 
-    pub fn next(&mut self) -> Result<Option<CallFrame>> {
-        let pc_reg: u16 = probe_rs::CoreRegisterAddress::from(self.debugger.core.registers().program_counter()).0;
-        let link_reg: u16 = probe_rs::CoreRegisterAddress::from(self.debugger.core.registers().return_address()).0;
-        let sp_reg: u16 = probe_rs::CoreRegisterAddress::from(self.debugger.core.registers().stack_pointer()).0;
+    pub fn next(&mut self, core: &mut probe_rs::Core) -> Result<Option<CallFrame>> {
+        let pc_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0;
+        let link_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().return_address()).0;
+        let sp_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0;
 
         let code_location = match self.code_location {
             Some(val) => val,
@@ -166,7 +166,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
 
                     let mut buff = vec![0u32; 1];
 
-                    self.debugger.core.read_32(address, &mut buff)?;
+                    core.read_32(address, &mut buff)?;
 
                     Some(buff[0])
                 },

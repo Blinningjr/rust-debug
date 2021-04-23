@@ -32,6 +32,7 @@ pub struct Command<R: Reader<Offset = usize>> {
     pub short:          &'static str,
     pub description:    &'static str,
     pub function:       fn(debugger: &mut Debugger<R>,
+                           session: &mut probe_rs::Session,
                            cs: &mut capstone::Capstone,
                            args:    &[&str]
                            ) -> Result<bool>,
@@ -45,91 +46,91 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "exit",
                 short:          "e",
                 description:    "Exit the debugger",
-                function:       |_debugger, _cs, _args| exit_command(),
+                function:       |_debugger, _session, _cs, _args| exit_command(),
             },
             Command {
                 name:           "status",
                 short:          "s",
                 description:    "Show current status of CPU",
-                function:       |debugger, _cs, _args| status_command(&mut debugger.core),
+                function:       |debugger, session, _cs, _args| status_command(session),
             },
             Command {
                 name:           "print",
                 short:          "p",
                 description:    "Evaluate variable",
-                function:       |debugger, _cs, args| print_command(debugger, args),
+                function:       |debugger, session, _cs, args| print_command(debugger, session, args),
             },
             Command {
                 name:           "run",
                 short:          "r",
                 description:    "Resume execution of the CPU",
-                function:       |debugger, _cs, _args| run_command(&mut debugger.core, &debugger.breakpoints),
+                function:       |debugger, session, _cs, _args| run_command(session, &debugger.breakpoints),
             },
             Command {
                 name:           "step",
                 short:          "sp",
                 description:    "Step a single instruction",
-                function:       |debugger, _cs, _args| step_command(&mut debugger.core, &debugger.breakpoints, true),
+                function:       |debugger, session, _cs, _args| step_command(session, &debugger.breakpoints, true),
             },
             Command {
                 name:           "halt",
                 short:          "h",
                 description:    "Stop the CPU",
-                function:       |debugger, cs, _args| halt_command(&mut debugger.core, cs, true),
+                function:       |debugger, session, cs, _args| halt_command(session, cs, true),
             },
             Command {
                 name:           "registers",
                 short:          "regs",
                 description:    "Show CPU register values",
-                function:       |debugger, _cs, _args| regs_command(&mut debugger.core),
+                function:       |debugger, session, _cs, _args| regs_command(session),
             },
             Command {
                 name:           "reset",
                 short:          "rt",
                 description:    "Reset the CPU",
-                function:       |debugger, _cs, _args| reset_command(&mut debugger.core),
+                function:       |debugger, session, _cs, _args| reset_command(session),
             },
             Command {
                 name:           "read",
                 short:          "rd",
                 description:    "Read 32bit value from memory",
-                function:       |debugger, _cs, args| read_command(&mut debugger.core, args),
+                function:       |debugger, session, _cs, args| read_command(session, args),
             },
             Command {
                 name:           "set_breakpoint",
                 short:          "bkpt",
                 description:    "Set breakpoint at an address",
-                function:       |debugger, _cs, args| set_breakpoint_command(debugger, args, true),
+                function:       |debugger, session, _cs, args| set_breakpoint_command(debugger, session, args, true),
             },
             Command {
                 name:           "clear_breakpoint",
                 short:          "cbkpt",
                 description:    "Clear breakpoint from an address",
-                function:       |debugger, _cs, args| clear_breakpoint_command(debugger, args, true),
+                function:       |debugger, session, _cs, args| clear_breakpoint_command(debugger, session, args, true),
             },
             Command {
                 name:           "clear_all_breakpoints",
                 short:          "cabkpt",
                 description:    "Clear all breakpoints",
-                function:       |debugger, _cs, _args| clear_all_breakpoints_command(debugger, true),
+                function:       |debugger, session, _cs, _args| clear_all_breakpoints_command(debugger, session, true),
             },
             Command {
                 name:           "num_breakpoints",
                 short:          "nbkpt",
                 description:    "Get total number of hw breakpoints",
-                function:       |debugger, _cs, _args| num_breakpoints_command(debugger),
+                function:       |debugger, session, _cs, _args| num_breakpoints_command(debugger, session),
             },
             Command {
                 name:           "code",
                 short:          "ce",
                 description:    "Print first 16 lines of assembly code",
-                function:       |debugger, cs, _args| code_command(&mut debugger.core, cs),
+                function:       |debugger, session, cs, _args| code_command(session, cs),
             },
             Command {
                 name:           "stacktrace",
                 short:          "st",
                 description:    "Print stack trace",
-                function:       |debugger, _cs, _args| stacktrace_command(debugger),
+                function:       |debugger, session, _cs, _args| stacktrace_command(debugger, session),
             },
         )
     }
@@ -142,8 +143,9 @@ fn exit_command() -> Result<bool>
 }
 
 
-fn status_command(core: &mut Core) -> Result<bool>
+fn status_command(session: &mut probe_rs::Session) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let status = core.status()?;
 
     println!("Status: {:?}", &status);
@@ -158,19 +160,21 @@ fn status_command(core: &mut Core) -> Result<bool>
 
 
 fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                            session: &mut probe_rs::Session,
                                             args:   &[&str]
                                             ) -> Result<bool>
 {
-    let status = debugger.core.status()?;
+    let mut core = session.core(0)?;
+    let status = core.status()?;
 
     if status.is_halted() {
-        let pc  = debugger.core.read_core_reg(debugger.core.registers().program_counter())?;
+        let pc  = core.read_core_reg(core.registers().program_counter())?;
         let var = args[0];
 
         let unit = get_current_unit(&debugger.dwarf, pc)?;
         //println!("{:?}", unit.name.unwrap().to_string());
         
-        let value = debugger.find_variable(&unit, pc, var);
+        let value = debugger.find_variable(&mut core, &unit, pc, var);
         
         match value {
             Ok(val)     => println!("{} = {}", var, val),
@@ -185,12 +189,13 @@ fn print_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 }
 
 
-pub fn run_command(core: &mut Core, breakpoints: &Vec<u32>) -> Result<bool>
+pub fn run_command(session: &mut probe_rs::Session, breakpoints: &Vec<u32>) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let status = core.status()?;
 
     if status.is_halted() {
-        let _cpu_info = continue_fix(core, breakpoints)?;
+        let _cpu_info = continue_fix(&mut core, breakpoints)?;
         core.run()?;    
     }
 
@@ -200,12 +205,13 @@ pub fn run_command(core: &mut Core, breakpoints: &Vec<u32>) -> Result<bool>
 }
 
 
-pub fn step_command(core: &mut Core, breakpoints: &Vec<u32>, print: bool) -> Result<bool>
+pub fn step_command(session: &mut probe_rs::Session, breakpoints: &Vec<u32>, print: bool) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let status = core.status()?;
 
     if status.is_halted() {
-        let cpu_info = continue_fix(core, breakpoints)?;
+        let cpu_info = continue_fix(&mut core, breakpoints)?;
         info!("Stept to pc = 0x{:08x}", cpu_info.pc);
 
         if print {
@@ -216,7 +222,7 @@ pub fn step_command(core: &mut Core, breakpoints: &Vec<u32>, print: bool) -> Res
     Ok(false)
 }
 
-fn continue_fix(core: &mut Core, breakpoints: &Vec<u32>) -> Result<CoreInformation, probe_rs::Error>
+fn continue_fix(core: &mut probe_rs::Core, breakpoints: &Vec<u32>) -> Result<CoreInformation, probe_rs::Error>
 {
     match core.status()? {
         probe_rs::CoreStatus::Halted(r)  => {
@@ -258,8 +264,9 @@ fn continue_fix(core: &mut Core, breakpoints: &Vec<u32>) -> Result<CoreInformati
 }
 
 
-pub fn halt_command(core: &mut Core, cs: &mut capstone::Capstone, print: bool) -> Result<bool>
+pub fn halt_command(session: &mut probe_rs::Session, cs: &mut capstone::Capstone, print: bool) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let status = core.status()?;
 
     if status.is_halted() {
@@ -294,8 +301,9 @@ pub fn halt_command(core: &mut Core, cs: &mut capstone::Capstone, print: bool) -
 }
 
 
-fn regs_command(core: &mut Core) -> Result<bool>
+fn regs_command(session: &mut probe_rs::Session) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let register_file = core.registers();
 
     for register in register_file.registers() {
@@ -308,8 +316,9 @@ fn regs_command(core: &mut Core) -> Result<bool>
 }
 
 
-fn reset_command(core: &mut Core) -> Result<bool>
+fn reset_command(session: &mut probe_rs::Session) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     core.halt(Duration::from_millis(100))?;
     core.reset_and_halt(Duration::from_millis(100))?;
 
@@ -317,10 +326,11 @@ fn reset_command(core: &mut Core) -> Result<bool>
 }
 
 
-fn read_command(core: &mut Core,
+fn read_command(session: &mut probe_rs::Session,
                 args:   &[&str]
                 ) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let address = args[0].parse::<u32>()?;
 
     let mut buff = vec![0u32; 1];
@@ -334,16 +344,18 @@ fn read_command(core: &mut Core,
 
 
 fn set_breakpoint_command<R: Reader<Offset = usize>>(debugger:  &mut Debugger<R>,
+                                                     session:   &mut probe_rs::Session,
                                                      args:      &[&str],
                                                      print:     bool
                                                      ) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let address = args[0].parse::<u32>()?; 
     let num_bkpt = debugger.breakpoints.len() as u32;
-    let tot_bkpt = debugger.core.get_available_breakpoint_units()?;
+    let tot_bkpt = core.get_available_breakpoint_units()?;
 
     if num_bkpt < tot_bkpt {
-        debugger.core.set_hw_breakpoint(address)?;
+        core.set_hw_breakpoint(address)?;
         debugger.breakpoints.push(address);
 
         
@@ -362,10 +374,12 @@ fn set_breakpoint_command<R: Reader<Offset = usize>>(debugger:  &mut Debugger<R>
 
 
 fn clear_breakpoint_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                                       session: &mut probe_rs::Session,
                                                        args:   &[&str],
                                                        print: bool
                                                        ) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     if args.len() < 1 {
         if print {
             println!("Command requires an address(decimal number)");
@@ -386,7 +400,7 @@ fn clear_breakpoint_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R
 
     for i in 0..debugger.breakpoints.len() {
         if address == debugger.breakpoints[i] {
-            debugger.core.clear_hw_breakpoint(address)?;
+            core.clear_hw_breakpoint(address)?;
             debugger.breakpoints.remove(i);
 
             info!("Breakpoint cleared from: 0x{:08x}", address);
@@ -401,10 +415,14 @@ fn clear_breakpoint_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R
 }
 
 
-fn clear_all_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>, print: bool) -> Result<bool>
+fn clear_all_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                                            session:    &mut probe_rs::Session,
+                                                            print: bool
+                                                            ) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     for bkpt in &debugger.breakpoints {
-        debugger.core.clear_hw_breakpoint(*bkpt)?;
+        core.clear_hw_breakpoint(*bkpt)?;
     }
     debugger.breakpoints = vec!();
 
@@ -417,17 +435,21 @@ fn clear_all_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debug
 }
 
 
-fn num_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<bool>
+fn num_breakpoints_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                                      session:  &mut probe_rs::Session,
+                                                     ) -> Result<bool>
 { 
+    let mut core = session.core(0)?;
     println!("Number of hw breakpoints: {}/{}",
              debugger.breakpoints.len(),
-             debugger.core.get_available_breakpoint_units()?);
+             core.get_available_breakpoint_units()?);
     Ok(false)
 }
 
 
-fn code_command(core: &mut Core, cs: &mut capstone::Capstone) -> Result<bool>
+fn code_command(session: &mut probe_rs::Session, cs: &mut capstone::Capstone) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let status = core.status()?;
 
     if status.is_halted() {
@@ -458,16 +480,20 @@ fn code_command(core: &mut Core, cs: &mut capstone::Capstone) -> Result<bool>
 }
 
 
-fn stacktrace_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>) -> Result<bool>
+fn stacktrace_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                                 session: &mut probe_rs::Session
+                                                ) -> Result<bool>
 { 
-    println!("result: {:#?}", debugger.get_current_stacktrace()?);
+    let mut core = session.core(0)?;
+    println!("result: {:#?}", debugger.get_current_stacktrace(&mut core)?);
     Ok(false)
 }
 
 
 // Returns true if it has hit a brekpoint
-pub fn hit_breakpoint(core: &mut Core) -> Result<bool>
+pub fn hit_breakpoint(session: &mut probe_rs::Session) -> Result<bool>
 {
+    let mut core = session.core(0)?;
     let status = core.status()?;
 
     debug!("Status: {:?}", &status);

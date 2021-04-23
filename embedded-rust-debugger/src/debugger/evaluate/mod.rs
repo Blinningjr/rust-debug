@@ -62,8 +62,9 @@ use anyhow::{
 };
 
 
-impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
+impl<R: Reader<Offset = usize>> Debugger<R> {
     pub fn evaluate(&mut self,
+                    core:       &mut probe_rs::Core,
                     unit:       &Unit<R>,
                     pc:         u32,
                     expr:       Expression<R>,
@@ -80,7 +81,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             match result {
                 Complete => break,
                 RequiresMemory{address, size, space, base_type} =>
-                    self.resolve_requires_mem(unit,
+                    self.resolve_requires_mem(core,
+                                              unit,
                                               &mut eval,
                                               &mut result,
                                               address,
@@ -89,7 +91,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                               base_type)?,
 
                 RequiresRegister{register, base_type} =>
-                    self.resolve_requires_reg(unit,
+                    self.resolve_requires_reg(core,
+                                              unit,
                                               &mut eval,
                                               &mut result,
                                               register,
@@ -105,7 +108,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     unimplemented!(), // TODO
 
                 RequiresAtLocation(die_ref) =>
-                    self.resolve_requires_at_location(unit,
+                    self.resolve_requires_at_location(core,
+                                                      unit,
                                                       pc,
                                                       &mut eval,
                                                       &mut result,
@@ -113,7 +117,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(convert_to_gimli_value(self.evaluate(unit,
+                  result = eval.resume_with_entry_value(convert_to_gimli_value(self.evaluate(core,
+                                                                      unit,
                                                                       pc,
                                                                       e,
                                                                       frame_base, 
@@ -125,7 +130,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         let die     = unit.entry(unit_offset)?;
                         let dtype   = self.type_attribute(unit, pc, &die).unwrap();
                         let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(unit, pc, expr, frame_base, Some(&dtype))?;
+                        let value   = self.evaluate(core, unit, pc, expr, frame_base, Some(&dtype))?;
 
                         if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val)?;
@@ -149,8 +154,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut pieces = eval.result();
         println!("{:#?}", pieces);
         let value =  match vtype {
-            Some(t) => self.eval_type(&mut pieces, &mut 0, 0, t),
-            None => self.eval_piece(pieces.remove(0), None, 0, None),
+            Some(t) => self.eval_type(core, &mut pieces, &mut 0, 0, t),
+            None => self.eval_piece(core, pieces.remove(0), None, 0, None),
         };
         //println!("Value: {:#?}", value);
         Ok(value?.unwrap())
@@ -162,6 +167,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * TODO: Check and test if correct.
      */
     fn resolve_requires_mem(&mut self,
+                            core:       &mut probe_rs::Core,
                             unit:       &Unit<R>,
                             eval:       &mut Evaluation<R>,
                             result:     &mut EvaluationResult<R>,
@@ -173,7 +179,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             where R: Reader<Offset = usize>
     {
         let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
-        self.core.read_32(address as u32, &mut data)?;
+        core.read_32(address as u32, &mut data)?;
         let value = parse_base_type(unit, &data, base_type);
         *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
 
@@ -187,6 +193,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
      * TODO: Check and test if correct.
      */
     fn resolve_requires_reg(&mut self,
+                            core:       &mut probe_rs::Core,
                             unit:       &Unit<R>,
                             eval:       &mut Evaluation<R>,
                             result:     &mut EvaluationResult<R>,
@@ -195,7 +202,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             ) -> Result<()>
                             where R: Reader<Offset = usize>
     {
-        let data    = self.core.read_core_reg(reg.0)?;
+        let data    = core.read_core_reg(reg.0)?;
         let value   = parse_base_type(unit, &[data], base_type);
         *result     = eval.resume_with_register(convert_to_gimli_value(value))?;    
 
@@ -204,6 +211,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn resolve_requires_at_location(&mut self,
+                                    core:       &mut probe_rs::Core,
                                     unit:       &Unit<R>,
                                     pc:         u32,
                                     eval:       &mut Evaluation<R>,
@@ -215,14 +223,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     { 
         match die_ref {
             DieReference::UnitRef(unit_offset) => {
-                return self.help_at_location(unit, pc, eval, result, frame_base, unit_offset);
+                return self.help_at_location(core, unit, pc, eval, result, frame_base, unit_offset);
             },
 
             DieReference::DebugInfoRef(debug_info_offset) => {
                 let unit_header = self.dwarf.debug_info.header_from_offset(debug_info_offset)?;
                 if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                     let new_unit = self.dwarf.unit(unit_header)?;
-                    return self.help_at_location(&new_unit, pc, eval, result, frame_base, unit_offset);
+                    return self.help_at_location(core, &new_unit, pc, eval, result, frame_base, unit_offset);
                 } else {
                     return Err(anyhow!("Could not find at location"));
                 }    
@@ -232,6 +240,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn help_at_location(&mut self,
+                        core:           &mut probe_rs::Core,
                         unit:           &Unit<R>,
                         pc:             u32,
                         eval:           &mut Evaluation<R>,
@@ -245,7 +254,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
             
             let dtype   = self.type_attribute(unit, pc, &die).unwrap();
-            let val     = self.evaluate(&unit, pc, expr, frame_base, Some(&dtype))?;
+            let val     = self.evaluate(core, &unit, pc, expr, frame_base, Some(&dtype))?;
 
             if let DebuggerValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b)?;

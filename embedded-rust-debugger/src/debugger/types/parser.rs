@@ -40,7 +40,7 @@ use anyhow::{
 };
 
 
-impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
+impl<R: Reader<Offset = usize>> Debugger<R> {
     pub fn parse_type_node(&mut self,
                          unit:      &Unit<R>,
                          pc:        u32,

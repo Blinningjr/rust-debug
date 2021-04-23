@@ -53,21 +53,18 @@ use super::get_current_unit;
 
 
 
-pub struct Debugger<'a, R: Reader<Offset = usize>> {
-    pub core:           Core<'a>,
+pub struct Debugger<R: Reader<Offset = usize>> {
     pub dwarf:          Dwarf<R>,
     pub debug_frame:    DebugFrame<R>,
     pub breakpoints:    Vec<u32>,
 }
 
 
-impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new(core:        Core<'a>,
-               dwarf:       Dwarf<R>,
+impl<R: Reader<Offset = usize>> Debugger<R> {
+    pub fn new(dwarf:       Dwarf<R>,
                debug_frame: DebugFrame<R>,
-               ) -> Debugger<'a, R> {
+               ) -> Debugger<R> {
         Debugger{
-            core:           core,
             dwarf:          dwarf,
             debug_frame:    debug_frame,
             breakpoints:    vec!(),
@@ -75,9 +72,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn get_current_stacktrace(&mut self) -> Result<Vec<stacktrace::StackFrame>>
+    pub fn get_current_stacktrace(&mut self, core: &mut probe_rs::Core) -> Result<Vec<stacktrace::StackFrame>>
     {
-        let call_stacktrace = stacktrace::create_call_stacktrace(self)?;
+        let call_stacktrace = stacktrace::create_call_stacktrace(self, core)?;
         let mut stacktrace = vec!();
         for cst in &call_stacktrace {
             stacktrace.push(self.create_stackframe(cst)?);
@@ -300,6 +297,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn find_variable(&mut self,
+                         core:      &mut probe_rs::Core,
                          unit:      &Unit<R>,
                          pc:        u32,
                          search:    &str
@@ -311,7 +309,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 //        self.print_tree(root)?;
 //        unimplemented!();
 
-        return match self.process_tree(unit, pc, root, None, search)? {
+        return match self.process_tree(core, unit, pc, root, None, search)? {
             Some(val)   => Ok(val),
             None        => Err(anyhow!("Can't find value")), // TODO: Change to a better error.
         };
@@ -319,6 +317,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn process_tree(&mut self, 
+                        core:           &mut probe_rs::Core,
                         unit:           &Unit<R>,
                         pc:             u32,
                         node:           EntriesTreeNode<R>,
@@ -334,7 +333,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(unit, pc, &die, frame_base)?;
+        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base)?;
 
         // Check for the searched vairable.
         if self.check_var_name(unit, pc, &die, search) {
@@ -342,7 +341,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             //self.print_die(&die)?;
             let dtype = self.get_var_type(unit, pc, &die).unwrap();
             println!("{:#?}", dtype);
-            match self.eval_location(unit, pc, &die, &dtype, frame_base) {
+            match self.eval_location(core, unit, pc, &die, &dtype, frame_base) {
                 Ok(v) => return Ok(v),
                 Err(_) => (),
             };
@@ -358,7 +357,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // Recursively process the children.
         let mut children = node.children();
         while let Some(child) = children.next()? {
-            if let Some(result) = self.process_tree(unit, pc, child, frame_base, search)? {
+            if let Some(result) = self.process_tree(core, unit, pc, child, frame_base, search)? {
                 return Ok(Some(result));
             }
         }
@@ -427,18 +426,19 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     fn eval_location(&mut self,
-                      unit:     &Unit<R>,
-                      pc:       u32,
+                     core:              &mut probe_rs::Core,
+                     unit:              &Unit<R>,
+                     pc:                u32,
                      die:               &DebuggingInformationEntry<R>,
                      dtype:             &DebuggerType,
-                     frame_base:    Option<u64>
+                     frame_base:        Option<u64>
                      ) -> Result<Option<DebuggerValue<R>>> 
     {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 self.print_die(&die)?;
-                let value = self.evaluate(unit, pc, expr, frame_base, Some(dtype))?;
+                let value = self.evaluate(core, unit, pc, expr, frame_base, Some(dtype))?;
                 println!("\n");
 
                 return Ok(Some(value));
@@ -450,7 +450,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     //let value = self.evaluate(unit, llent.data, frame_base, Some(&dtype)).unwrap();
                     //println!("\n");
                     if in_range(pc, &llent.range) {
-                        let value = self.evaluate(unit, pc, llent.data, frame_base, Some(dtype))?;
+                        let value = self.evaluate(core, unit, pc, llent.data, frame_base, Some(dtype))?;
                         println!("\n");
 
                         return Ok(Some(value));
@@ -469,15 +469,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     
 
     pub fn check_frame_base(&mut self,
-                            unit:     &Unit<R>,
-                            pc:       u32,
+                            core:       &mut probe_rs::Core,
+                            unit:       &Unit<R>,
+                            pc:         u32,
                             die:        &DebuggingInformationEntry<'_, '_, R>,
                             frame_base: Option<u64>
                             ) -> Result<Option<u64>>
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(unit, pc, expr, frame_base, None) {
+                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None) {
                     Ok(DebuggerValue::Value(Value::U64(v))) => Some(v),
                     Ok(DebuggerValue::Value(Value::U32(v))) => Some(v as u64),
                     Ok(v) => {

@@ -117,7 +117,6 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 
     let _pc = flash_target(&mut session, &file_path)?;
 
-    let core = session.core(0).unwrap();
     let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path)?;
 
 //    let dwarf = owned_dwarf.borrow(|section| {
@@ -126,9 +125,9 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 //
 //    let debug_frame = gimli::EndianSlice::new(&owned_debug_frame, gimli::LittleEndian).into();
 
-    let debugger = Debugger::new(core, owned_dwarf, owned_debug_frame);
+    let debugger = Debugger::new(owned_dwarf, owned_debug_frame);
 
-    let mut cli = DebuggerCli::new(debugger)?;
+    let mut cli = DebuggerCli::new(debugger, session)?;
     cli.run()?;
 
     Ok(())

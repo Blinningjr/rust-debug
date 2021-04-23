@@ -52,8 +52,9 @@ use anyhow::{
 use probe_rs::MemoryInterface;
 
 
-impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
+impl<R: Reader<Offset = usize>> Debugger<R> {
     pub fn eval_type(&mut self,
+                     core:          &mut probe_rs::Core,
                      pieces:        &mut Vec<Piece<R>>,
                      index:         &mut usize,
                      data_offset:   u64,
@@ -61,17 +62,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      ) -> Result<Option<DebuggerValue<R>>>
     {
         return match dtype {
-            DebuggerType::BaseType              (bt)    => self.eval_basetype(pieces, index, data_offset, bt),
-            DebuggerType::PointerType           (pt)    => self.eval_pointer_type(pieces, index, data_offset, pt),
-            DebuggerType::ArrayType             (at)    => self.eval_array_type(pieces, index, data_offset, at),
-            DebuggerType::StructuredType        (st)    => self.eval_structured_type(pieces, index, data_offset, st),
-            DebuggerType::UnionType             (ut)    => self.eval_union_type(pieces, index, data_offset, ut),
-            DebuggerType::MemberType            (mt)    => self.eval_member(pieces, index, data_offset, mt),
-            DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(pieces, index, data_offset, et),
+            DebuggerType::BaseType              (bt)    => self.eval_basetype(core, pieces, index, data_offset, bt),
+            DebuggerType::PointerType           (pt)    => self.eval_pointer_type(core, pieces, index, data_offset, pt),
+            DebuggerType::ArrayType             (at)    => self.eval_array_type(core, pieces, index, data_offset, at),
+            DebuggerType::StructuredType        (st)    => self.eval_structured_type(core, pieces, index, data_offset, st),
+            DebuggerType::UnionType             (ut)    => self.eval_union_type(core, pieces, index, data_offset, ut),
+            DebuggerType::MemberType            (mt)    => self.eval_member(core, pieces, index, data_offset, mt),
+            DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(core, pieces, index, data_offset, et),
             DebuggerType::StringType            (st)    => self.eval_string_type(pieces, index, data_offset, st),
             DebuggerType::GenericSubrangeType   (gt)    => self.eval_generic_subrange_type(pieces, index, data_offset, gt),
             DebuggerType::TemplateTypeParameter (tp)    => self.eval_template_type_parameter(pieces, index, data_offset, tp),
-            DebuggerType::VariantPart           (vp)    => self.eval_variant_part(pieces, index, data_offset, vp),
+            DebuggerType::VariantPart           (vp)    => self.eval_variant_part(core, pieces, index, data_offset, vp),
             DebuggerType::SubroutineType        (st)    => self.eval_subroutine_type(pieces, index, data_offset, st),
             DebuggerType::Subprogram            (sp)    => self.eval_subprogram(pieces, index, data_offset, sp),
         };
@@ -79,6 +80,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_piece(&mut self,
+                      core:         &mut probe_rs::Core,
                       piece:        Piece<R>,
                       byte_size:    Option<u64>,
                       data_offset:  u64,
@@ -89,8 +91,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         return match piece.location {
             Location::Empty                                         => Ok(Some(DebuggerValue::OptimizedOut)),
-            Location::Register        { register }                  => self.eval_register(register),
-            Location::Address         { address }                   => self.eval_address(address, byte_size, data_offset, encoding.unwrap()),
+            Location::Register        { register }                  => self.eval_register(core, register),
+            Location::Address         { address }                   => self.eval_address(core, address, byte_size, data_offset, encoding.unwrap()),
             Location::Value           { value }                     => Ok(Some(DebuggerValue::Value(convert_from_gimli_value(value)))),
             Location::Bytes           { value }                     => Ok(Some(DebuggerValue::Bytes(value))),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
@@ -99,15 +101,17 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_register(&mut self,
+                         core:      &mut probe_rs::Core,
                          register:  gimli::Register
                          ) -> Result<Option<DebuggerValue<R>>>
     {
-        let data = self.core.read_core_reg(register.0)?;
+        let data = core.read_core_reg(register.0)?;
         return Ok(Some(DebuggerValue::Value(Value::U32(data)))); // TODO: Mask the important bits?
     }
 
 
     pub fn eval_address(&mut self,
+                        core:           &mut probe_rs::Core,
                         mut address:    u64,
                         byte_size:      Option<u64>,
                         data_offset:    u64,
@@ -127,7 +131,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //address -= address%4; // TODO: Is this correct?
 
         let mut data: Vec<u32> = vec![0; num_words as usize];
-        self.core.read_32(address as u32, &mut data)?;
+        core.read_32(address as u32, &mut data)?;
 
         let mut res: Vec<u32> = Vec::new();
         for d in data.iter() {
@@ -139,6 +143,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_basetype(&mut self,
+                         core:          &mut probe_rs::Core,
                          pieces:        &mut Vec<Piece<R>>,
                          index:         &mut usize,
                          data_offset:   u64,
@@ -150,7 +155,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _       => (),
         };
 
-        let res = self.handle_eval_piece(pieces,
+        let res = self.handle_eval_piece(core,
+                                         pieces,
                                          index,
                                          base_type.byte_size,
                                          data_offset, // TODO
@@ -161,6 +167,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_pointer_type(&mut self,
+                             core:          &mut probe_rs::Core,
                              pieces:        &mut Vec<Piece<R>>,
                              index:         &mut usize,
                              data_offset:   u64,
@@ -169,7 +176,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         match pointer_type.address_class.unwrap().0 { // TODO: remove unwrap and the option around address_type.
             0 => {
-                let res = self.handle_eval_piece(pieces,
+                let res = self.handle_eval_piece(core,
+                                                 pieces,
                                                  index,
                                                  Some(4),
                                                  data_offset, // TODO
@@ -182,6 +190,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_array_type(&mut self,
+                           core:        &mut probe_rs::Core,
                            pieces:      &mut Vec<Piece<R>>,
                            index:       &mut usize,
                            data_offset: u64,
@@ -189,13 +198,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                            ) -> Result<Option<DebuggerValue<R>>>
     {
         let count = get_udata(match &array_type.dimensions[0] {
-            ArrayDimension::EnumerationType (et)    => self.eval_enumeration_type(pieces, index, data_offset, et),
-            ArrayDimension::SubrangeType    (st)    => self.eval_subrange_type(pieces, index, data_offset, st),
+            ArrayDimension::EnumerationType (et)    => self.eval_enumeration_type(core, pieces, index, data_offset, et),
+            ArrayDimension::SubrangeType    (st)    => self.eval_subrange_type(core, pieces, index, data_offset, st),
         }?.unwrap().to_value().unwrap());
 
         let mut values = Vec::new();
         for _i in 0..count {
-            values.push(self.eval_type(pieces,
+            values.push(self.eval_type(core,
+                                       pieces,
                                        index,
                                        data_offset,
                                        &array_type.r#type)?.unwrap());  // TODO: Fix so that it can read multiple of the same type.
@@ -208,6 +218,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_structured_type(&mut self,
+                                core:               &mut probe_rs::Core,
                                 pieces:             &mut Vec<Piece<R>>,
                                 index:              &mut usize,
                                 data_offset:        u64,
@@ -218,7 +229,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         for c in &structured_type.children {
             match &(**c) {
                 DebuggerType::VariantPart   (vp)    => {
-                    let members = vec!(self.eval_variant_part(pieces, index, data_offset, &vp)?.unwrap());
+                    let members = vec!(self.eval_variant_part(core, pieces, index, data_offset, &vp)?.unwrap());
 
                     return Ok(Some(DebuggerValue::Struct(Box::new(StructValue{
                         name:       structured_type.name.clone().unwrap(),
@@ -234,7 +245,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
 
         members.sort_by_key(|m| m.data_member_location);
-        let members = members.into_iter().map(|m| self.eval_member(pieces, index, data_offset, m).unwrap().unwrap()).collect();
+        let members = members.into_iter().map(|m| self.eval_member(core, pieces, index, data_offset, m).unwrap().unwrap()).collect();
 
         return Ok(Some(DebuggerValue::Struct(Box::new(StructValue{
             name:       structured_type.name.clone().unwrap(),
@@ -244,6 +255,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_union_type(&mut self,
+                           core:        &mut probe_rs::Core,
                            pieces:      &mut Vec<Piece<R>>,
                            index:       &mut usize,
                            data_offset: u64,
@@ -261,7 +273,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
 
         members.sort_by_key(|m| m.data_member_location);
-        let members = members.into_iter().map(|m| self.eval_member(pieces, index, data_offset, m).unwrap().unwrap()).collect();
+        let members = members.into_iter().map(|m| self.eval_member(core, pieces, index, data_offset, m).unwrap().unwrap()).collect();
 
         return Ok(Some(DebuggerValue::Union(Box::new(UnionValue{
             name:       union_type.name.clone().unwrap(),
@@ -271,6 +283,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_member(&mut self,
+                       core:            &mut probe_rs::Core,
                        pieces:          &mut Vec<Piece<R>>,
                        index:           &mut usize,
                        mut data_offset: u64,
@@ -284,19 +297,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         return Ok(Some(DebuggerValue::Member(Box::new(MemberValue{
             name:   member.name.clone(),
-            value:  self.eval_type(pieces, index, data_offset, &member.r#type)?.unwrap(),
+            value:  self.eval_type(core, pieces, index, data_offset, &member.r#type)?.unwrap(),
         }))));
     }
 
 
     pub fn eval_enumeration_type(&mut self,
+                                 core:              &mut probe_rs::Core,
                                  pieces:            &mut Vec<Piece<R>>,
                                  index:             &mut usize,
                                  data_offset:       u64,
                                  enumeration_type:  &EnumerationType
                                  ) -> Result<Option<DebuggerValue<R>>>
     {
-        let value = get_udata(self.eval_type(pieces,
+        let value = get_udata(self.eval_type(core,
+                                             pieces,
                                              index,
                                              data_offset,
                                              (*enumeration_type.r#type).as_ref().unwrap())?.unwrap().to_value().unwrap());
@@ -337,6 +352,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_subrange_type(&mut self,
+                              core:             &mut probe_rs::Core,
                               pieces:           &mut Vec<Piece<R>>,
                               index:            &mut usize,
                               data_offset:      u64,
@@ -349,7 +365,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         };
 
         match &*subrange_type.r#type {
-            Some(val)   => return self.eval_type(pieces, index, data_offset, val),
+            Some(val)   => return self.eval_type(core, pieces, index, data_offset, val),
             None        => (),
         };
 
@@ -380,6 +396,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn eval_variant_part(&mut self,
+                             core:          &mut probe_rs::Core,
                              pieces:        &mut Vec<Piece<R>>,
                              index:         &mut usize,
                              data_offset:   u64,
@@ -388,7 +405,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         match &variant_part.member {
             Some    (member)   => {
-                let variant = get_udata(self.eval_member(pieces,
+                let variant = get_udata(self.eval_member(core,
+                                                         pieces,
                                                          index,
                                                          data_offset,
                                                          member)?.unwrap().to_value().unwrap()); // TODO: A more robust way of using the pieces.
@@ -397,7 +415,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
                         return Ok(Some(DebuggerValue::Enum(Box::new(EnumValue{
                             name:   v.member.name.clone().unwrap(),
-                            value:  self.eval_member(pieces, index, data_offset, &v.member)?.unwrap(),
+                            value:  self.eval_member(core, pieces, index, data_offset, &v.member)?.unwrap(),
                         }))));
                     }
                 }
@@ -433,6 +451,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
     pub fn handle_eval_piece(&mut self,
+                             core:              &mut probe_rs::Core,
                              pieces:            &mut Vec<Piece<R>>,
                              index:             &mut usize,
                              byte_size:         Option<u64>,
@@ -448,7 +467,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             data_offset = 0;
         }
         
-        let res = self.eval_piece(pieces[*index].clone(),
+        let res = self.eval_piece(core,
+                                  pieces[*index].clone(),
                                   byte_size,
                                   data_offset,
                                   encoding);

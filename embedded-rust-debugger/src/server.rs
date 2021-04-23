@@ -201,10 +201,11 @@ impl<R: Read, W: Write> Session<R, W> {
     fn check_bkpt(&mut self) -> Result<()>
     {
         if let Some(s) = &mut self.sess {
-            let mut core = s.core(0)?;
 
-            if commands::hit_breakpoint(&mut core)? {
+            if commands::hit_breakpoint(s)? {
                 self.status = false;
+                
+                let mut core = s.core(0)?;
 
                 let pc = core.read_core_reg(core.registers().program_counter())?;
 
@@ -297,9 +298,8 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn halt_core(&mut self) -> Result<()> {
         if let Some(s) = &mut self.sess {
-            let mut core = s.core(0)?;
-    
-            let _res = commands::halt_command(&mut core, &mut self.capstone, false)?;
+
+            let _res = commands::halt_command(s, &mut self.capstone, false)?;
             self.status = false;
 
             return Ok(());
@@ -311,10 +311,9 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn run_core(&mut self) -> Result<()> {
         if let Some(s) = &mut self.sess {
-            let mut core = s.core(0)?;
             
             let bkpts = self.breakpoints.iter().filter(|bkpt| bkpt.verified).map(|bkpt| bkpt.location.unwrap()).collect();
-            let _res = commands::run_command(&mut core, &bkpts)?;
+            let _res = commands::run_command(s, &bkpts)?;
             self.status = true;
 
             return Ok(());
@@ -326,10 +325,9 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn step_core(&mut self) -> Result<()> {
         if let Some(s) = &mut self.sess {
-            let mut core = s.core(0)?;
            
             let bkpts = self.breakpoints.iter().filter(|bkpt| bkpt.verified).map(|bkpt| bkpt.location.unwrap()).collect();
-            let _res = commands::step_command(&mut core, &bkpts, false)?;
+            let _res = commands::step_command(s, &bkpts, false)?;
 
             return Ok(());
         } else {

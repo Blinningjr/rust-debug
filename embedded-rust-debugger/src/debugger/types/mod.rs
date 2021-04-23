@@ -27,26 +27,28 @@ use anyhow::{
 };
 
 
-impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
+impl<R: Reader<Offset = usize>> Debugger<R> {
     pub fn find_type(&mut self,
-                         unit:      &Unit<R>,
-                         pc:        u32,
-                     search: &str
+                     core:      &mut probe_rs::Core,
+                     unit:      &Unit<R>,
+                     pc:        u32,
+                     search:    &str
                      ) -> Result<()> {
         let mut tree    = unit.entries_tree(None)?;
         let root        = tree.root()?;
 
-        self.process_tree_type(unit, pc, root, None, search)?;
+        self.process_tree_type(core, unit, pc, root, None, search)?;
         return Ok(());
     }
 
 
     pub fn process_tree_type(&mut self,
-                         unit:      &Unit<R>,
-                         pc:        u32,
-                             node: EntriesTreeNode<R>,
-                             mut frame_base: Option<u64>,
-                             search: &str
+                             core:          &mut probe_rs::Core,
+                             unit:          &Unit<R>,
+                             pc:            u32,
+                             node:          EntriesTreeNode<R>,
+                             mut frame_base:    Option<u64>,
+                             search:            &str
                              ) -> Result<bool>
     {
         let die = node.entry();
@@ -57,7 +59,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(unit, pc, &die, frame_base)?;
+        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base)?;
 
         // Check for the searched type.
         if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.
@@ -82,7 +84,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // Recursively process the children.
         let mut children = node.children();
         while let Some(child) = children.next()? {
-            if self.process_tree_type(unit, pc, child, frame_base, search)? {
+            if self.process_tree_type(core, unit, pc, child, frame_base, search)? {
                 return Ok(true);
             }
         }
