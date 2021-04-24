@@ -114,14 +114,17 @@ impl<'b, R: Reader<Offset = usize>> CallFrameIterator<'b, R> {
         })
     }
 
-    pub fn next(&mut self, core: &mut probe_rs::Core) -> Result<Option<CallFrame>> {
-        let pc_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0;
+    pub fn next(&mut self,
+                core: &mut probe_rs::Core
+                ) -> Result<Option<CallFrame>>
+    {
+        let pc_reg: u16 =   probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0;
         let link_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().return_address()).0;
-        let sp_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0;
+        let sp_reg: u16 =   probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0;
 
         let code_location = match self.code_location {
-            Some(val) => val,
-            None    => return Ok(None),
+            Some(val)   => val,
+            None        => return Ok(None),
         };
 
         let unwind_info = match self.debugger.debug_frame.unwind_info_for_address(
@@ -172,16 +175,16 @@ impl<'b, R: Reader<Offset = usize>> CallFrameIterator<'b, R> {
                 },
                 ValOffset(offset) => {
                     let value = (offset + match cfa {
-                        Some(val) => i64::from(val),
-                        None => return Err(anyhow!("Expected CFA to have a value")),
+                        Some(val)   => i64::from(val),
+                        None        => return Err(anyhow!("Expected CFA to have a value")),
                     }) as u32;
 
                     Some(value)
                 },
-                Register(reg) => self.registers[reg.0 as usize],
-                Expression(expr) => unimplemented!(), // TODO
+                Register(reg)       => self.registers[reg.0 as usize],
+                Expression(expr)    => unimplemented!(), // TODO
                 ValExpression(expr) => unimplemented!(), // TODO
-                Architectural => unimplemented!(), // TODO
+                Architectural       => unimplemented!(), // TODO
             };
         }
 
