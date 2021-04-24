@@ -52,6 +52,28 @@ use anyhow::{
 use probe_rs::MemoryInterface;
 
 
+
+struct Evaluator<R: Reader<Offset = usize>> {
+    stack: Vec<EvaluatorState<R>>,
+    result: Option<super::value::EvaluatorValue<R>>,
+    // TODO: Add hashmap for registers maybe?
+}
+
+
+// TODO: piece evaluator state.
+struct EvaluatorState<R: Reader<Offset = usize>> {
+    unit_offset: gimli::UnitSectionOffset,
+    die_offset: gimli::UnitOffset,
+    patrial_value: super::value::PartialValue<R>,
+}
+
+enum EvaluatorResult {
+    Complete,
+    RequireReg(u32),
+}
+
+
+
 impl<R: Reader<Offset = usize>> Debugger<R> {
     pub fn eval_type(&mut self,
                      core:          &mut probe_rs::Core,

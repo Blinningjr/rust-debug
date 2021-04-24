@@ -5,6 +5,82 @@ use gimli::{
 };
 
 
+
+#[derive(Debug)]
+pub(super) enum PartialValue<R: Reader<Offset = usize>> {
+    Array(Box<PartialArrayValue<R>>),
+    Struct(Box<PartialStructValue<R>>),
+    Enum(Box<PartialEnumValue>),
+    Union(Box<PartialUnionValue<R>>),
+    NotEvaluated,
+}
+
+#[derive(Debug)]
+pub(super) struct PartialArrayValue<R: Reader<Offset = usize>> {
+    pub values:  Vec<EvaluatorValue<R>>,
+}
+
+#[derive(Debug)]
+pub(super) struct PartialStructValue<R: Reader<Offset = usize>> {
+    pub name:       String,
+    pub members:    Vec<EvaluatorValue<R>>,
+}
+
+
+#[derive(Debug)]
+pub(super) struct PartialUnionValue<R: Reader<Offset = usize>> {
+    pub name:       String,
+    pub members:    Vec<EvaluatorValue<R>>,
+}
+
+
+#[derive(Debug)]
+pub(super) struct PartialEnumValue {
+    pub name:       String,
+    pub enum_val:   u32,
+}
+
+
+#[derive(Debug)]
+pub(super) enum EvaluatorValue<R: Reader<Offset = usize>> {
+    Value(BaseValue),
+    Bytes(R),
+    
+    Array(Box<ArrayValue<R>>),
+    Struct(Box<StructValue<R>>),
+    Enum(Box<EnumValue<R>>),
+    Union(Box<UnionValue<R>>),
+    Member(Box<MemberValue<R>>),
+    Name(String),
+
+    OutOfRange,     // NOTE: Variable does not have a value currently.
+    OptimizedOut,   // NOTE: Value is optimized out.
+    ZeroSize, 
+}
+
+
+#[derive(Debug)]
+pub(super) enum BaseValue {
+    Generic(u64),
+
+    Address32(u32),
+//    Bool(bool),
+
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64), 
+}
+
+
+
+// Old values
+
 #[derive(Debug)]
 pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),
