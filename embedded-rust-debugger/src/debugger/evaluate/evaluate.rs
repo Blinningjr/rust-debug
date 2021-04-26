@@ -53,24 +53,131 @@ use probe_rs::MemoryInterface;
 
 
 
-struct Evaluator<R: Reader<Offset = usize>> {
-    stack: Vec<EvaluatorState<R>>,
-    result: Option<super::value::EvaluatorValue<R>>,
-    // TODO: Add hashmap for registers maybe?
-}
-
-
 // TODO: piece evaluator state.
 struct EvaluatorState<R: Reader<Offset = usize>> {
-    unit_offset: gimli::UnitSectionOffset,
-    die_offset: gimli::UnitOffset,
-    patrial_value: super::value::PartialValue<R>,
+    pub unit_offset:    gimli::UnitSectionOffset,
+    pub die_offset:     gimli::UnitOffset,
+    pub partial_value:  super::value::PartialValue<R>,
+    pub data_offset:    u64,
 }
+
+
+impl<R: Reader<Offset = usize>> EvaluatorState<R> {
+    pub fn new(unit:    &gimli::Unit<R>,
+               die:    &gimli::DebuggingInformationEntry<'_, '_, R>
+               ) -> EvaluatorState<R>
+    {
+        EvaluatorState {
+            unit_offset:    unit.header.offset(),
+            die_offset:     die.offset(),
+            partial_value:  super::value::PartialValue::NotEvaluated,
+            data_offset:    0,
+        }
+    }
+}
+
 
 enum EvaluatorResult {
     Complete,
     RequireReg(u32),
 }
+
+
+struct Evaluator<R: Reader<Offset = usize>> {
+    pieces:         Vec<Piece<R>>,
+    piece_index:    usize,
+    stack:          Vec<EvaluatorState<R>>,
+    result:         Option<super::value::EvaluatorValue<R>>,
+    // TODO: Add hashmap for registers maybe?
+}
+
+impl<R: Reader<Offset = usize>> Evaluator<R> {
+    pub fn new(pieces:  Vec<Piece<R>>,
+               unit:    &gimli::Unit<R>,
+               die:     &gimli::DebuggingInformationEntry<'_, '_, R>
+               ) -> Evaluator<R>
+    {
+        Evaluator {
+            pieces:         pieces,
+            piece_index:    0,
+            stack:          vec!(EvaluatorState::new(unit, die)),
+            result:         None,
+        }
+    }
+
+
+    pub fn evaluate(&mut self) -> EvaluatorResult {
+
+        EvaluatorResult::Complete
+    }
+
+
+    pub fn get_value(self) -> Option<super::value::EvaluatorValue<R>> {
+        self.result
+    }
+
+
+    pub fn eval_type(&mut self,
+                     unit:    &gimli::Unit<R>,
+                     die:     &gimli::DebuggingInformationEntry<'_, '_, R>
+                     )
+    { 
+        match die.tag() {
+            gimli::DW_TAG_base_type                 => (),
+            gimli::DW_TAG_pointer_type              => (),
+            gimli::DW_TAG_array_type                => (),
+            gimli::DW_TAG_structure_type            => (),
+            gimli::DW_TAG_union_type                => (),
+            gimli::DW_TAG_member                    => (),
+            gimli::DW_TAG_enumeration_type          => (),
+            gimli::DW_TAG_string_type               => (),
+            gimli::DW_TAG_generic_subrange          => (),
+            gimli::DW_TAG_template_type_parameter   => (),
+            gimli::DW_TAG_variant_part              => (),
+            gimli::DW_TAG_subroutine_type           => (),
+            gimli::DW_TAG_subprogram                => (),
+            _ => unimplemented!(),
+
+      //      DebuggerType::BaseType              (bt)    => self.eval_basetype(core, pieces, index, data_offset, bt),
+      //      DebuggerType::PointerType           (pt)    => self.eval_pointer_type(core, pieces, index, data_offset, pt),
+      //      DebuggerType::ArrayType             (at)    => self.eval_array_type(core, pieces, index, data_offset, at),
+      //      DebuggerType::StructuredType        (st)    => self.eval_structured_type(core, pieces, index, data_offset, st),
+      //      DebuggerType::UnionType             (ut)    => self.eval_union_type(core, pieces, index, data_offset, ut),
+      //      DebuggerType::MemberType            (mt)    => self.eval_member(core, pieces, index, data_offset, mt),
+      //      DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(core, pieces, index, data_offset, et),
+      //      DebuggerType::StringType            (st)    => self.eval_string_type(pieces, index, data_offset, st),
+      //      DebuggerType::GenericSubrangeType   (gt)    => self.eval_generic_subrange_type(pieces, index, data_offset, gt),
+      //      DebuggerType::TemplateTypeParameter (tp)    => self.eval_template_type_parameter(pieces, index, data_offset, tp),
+      //      DebuggerType::VariantPart           (vp)    => self.eval_variant_part(core, pieces, index, data_offset, vp),
+      //      DebuggerType::SubroutineType        (st)    => self.eval_subroutine_type(pieces, index, data_offset, st),
+      //      DebuggerType::Subprogram            (sp)    => self.eval_subprogram(pieces, index, data_offset, sp),
+        };
+    }
+
+
+    pub fn eval_piece(&mut self,
+                      piece:        Piece<R>,
+                      byte_size:    Option<u64>,
+                      data_offset:  u64,
+                      encoding:     Option<DwAte>
+                      ) //-> Result<Option<DebuggerValue<R>>>
+    {
+//        //println!("{:#?}", piece);
+//
+//        return match piece.location {
+//            Location::Empty                                         => Ok(Some(DebuggerValue::OptimizedOut)),
+//            Location::Register        { register }                  => self.eval_register(core, register),
+//            Location::Address         { address }                   => self.eval_address(core, address, byte_size, data_offset, encoding.unwrap()),
+//            Location::Value           { value }                     => Ok(Some(DebuggerValue::Value(convert_from_gimli_value(value)))),
+//            Location::Bytes           { value }                     => Ok(Some(DebuggerValue::Bytes(value))),
+//            Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
+//        };
+    }
+
+}
+
+
+
 
 
 
