@@ -6,8 +6,8 @@ use gimli::{
 
 
 
-#[derive(Debug)]
-pub(super) enum PartialValue<R: Reader<Offset = usize>> {
+#[derive(Debug, Clone)]
+pub enum PartialValue<R: Reader<Offset = usize>> {
     Array(Box<PartialArrayValue<R>>),
     Struct(Box<PartialStructValue<R>>),
     Enum(Box<PartialEnumValue>),
@@ -15,42 +15,42 @@ pub(super) enum PartialValue<R: Reader<Offset = usize>> {
     NotEvaluated,
 }
 
-#[derive(Debug)]
-pub(super) struct PartialArrayValue<R: Reader<Offset = usize>> {
+#[derive(Debug, Clone)]
+pub struct PartialArrayValue<R: Reader<Offset = usize>> {
     pub values:  Vec<EvaluatorValue<R>>,
 }
 
-#[derive(Debug)]
-pub(super) struct PartialStructValue<R: Reader<Offset = usize>> {
+#[derive(Debug, Clone)]
+pub struct PartialStructValue<R: Reader<Offset = usize>> {
     pub name:       String,
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
 
-#[derive(Debug)]
-pub(super) struct PartialUnionValue<R: Reader<Offset = usize>> {
+#[derive(Debug, Clone)]
+pub struct PartialUnionValue<R: Reader<Offset = usize>> {
     pub name:       String,
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
 
-#[derive(Debug)]
-pub(super) struct PartialEnumValue {
+#[derive(Debug, Clone)]
+pub struct PartialEnumValue {
     pub name:       String,
     pub enum_val:   u32,
 }
 
 
-#[derive(Debug)]
-pub(super) enum EvaluatorValue<R: Reader<Offset = usize>> {
+#[derive(Debug, Clone)]
+pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     Value(BaseValue),
     Bytes(R),
     
-    Array(Box<ArrayValue<R>>),
-    Struct(Box<StructValue<R>>),
-    Enum(Box<EnumValue<R>>),
-    Union(Box<UnionValue<R>>),
-    Member(Box<MemberValue<R>>),
+    Array(Box<NewArrayValue<R>>),
+    Struct(Box<NewStructValue<R>>),
+    Enum(Box<NewEnumValue<R>>),
+    Union(Box<NewUnionValue<R>>),
+    Member(Box<NewMemberValue<R>>),
     Name(String),
 
     OutOfRange,     // NOTE: Variable does not have a value currently.
@@ -59,7 +59,37 @@ pub(super) enum EvaluatorValue<R: Reader<Offset = usize>> {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct NewArrayValue<R: Reader<Offset = usize>> {
+    pub values:  Vec<EvaluatorValue<R>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewStructValue<R: Reader<Offset = usize>> {
+    pub name:       String,
+    pub members:    Vec<EvaluatorValue<R>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewEnumValue<R: Reader<Offset = usize>> {
+    pub name:   String,
+    pub value: EvaluatorValue<R>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewUnionValue<R: Reader<Offset = usize>> {
+    pub name:       String,
+    pub members:    Vec<EvaluatorValue<R>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewMemberValue<R: Reader<Offset = usize>> {
+    pub name:   Option<String>,
+    pub value:  EvaluatorValue<R>,
+}
+
+
+#[derive(Debug, Clone)]
 pub enum BaseValue {
     Generic(u64),
 

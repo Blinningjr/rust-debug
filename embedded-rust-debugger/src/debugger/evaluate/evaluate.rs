@@ -54,6 +54,13 @@ use anyhow::{
 use probe_rs::MemoryInterface;
 
 
+// TODO
+#[derive(Debug, PartialEq)]
+pub enum NewArrayDimension {
+    EnumerationType(gimli::UnitOffset),
+    SubrangeType(gimli::UnitOffset),
+}
+
 
 // TODO: piece evaluator state.
 struct EvaluatorState<R: Reader<Offset = usize>> {
@@ -134,7 +141,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     { 
         match die.tag() {
             gimli::DW_TAG_base_type                 => self.eval_basetype(unit, die, data_offset),
-//            gimli::DW_TAG_pointer_type              => (),
+            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(unit, die, data_offset),
 //            gimli::DW_TAG_array_type                => (),
 //            gimli::DW_TAG_structure_type            => (),
 //            gimli::DW_TAG_union_type                => (),
@@ -148,7 +155,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 //            gimli::DW_TAG_subprogram                => (),
             _ => unimplemented!(),
 
-      //      DebuggerType::PointerType           (pt)    => self.eval_pointer_type(core, pieces, index, data_offset, pt),
       //      DebuggerType::ArrayType             (at)    => self.eval_array_type(core, pieces, index, data_offset, at),
       //      DebuggerType::StructuredType        (st)    => self.eval_structured_type(core, pieces, index, data_offset, st),
       //      DebuggerType::UnionType             (ut)    => self.eval_union_type(core, pieces, index, data_offset, ut),
@@ -271,10 +277,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn eval_basetype(&mut self,
                          unit:          &gimli::Unit<R>,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                         data_offset:   u64,
+                         data_offset:   u64
                          ) -> Result<Option<ReturnResult<R>>>
     {
-        let byte_size = attributes::byte_size_attribute(die);;
+        let byte_size = attributes::byte_size_attribute(die);
         let encoding =  attributes::encoding_attribute(die);
         match byte_size {
             Some(0) => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize))),
@@ -284,6 +290,99 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         self.handle_eval_piece(byte_size,
                                data_offset, // TODO
                                encoding)
+    }
+
+
+    pub fn eval_pointer_type(&mut self,
+                             unit:          &gimli::Unit<R>,
+                             die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                             data_offset:   u64
+                             ) -> Result<Option<ReturnResult<R>>>
+    {
+        let address_class = attributes::address_class_attribute(die);
+
+        match address_class.unwrap().0 { // TODO: remove unwrap and the option around address_type.
+            0 => {
+                let res = self.handle_eval_piece(Some(4),
+                                                 data_offset, // TODO
+                                                 Some(DwAte(1)));
+                return res;        
+            },
+            _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
+        };
+    }
+
+
+    pub fn eval_array_type(&mut self,
+                           unit:        &gimli::Unit<R>,
+                           die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
+                           data_offset: u64,
+                           new_state:   bool
+                           ) -> Result<Option<ReturnResult<R>>>
+    {
+        fn get_dimensions<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<NewArrayDimension> {
+            let mut dimensions  = Vec::new();
+            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+            let node = tree.root().unwrap();
+
+            let mut children = node.children();
+            if let Some(child) = children.next().unwrap() { 
+                match child.entry().tag() {
+                    gimli::DW_TAG_subrange_type     => dimensions.push(NewArrayDimension::SubrangeType(die.offset())),
+                    gimli::DW_TAG_enumeration_type  => dimensions.push(NewArrayDimension::EnumerationType(die.offset())),
+                    _ => {
+                        unimplemented!(); //TODO: Add parser for generic_subrange.
+                    },
+                };
+            }
+            
+            dimensions
+        }
+
+        let mut current_state = self.stack.len() - 1;
+
+        if new_state {
+            self.stack.push(EvaluatorState::new(unit, die));
+            current_state += 1;
+
+            self.stack[current_state].data_offset = data_offset;
+            self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(super::value::PartialArrayValue { values: vec!() }));
+        }
+
+        let dimensions = get_dimensions(unit, die);
+
+        let count = 1; //get_udata(match &dimensions[0] { // TODO: Add evaluatros for enumerationType nad SunrangeType
+//            NewArrayDimension::EnumerationType { unit_offset, die_offset } => {
+//                unimplemented!();
+//                //self.eval_enumeration_type(core, pieces, index, data_offset, et),
+//            }
+//            NewArrayDimension::SubrangeType    { unit_offset, die_offset } => {
+//                unimplemented!();
+//                //self.eval_subrange_type(core, pieces, index, data_offset, st),
+//            },
+//        }?.unwrap().to_value().unwrap());
+
+        let mut partial_array = match &self.stack[current_state].partial_value {
+            super::value::PartialValue::Array   (array) => array.clone(),
+            _ => return Err(anyhow!("Critical Error: expected parital array")),
+        };
+
+        let start = partial_array.values.len();
+
+        // TODO: Get type die and unit.
+//        for _i in start..count {
+//            match self.eval_type(data_offset, &array_type.r#type)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
+//                ReturnResult::Value(val) => partial_array.values.push(val),
+//                ReturnResult::Required(er) => {
+//                    self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(partial_value));
+//                    return ReturnResult::Required(er);
+//                },
+//            };
+//        }
+        
+
+        self.stack.pop();
+        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::NewArrayValue {values: partial_array.values})))))
     }
 }
 
