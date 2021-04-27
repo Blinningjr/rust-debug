@@ -1,5 +1,6 @@
 pub mod value;
 pub mod evaluate;
+pub mod attributes;
 
 use super::{
     Debugger,

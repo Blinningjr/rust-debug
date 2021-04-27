@@ -60,7 +60,7 @@ pub(super) enum EvaluatorValue<R: Reader<Offset = usize>> {
 
 
 #[derive(Debug)]
-pub(super) enum BaseValue {
+pub enum BaseValue {
     Generic(u64),
 
     Address32(u32),
@@ -75,6 +75,9 @@ pub(super) enum BaseValue {
     I16(i16),
     I32(i32),
     I64(i64), 
+
+    F32(f32),
+    F64(f64),
 }
 
 
@@ -292,6 +295,41 @@ pub fn convert_from_gimli_value(value: gimli::Value) -> Value {
         gimli::Value::U64      (val)   => Value::U64(val),
         gimli::Value::F32      (val)   => Value::F32(val),
         gimli::Value::F64      (val)   => Value::F64(val),
+    }
+}
+
+
+pub fn convert_to_gimli_value_new(value: BaseValue) -> gimli::Value {
+    match value {
+        BaseValue::Generic      (val)   => gimli::Value::Generic(val),
+        BaseValue::I8           (val)   => gimli::Value::I8(val),
+        BaseValue::U8           (val)   => gimli::Value::U8(val),
+        BaseValue::I16          (val)   => gimli::Value::I16(val),
+        BaseValue::U16          (val)   => gimli::Value::U16(val),
+        BaseValue::I32          (val)   => gimli::Value::I32(val),
+        BaseValue::U32          (val)   => gimli::Value::U32(val),
+        BaseValue::I64          (val)   => gimli::Value::I64(val),
+        BaseValue::U64          (val)   => gimli::Value::U64(val),
+        BaseValue::F32          (val)   => gimli::Value::F32(val),
+        BaseValue::F64          (val)   => gimli::Value::F64(val),
+        BaseValue::Address32    (val)   => gimli::Value::Generic(val as u64),
+    }
+}
+
+
+pub fn convert_from_gimli_value_new(value: gimli::Value) -> BaseValue {
+    match value {
+        gimli::Value::Generic  (val)   => BaseValue::Generic(val),
+        gimli::Value::I8       (val)   => BaseValue::I8(val),
+        gimli::Value::U8       (val)   => BaseValue::U8(val),
+        gimli::Value::I16      (val)   => BaseValue::I16(val),
+        gimli::Value::U16      (val)   => BaseValue::U16(val),
+        gimli::Value::I32      (val)   => BaseValue::I32(val),
+        gimli::Value::U32      (val)   => BaseValue::U32(val),
+        gimli::Value::I64      (val)   => BaseValue::I64(val),
+        gimli::Value::U64      (val)   => BaseValue::U64(val),
+        gimli::Value::F32      (val)   => BaseValue::F32(val),
+        gimli::Value::F64      (val)   => BaseValue::F64(val),
     }
 }
 

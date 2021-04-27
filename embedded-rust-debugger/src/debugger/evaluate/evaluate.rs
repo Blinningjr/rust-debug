@@ -1,4 +1,5 @@
 use super::{
+    attributes,
     Debugger,
     DebuggerValue,
     eval_base_type,
@@ -45,6 +46,7 @@ use gimli::{
 
 
 use anyhow::{
+    anyhow,
     Result,
 };
 
@@ -79,8 +81,15 @@ impl<R: Reader<Offset = usize>> EvaluatorState<R> {
 
 enum EvaluatorResult {
     Complete,
-    RequireReg(u32),
+    RequireReg(u16),
+    RequireData {address: u32, num_words: usize},
 }
+
+enum ReturnResult<R: Reader<Offset = usize>> {
+    Value(super::value::EvaluatorValue<R>),
+    Required(EvaluatorResult),
+}
+
 
 
 struct Evaluator<R: Reader<Offset = usize>> {
@@ -118,27 +127,27 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn eval_type(&mut self,
-                     unit:    &gimli::Unit<R>,
-                     die:     &gimli::DebuggingInformationEntry<'_, '_, R>
-                     )
+                     unit:          &gimli::Unit<R>,
+                     die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                     data_offset:   u64
+                     ) -> Result<Option<ReturnResult<R>>>
     { 
         match die.tag() {
-            gimli::DW_TAG_base_type                 => (),
-            gimli::DW_TAG_pointer_type              => (),
-            gimli::DW_TAG_array_type                => (),
-            gimli::DW_TAG_structure_type            => (),
-            gimli::DW_TAG_union_type                => (),
-            gimli::DW_TAG_member                    => (),
-            gimli::DW_TAG_enumeration_type          => (),
-            gimli::DW_TAG_string_type               => (),
-            gimli::DW_TAG_generic_subrange          => (),
-            gimli::DW_TAG_template_type_parameter   => (),
-            gimli::DW_TAG_variant_part              => (),
-            gimli::DW_TAG_subroutine_type           => (),
-            gimli::DW_TAG_subprogram                => (),
+            gimli::DW_TAG_base_type                 => self.eval_basetype(unit, die, data_offset),
+//            gimli::DW_TAG_pointer_type              => (),
+//            gimli::DW_TAG_array_type                => (),
+//            gimli::DW_TAG_structure_type            => (),
+//            gimli::DW_TAG_union_type                => (),
+//            gimli::DW_TAG_member                    => (),
+//            gimli::DW_TAG_enumeration_type          => (),
+//            gimli::DW_TAG_string_type               => (),
+//            gimli::DW_TAG_generic_subrange          => (),
+//            gimli::DW_TAG_template_type_parameter   => (),
+//            gimli::DW_TAG_variant_part              => (),
+//            gimli::DW_TAG_subroutine_type           => (),
+//            gimli::DW_TAG_subprogram                => (),
             _ => unimplemented!(),
 
-      //      DebuggerType::BaseType              (bt)    => self.eval_basetype(core, pieces, index, data_offset, bt),
       //      DebuggerType::PointerType           (pt)    => self.eval_pointer_type(core, pieces, index, data_offset, pt),
       //      DebuggerType::ArrayType             (at)    => self.eval_array_type(core, pieces, index, data_offset, at),
       //      DebuggerType::StructuredType        (st)    => self.eval_structured_type(core, pieces, index, data_offset, st),
@@ -151,7 +160,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
       //      DebuggerType::VariantPart           (vp)    => self.eval_variant_part(core, pieces, index, data_offset, vp),
       //      DebuggerType::SubroutineType        (st)    => self.eval_subroutine_type(pieces, index, data_offset, st),
       //      DebuggerType::Subprogram            (sp)    => self.eval_subprogram(pieces, index, data_offset, sp),
-        };
+        }
     }
 
 
@@ -160,20 +169,122 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                       byte_size:    Option<u64>,
                       data_offset:  u64,
                       encoding:     Option<DwAte>
-                      ) //-> Result<Option<DebuggerValue<R>>>
+                      ) -> Option<ReturnResult<R>>
     {
-//        //println!("{:#?}", piece);
-//
-//        return match piece.location {
-//            Location::Empty                                         => Ok(Some(DebuggerValue::OptimizedOut)),
-//            Location::Register        { register }                  => self.eval_register(core, register),
-//            Location::Address         { address }                   => self.eval_address(core, address, byte_size, data_offset, encoding.unwrap()),
-//            Location::Value           { value }                     => Ok(Some(DebuggerValue::Value(convert_from_gimli_value(value)))),
-//            Location::Bytes           { value }                     => Ok(Some(DebuggerValue::Bytes(value))),
-//            Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
-//        };
+        return match piece.location {
+            Location::Empty                                         => Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
+            Location::Register        { register }                  => self.eval_register(register),
+            Location::Address         { address }                   => self.eval_address(address, byte_size, data_offset, encoding.unwrap()),
+            Location::Value           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value_new(value)))),
+            Location::Bytes           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(value))),
+            Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
+        };
     }
 
+
+    pub fn eval_register(&mut self,
+                         register:  gimli::Register
+                         ) -> Option<ReturnResult<R>>
+    {
+        Some(ReturnResult::Required(EvaluatorResult::RequireReg(register.0)))
+        // TODO
+        //let data = core.read_core_reg(register.0)?;
+        //return Ok(Some(DebuggerValue::Value(Value::U32(data)))); // TODO: Mask the important bits?
+    }
+
+
+    pub fn eval_address(&mut self,
+                        mut address:    u64,
+                        byte_size:      Option<u64>,
+                        data_offset:    u64,
+                        encoding:       DwAte
+                        ) -> Option<ReturnResult<R>>
+    {
+        let num_words = match byte_size {
+            Some(val)   => (val + 4 - 1 )/4,
+            None        => 1,
+        };
+
+        println!("Address: {:#10x}", address);
+        println!("data_offset: {}", data_offset);
+        address += (data_offset/4) * 4;
+        println!("Address: {:#10x}", address);
+
+        //address -= address%4; // TODO: Is this correct?
+
+
+
+        Some(ReturnResult::Required(EvaluatorResult::RequireData {address: address as u32, num_words: num_words as usize}))
+        // TODO
+        //let mut data: Vec<u32> = vec![0; num_words as usize];
+        //core.read_32(address as u32, &mut data)?;
+
+        //let mut res: Vec<u32> = Vec::new();
+        //for d in data.iter() {
+        //    res.push(*d);
+        //}
+
+        //return Ok(Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap()))));
+    }
+
+
+    pub fn handle_eval_piece(&mut self,
+                             byte_size:         Option<u64>,
+                             mut data_offset:   u64,
+                             encoding:          Option<DwAte>
+                             ) -> Result<Option<ReturnResult<R>>>
+    {
+        if self.pieces.len() <= self.piece_index {
+            return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)));
+        }
+        
+        if self.pieces.len() > 1 {
+            data_offset = 0;
+        }
+        
+        let res = self.eval_piece(self.pieces[self.piece_index].clone(),
+                                  byte_size,
+                                  data_offset,
+                                  encoding);
+// TODO: Should only pop piece if value is correctly evaluated
+        match self.pieces[self.piece_index].size_in_bits {
+            Some(val)   => {
+                let bytes: i32 = match byte_size {
+                    Some(val)   => (val*8) as i32,
+                    None        => 32,
+                };
+
+                if (val as i32) - bytes < 1 {
+                    self.pieces[self.piece_index].size_in_bits = Some(0);
+                    self.piece_index += 1;
+                } else {
+                    self.pieces[self.piece_index].size_in_bits = Some(val - bytes as u64);
+                }
+            },
+            None        => (),
+        }
+
+        return Ok(res);
+    }
+
+
+    pub fn eval_basetype(&mut self,
+                         unit:          &gimli::Unit<R>,
+                         die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                         data_offset:   u64,
+                         ) -> Result<Option<ReturnResult<R>>>
+    {
+        let byte_size = attributes::byte_size_attribute(die);;
+        let encoding =  attributes::encoding_attribute(die);
+        match byte_size {
+            Some(0) => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize))),
+            _       => (),
+        };
+
+        self.handle_eval_piece(byte_size,
+                               data_offset, // TODO
+                               encoding)
+    }
 }
 
 
