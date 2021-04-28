@@ -143,9 +143,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match die.tag() {
             gimli::DW_TAG_base_type                 => self.eval_basetype(unit, die, data_offset),
             gimli::DW_TAG_pointer_type              => self.eval_pointer_type(unit, die, data_offset),
-//            gimli::DW_TAG_array_type                => (),
-//            gimli::DW_TAG_structure_type            => (),
-//            gimli::DW_TAG_union_type                => (),
+            gimli::DW_TAG_array_type                => self.eval_array_type(dwarf, unit, die, data_offset, false), // TODO: fix the bool
+            gimli::DW_TAG_structure_type            => self.eval_structured_type(dwarf, unit, die, data_offset, false),
+            gimli::DW_TAG_union_type                => self.eval_union_type(dwarf, unit, die, data_offset, false),
             gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset),
             gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset),
             gimli::DW_TAG_string_type               => unimplemented!(),
@@ -155,11 +155,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             gimli::DW_TAG_subroutine_type           => unimplemented!(),
             gimli::DW_TAG_subprogram                => unimplemented!(),
             _ => unimplemented!(),
-
-      //      DebuggerType::ArrayType             (at)    => self.eval_array_type(core, pieces, index, data_offset, at),
-      //      DebuggerType::StructuredType        (st)    => self.eval_structured_type(core, pieces, index, data_offset, st),
-      //      DebuggerType::UnionType             (ut)    => self.eval_union_type(core, pieces, index, data_offset, ut),
-      //      DebuggerType::MemberType            (mt)    => self.eval_member(core, pieces, index, data_offset, mt),
         }
     }
 
@@ -335,15 +330,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             dimensions
         }
 
-        let mut current_state = self.stack.len() - 1;
+        //let mut current_state = self.stack.len() - 1;
 
-        if new_state {
-            self.stack.push(EvaluatorState::new(unit, die));
-            current_state += 1;
+        //if new_state {
+        //    self.stack.push(EvaluatorState::new(unit, die));
+        //    current_state += 1;
 
-            self.stack[current_state].data_offset = data_offset;
-            self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(super::value::PartialArrayValue { values: vec!() }));
-        }
+        //    self.stack[current_state].data_offset = data_offset;
+        //    self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(super::value::PartialArrayValue { values: vec!() }));
+        //}
 
         let dimensions = get_dimensions(unit, die);
 
@@ -363,10 +358,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
         };
 
-        let mut partial_array = match &self.stack[current_state].partial_value {
-            super::value::PartialValue::Array   (array) => array.clone(),
-            _ => return Err(anyhow!("Critical Error: expected parital array")),
-        };
+        let mut partial_array = super::value::PartialArrayValue { values: vec!() };
+
+        //let mut partial_array = match &self.stack[current_state].partial_value {
+        //    super::value::PartialValue::Array   (array) => array.clone(),
+        //    _ => return Err(anyhow!("Critical Error: expected parital array")),
+        //};
 
         let start = partial_array.values.len();
 
@@ -375,81 +372,138 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 //            match self.eval_type(data_offset, &array_type.r#type)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
 //                ReturnResult::Value(val) => partial_array.values.push(val),
 //                ReturnResult::Required(er) => {
-//                    self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(partial_value));
+//                    //self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(partial_value));
 //                    return ReturnResult::Required(er);
 //                },
 //            };
 //        }
         
 
-        self.stack.pop();
+        //self.stack.pop();
         Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::NewArrayValue {values: partial_array.values})))))
     }
 
 
-//    pub fn eval_structured_type(&mut self,
-//                                core:               &mut probe_rs::Core,
-//                                pieces:             &mut Vec<Piece<R>>,
-//                                index:              &mut usize,
-//                                data_offset:        u64,
-//                                structured_type:    &StructuredType
-//                                ) -> Result<Option<DebuggerValue<R>>>
-//    {
-//        let mut members = Vec::new();
-//        for c in &structured_type.children {
-//            match &(**c) {
-//                DebuggerType::VariantPart   (vp)    => {
-//                    let members = vec!(self.eval_variant_part(core, pieces, index, data_offset, &vp)?.unwrap());
-//
-//                    return Ok(Some(DebuggerValue::Struct(Box::new(StructValue{
-//                        name:       structured_type.name.clone().unwrap(),
-//                        members:    members,
-//                    }))));
-//                },
-//
-//                DebuggerType::MemberType    (mt)    => {
-//                    members.push(mt);
-//                },
-//                _ => continue,
-//            };
-//        }
-//
-//        members.sort_by_key(|m| m.data_member_location);
-//        let members = members.into_iter().map(|m| self.eval_member(core, pieces, index, data_offset, m).unwrap().unwrap()).collect();
-//
-//        return Ok(Some(DebuggerValue::Struct(Box::new(StructValue{
-//            name:       structured_type.name.clone().unwrap(),
-//            members:    members,
-//        }))));
-//    }
+    pub fn eval_structured_type(&mut self,
+                                dwarf:       &gimli::Dwarf<R>,
+                                unit:        &gimli::Unit<R>,
+                                die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
+                                data_offset: u64,
+                                new_state:   bool
+                                ) -> Result<Option<ReturnResult<R>>>
+    {
+        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
+            let mut result = Vec::new();
+            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+            let node = tree.root().unwrap();
+
+            let mut children = node.children();
+            if let Some(child) = children.next().unwrap() { 
+                result.push(child.entry().offset());
+            }
+            
+            result
+        }
+
+        let name = attributes::name_attribute(dwarf, die).unwrap();
+
+        let children = get_children(unit, die);
+
+        let mut member_dies = Vec::new();
+        for c in &children {
+            let c_die = unit.entry(*c)?;
+            match c_die.tag() {
+                gimli::DW_TAG_variant_part => {
+
+                    let members = vec!(match self.eval_variant_part(dwarf, unit, &c_die, data_offset)?.unwrap() {
+                        ReturnResult::Value(val) => val,
+                        ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                    });
+
+                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::NewStructValue {
+                        name:       name,
+                        members:    members,
+                    })))));
+                },
+                gimli::DW_TAG_member => {
+                    let data_member_location = attributes::data_member_location_attribute(&c_die).unwrap();
+                    member_dies.push((data_member_location, c_die))
+                },
+                _ => continue,
+            };
+        }
+
+        member_dies.sort_by_key(|m| m.0);
+
+        let mut members = vec!();
+        for (_, m) in &member_dies {
+            let member = match self.eval_member(dwarf, unit, m, data_offset)?.unwrap() {
+                ReturnResult::Value(val) => val,
+                ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            };
+            members.push(member);
+        }
+
+        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::NewStructValue {
+            name:       name,
+            members:    members,
+        })))));
+    }
 
 
-//    pub fn eval_union_type(&mut self,
-//                           core:        &mut probe_rs::Core,
-//                           pieces:      &mut Vec<Piece<R>>,
-//                           index:       &mut usize,
-//                           data_offset: u64,
-//                           union_type:  &UnionType
-//                           ) -> Result<Option<DebuggerValue<R>>>
-//    {
-//        let mut members = Vec::new();
-//        for c in &union_type.children {
-//            match &(**c) {
-//                DebuggerType::MemberType    (mt)    => {
-//                    members.push(mt);
-//                },
-//                _ => continue,
-//            };
-//        }
-//
-//        members.sort_by_key(|m| m.data_member_location);
-//        let members = members.into_iter().map(|m| self.eval_member(core, pieces, index, data_offset, m).unwrap().unwrap()).collect();
-//
-//        return Ok(Some(DebuggerValue::Union(Box::new(UnionValue{
-//            name:       union_type.name.clone().unwrap(),
-//            members:    members,
-//        }))));
-//    }
+    pub fn eval_union_type(&mut self,
+                           dwarf:       &gimli::Dwarf<R>,
+                           unit:        &gimli::Unit<R>,
+                           die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
+                           data_offset: u64,
+                           new_state:   bool
+                           ) -> Result<Option<ReturnResult<R>>>
+    {
+        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
+            let mut result = Vec::new();
+            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+            let node = tree.root().unwrap();
+
+            let mut children = node.children();
+            if let Some(child) = children.next().unwrap() { 
+                result.push(child.entry().offset());
+            }
+            
+            result
+        }
+        
+        let children = get_children(unit, die);
+
+        let mut member_dies = vec!();
+        for c in children {
+            let c_die = unit.entry(c)?;
+            match c_die.tag() {
+                gimli::DW_TAG_member => {
+                    let data_member_location = attributes::data_member_location_attribute(&c_die).unwrap();
+                    member_dies.push((data_member_location, c_die))
+                },
+                _ => continue,
+            };
+        }
+ 
+        member_dies.sort_by_key(|m| m.0);
+
+        let mut members = vec!();
+        for (_, m) in &member_dies {
+            let member = match self.eval_member(dwarf, unit, m, data_offset)?.unwrap() {
+                ReturnResult::Value(val) => val,
+                ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            };
+            members.push(member);
+        }
+
+        let name = attributes::name_attribute(dwarf, die).unwrap();
+
+        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Union(Box::new(super::value::NewUnionValue {
+            name:       name,
+            members:    members,
+        })))));
+    }
 
 
     pub fn eval_member(&mut self,
