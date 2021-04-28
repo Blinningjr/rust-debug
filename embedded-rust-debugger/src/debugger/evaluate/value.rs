@@ -58,6 +58,30 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     ZeroSize, 
 }
 
+impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
+    pub fn to_value(self) -> Option<BaseValue> {
+        match self {
+            EvaluatorValue::Value    (val)  => Some(val),
+            EvaluatorValue::Member   (val)  => val.value.to_value(),
+            EvaluatorValue::OptimizedOut    => Some(BaseValue::U32(0)), // TODO: Check if this is correct. Think gdb does this.
+            _                               => panic!("{:#?}", self), // None,
+        }
+    }
+}
+
+
+pub fn get_udata_new(value: BaseValue) -> u64 {
+    match value {
+       BaseValue::U8        (v) => v as u64,
+       BaseValue::U16       (v) => v as u64,
+       BaseValue::U32       (v) => v as u64,
+       BaseValue::U64       (v) => v,
+       BaseValue::Generic   (v) => v,
+       _                    => unimplemented!(),
+    }
+}
+
+
 
 #[derive(Debug, Clone)]
 pub struct NewArrayValue<R: Reader<Offset = usize>> {

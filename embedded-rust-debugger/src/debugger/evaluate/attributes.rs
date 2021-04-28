@@ -19,7 +19,7 @@ use gimli::{
 };
 
 
-pub fn name_attribute<R: Reader<Offset = usize>>(dwarf: gimli::Dwarf<R>,
+pub fn name_attribute<R: Reader<Offset = usize>>(dwarf: &gimli::Dwarf<R>,
                       die: &DebuggingInformationEntry<R>
                       ) -> Option<String>
 {
@@ -273,7 +273,7 @@ pub fn string_length_bit_size_attribute<R: Reader<Offset = usize>>(die: &Debuggi
 }
 
 
-pub fn linkage_name_attribute<R: Reader<Offset = usize>>(dwarf: gimli::Dwarf<R>,
+pub fn linkage_name_attribute<R: Reader<Offset = usize>>(dwarf: &gimli::Dwarf<R>,
                               die: &DebuggingInformationEntry<R>
                               ) -> Option<String>
 {

@@ -134,6 +134,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn eval_type(&mut self,
+                     dwarf:         &gimli::Dwarf<R>,
                      unit:          &gimli::Unit<R>,
                      die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                      data_offset:   u64
@@ -145,27 +146,20 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 //            gimli::DW_TAG_array_type                => (),
 //            gimli::DW_TAG_structure_type            => (),
 //            gimli::DW_TAG_union_type                => (),
-//            gimli::DW_TAG_member                    => (),
-//            gimli::DW_TAG_enumeration_type          => (),
-//            gimli::DW_TAG_string_type               => (),
-//            gimli::DW_TAG_generic_subrange          => (),
-//            gimli::DW_TAG_template_type_parameter   => (),
-//            gimli::DW_TAG_variant_part              => (),
-//            gimli::DW_TAG_subroutine_type           => (),
-//            gimli::DW_TAG_subprogram                => (),
+            gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset),
+            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset),
+            gimli::DW_TAG_string_type               => unimplemented!(),
+            gimli::DW_TAG_generic_subrange          => unimplemented!(),
+            gimli::DW_TAG_template_type_parameter   => unimplemented!(),
+            gimli::DW_TAG_variant_part              => self.eval_variant_part(dwarf, unit, die, data_offset),
+            gimli::DW_TAG_subroutine_type           => unimplemented!(),
+            gimli::DW_TAG_subprogram                => unimplemented!(),
             _ => unimplemented!(),
 
       //      DebuggerType::ArrayType             (at)    => self.eval_array_type(core, pieces, index, data_offset, at),
       //      DebuggerType::StructuredType        (st)    => self.eval_structured_type(core, pieces, index, data_offset, st),
       //      DebuggerType::UnionType             (ut)    => self.eval_union_type(core, pieces, index, data_offset, ut),
       //      DebuggerType::MemberType            (mt)    => self.eval_member(core, pieces, index, data_offset, mt),
-      //      DebuggerType::EnumerationType       (et)    => self.eval_enumeration_type(core, pieces, index, data_offset, et),
-      //      DebuggerType::StringType            (st)    => self.eval_string_type(pieces, index, data_offset, st),
-      //      DebuggerType::GenericSubrangeType   (gt)    => self.eval_generic_subrange_type(pieces, index, data_offset, gt),
-      //      DebuggerType::TemplateTypeParameter (tp)    => self.eval_template_type_parameter(pieces, index, data_offset, tp),
-      //      DebuggerType::VariantPart           (vp)    => self.eval_variant_part(core, pieces, index, data_offset, vp),
-      //      DebuggerType::SubroutineType        (st)    => self.eval_subroutine_type(pieces, index, data_offset, st),
-      //      DebuggerType::Subprogram            (sp)    => self.eval_subprogram(pieces, index, data_offset, sp),
         }
     }
 
@@ -314,6 +308,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn eval_array_type(&mut self,
+                           dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
                            data_offset: u64,
@@ -327,9 +322,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
             let mut children = node.children();
             if let Some(child) = children.next().unwrap() { 
-                match child.entry().tag() {
-                    gimli::DW_TAG_subrange_type     => dimensions.push(NewArrayDimension::SubrangeType(die.offset())),
-                    gimli::DW_TAG_enumeration_type  => dimensions.push(NewArrayDimension::EnumerationType(die.offset())),
+                let c_die = child.entry();
+                match c_die.tag() {
+                    gimli::DW_TAG_subrange_type     => dimensions.push(NewArrayDimension::SubrangeType(c_die.offset())),
+                    gimli::DW_TAG_enumeration_type  => dimensions.push(NewArrayDimension::EnumerationType(c_die.offset())),
                     _ => {
                         unimplemented!(); //TODO: Add parser for generic_subrange.
                     },
@@ -351,16 +347,21 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let dimensions = get_dimensions(unit, die);
 
-        let count = 1; //get_udata(match &dimensions[0] { // TODO: Add evaluatros for enumerationType nad SunrangeType
-//            NewArrayDimension::EnumerationType { unit_offset, die_offset } => {
-//                unimplemented!();
-//                //self.eval_enumeration_type(core, pieces, index, data_offset, et),
-//            }
-//            NewArrayDimension::SubrangeType    { unit_offset, die_offset } => {
-//                unimplemented!();
-//                //self.eval_subrange_type(core, pieces, index, data_offset, st),
-//            },
-//        }?.unwrap().to_value().unwrap());
+        let array_len_result = match &dimensions[0] {
+            NewArrayDimension::EnumerationType(die_offset) => {
+                let new_die = unit.entry(*die_offset)?;
+                self.eval_enumeration_type(dwarf, unit, &new_die, data_offset)?.unwrap()
+            },
+            NewArrayDimension::SubrangeType(die_offset) => {
+                let new_die = unit.entry(*die_offset)?;
+                self.eval_subrange_type(dwarf, unit, &new_die, data_offset)?.unwrap()
+            },
+        };
+
+        let count = match array_len_result {
+            ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
+            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+        };
 
         let mut partial_array = match &self.stack[current_state].partial_value {
             super::value::PartialValue::Array   (array) => array.clone(),
@@ -383,6 +384,282 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         self.stack.pop();
         Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::NewArrayValue {values: partial_array.values})))))
+    }
+
+
+//    pub fn eval_structured_type(&mut self,
+//                                core:               &mut probe_rs::Core,
+//                                pieces:             &mut Vec<Piece<R>>,
+//                                index:              &mut usize,
+//                                data_offset:        u64,
+//                                structured_type:    &StructuredType
+//                                ) -> Result<Option<DebuggerValue<R>>>
+//    {
+//        let mut members = Vec::new();
+//        for c in &structured_type.children {
+//            match &(**c) {
+//                DebuggerType::VariantPart   (vp)    => {
+//                    let members = vec!(self.eval_variant_part(core, pieces, index, data_offset, &vp)?.unwrap());
+//
+//                    return Ok(Some(DebuggerValue::Struct(Box::new(StructValue{
+//                        name:       structured_type.name.clone().unwrap(),
+//                        members:    members,
+//                    }))));
+//                },
+//
+//                DebuggerType::MemberType    (mt)    => {
+//                    members.push(mt);
+//                },
+//                _ => continue,
+//            };
+//        }
+//
+//        members.sort_by_key(|m| m.data_member_location);
+//        let members = members.into_iter().map(|m| self.eval_member(core, pieces, index, data_offset, m).unwrap().unwrap()).collect();
+//
+//        return Ok(Some(DebuggerValue::Struct(Box::new(StructValue{
+//            name:       structured_type.name.clone().unwrap(),
+//            members:    members,
+//        }))));
+//    }
+
+
+//    pub fn eval_union_type(&mut self,
+//                           core:        &mut probe_rs::Core,
+//                           pieces:      &mut Vec<Piece<R>>,
+//                           index:       &mut usize,
+//                           data_offset: u64,
+//                           union_type:  &UnionType
+//                           ) -> Result<Option<DebuggerValue<R>>>
+//    {
+//        let mut members = Vec::new();
+//        for c in &union_type.children {
+//            match &(**c) {
+//                DebuggerType::MemberType    (mt)    => {
+//                    members.push(mt);
+//                },
+//                _ => continue,
+//            };
+//        }
+//
+//        members.sort_by_key(|m| m.data_member_location);
+//        let members = members.into_iter().map(|m| self.eval_member(core, pieces, index, data_offset, m).unwrap().unwrap()).collect();
+//
+//        return Ok(Some(DebuggerValue::Union(Box::new(UnionValue{
+//            name:       union_type.name.clone().unwrap(),
+//            members:    members,
+//        }))));
+//    }
+
+
+    pub fn eval_member(&mut self,
+                       dwarf:       &gimli::Dwarf<R>,
+                       unit:        &gimli::Unit<R>,
+                       die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
+                       data_offset: u64,
+                       ) -> Result<Option<ReturnResult<R>>>
+    {
+        let new_data_offset = match attributes::data_member_location_attribute(die) {
+            Some(val)   => data_offset + val,
+            None        => data_offset,
+        };
+
+        let name = attributes::name_attribute(dwarf, die).unwrap();
+
+        // TODO: Get type die.
+        //let value = match self.eval_type(type_core, type_die, new_data_offset)?.unwrap() {
+        //    ReturnResult::Value(val) => val,
+        //    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+        //};
+
+        //Ok(Some(ReturnResult::Value(EvaluatorValue::Member(Box::new(super::value::NewMemberValue{
+        //    name:   name,
+        //    value:  value
+        //})))))
+
+        Ok(None)
+    }
+
+
+    pub fn eval_enumeration_type(&mut self,
+                                 dwarf:         &gimli::Dwarf<R>,
+                                 unit:          &gimli::Unit<R>,
+                                 die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                                 data_offset:   u64
+                                 ) -> Result<Option<ReturnResult<R>>>
+    {
+        fn get_enumerations<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
+            let mut enumerators = Vec::new();
+            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+            let node = tree.root().unwrap();
+
+            let mut children = node.children();
+            if let Some(child) = children.next().unwrap() { 
+                let c_die = child.entry();
+                match c_die.tag() {
+                    gimli::DW_TAG_enumerator  => enumerators.push(c_die.offset()),
+                    gimli::DW_TAG_subprogram => (),
+                    _ => unimplemented!(),
+                };
+            }
+            
+            enumerators
+        }
+        // TODO: Create new evaluator state.
+        // TODO: get type unit and die.
+        //let value = get_udata(self.eval_type(type_unit, type_die, data_offset)?.unwrap().to_value().unwrap());
+        let value = 0;
+        
+        let enumerations = get_enumerations(unit, die);
+
+        for e in &enumerations {
+            let e_die = unit.entry(*e)?;
+
+            let const_value = attributes::const_value_attribute(&e_die).unwrap();
+
+            if const_value == value {
+                let name = attributes::name_attribute(dwarf, die).unwrap();
+
+                let e_name = attributes::name_attribute(dwarf, &e_die).unwrap(); 
+
+                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue {
+                    name:   name,
+                    value:  super::value::EvaluatorValue::Name(e_name),
+                })))));
+            }
+        }
+
+        Ok(None)
+    }
+
+
+    pub fn eval_subrange_type(&mut self,
+                              dwarf:        &gimli::Dwarf<R>,
+                              unit:          &gimli::Unit<R>,
+                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                              data_offset:   u64
+                              ) -> Result<Option<ReturnResult<R>>>
+    {
+        match attributes::count_attribute(die) {
+            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::BaseValue::U64(val))))),
+            None        => (),
+        };
+
+        // TODO: Get type die.
+//        match &*subrange_type.r#type {
+//            Some(val)   => return self.eval_type(unit, type_die, data_offset),
+//            None        => (),
+//        };
+
+        Ok(None)
+    }
+
+
+    pub fn eval_variant_part(&mut self,
+                             dwarf:         &gimli::Dwarf<R>,
+                             unit:          &gimli::Unit<R>,
+                             die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                             data_offset:   u64
+                             ) -> Result<Option<ReturnResult<R>>>
+    {
+        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
+            let mut result = Vec::new();
+            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+            let node = tree.root().unwrap();
+
+            let mut children = node.children();
+            if let Some(child) = children.next().unwrap() { 
+                result.push(child.entry().offset());
+            }
+            
+            result
+        }
+
+        let mut children = get_children(unit, die);
+        let mut member = None;
+        let mut variants = vec!();
+        for c in children {
+            let c_die = unit.entry(c)?;
+            match c_die.tag() {
+                gimli::DW_TAG_member => {
+                    if member.is_none() {
+                        panic!("Expacted only one member");
+                    }
+                    member = Some(c_die);
+                },
+                gimli::DW_TAG_variant => variants.push(c_die),
+                _ => (),
+            };
+        }
+
+        match &member {
+            Some    (member)   => {
+                let variant = match self.eval_member(dwarf, unit, member, data_offset)?.unwrap() {
+                    ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
+                    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                };
+                for v in &variants {
+                    let discr_value = attributes::discr_value_attribute(v).unwrap();
+
+                    if discr_value == variant {
+
+                        return self.eval_variant(dwarf, unit, die, data_offset);
+
+                        //return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue{
+                        //    name:   v.member.name.clone().unwrap(),
+                        //    value:  self.eval_member(core, pieces, index, data_offset, &v.member)?.unwrap(),
+                        //}))));
+                    }
+                }
+                unimplemented!();
+            },
+            None            => {
+                unimplemented!();
+            },
+        };
+    }
+
+
+    pub fn eval_variant(&mut self,
+                        dwarf:         &gimli::Dwarf<R>,
+                        unit:          &gimli::Unit<R>,
+                        die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
+                        data_offset:   u64
+                        ) -> Result<Option<ReturnResult<R>>>
+    {
+        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
+            let mut result = Vec::new();
+            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+            let node = tree.root().unwrap();
+
+            let mut children = node.children();
+            if let Some(child) = children.next().unwrap() { 
+                result.push(child.entry().offset());
+            }
+            
+            result
+        }
+
+        let mut children = get_children(unit, die);
+        for c in children {
+            let c_die = unit.entry(c)?;
+            match c_die.tag() {
+                gimli::DW_TAG_member => {
+                    let value = match self.eval_member(dwarf, unit, &c_die, data_offset)?.unwrap() {
+                        ReturnResult::Value(val) => val,
+                        ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                    };
+                    let name = attributes::name_attribute(dwarf, &c_die).unwrap();
+
+                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue {
+                        name:   name,
+                        value:  value,
+                    })))));
+                },
+                _ => (),
+            };
+        }
+        unimplemented!();
     }
 }
 
@@ -665,17 +942,6 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         }
 
         Ok(None)
-    }
-
-
-    pub fn eval_enumerator(&mut self,
-                           _pieces:         &mut Vec<Piece<R>>,
-                           _index:          &mut usize,
-                           _data_offset:    u64,
-                           _enumerator:     &Enumerator
-                           ) -> Result<Option<DebuggerValue<R>>>
-    {
-        unimplemented!();
     }
 
 
