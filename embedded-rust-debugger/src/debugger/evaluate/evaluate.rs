@@ -92,11 +92,11 @@ enum EvaluatorResult {
     RequireData {address: u32, num_words: usize},
 }
 
+
 enum ReturnResult<R: Reader<Offset = usize>> {
     Value(super::value::EvaluatorValue<R>),
     Required(EvaluatorResult),
 }
-
 
 
 struct Evaluator<R: Reader<Offset = usize>> {
@@ -106,6 +106,7 @@ struct Evaluator<R: Reader<Offset = usize>> {
     result:         Option<super::value::EvaluatorValue<R>>,
     // TODO: Add hashmap for registers maybe?
 }
+
 
 impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn new(pieces:  Vec<Piece<R>>,
@@ -130,6 +131,35 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
     pub fn get_value(self) -> Option<super::value::EvaluatorValue<R>> {
         self.result
+    }
+
+
+    pub fn get_type_info(&mut self,
+                         dwarf: &gimli::Dwarf<R>,
+                         unit:  &gimli::Unit<R>,
+                         die:   &gimli::DebuggingInformationEntry<'_, '_, R>,
+                         ) -> Result<(gimli::Unit<R>, gimli::UnitOffset)>
+    {
+        let (unit_offset, die_offset) = attributes::type_attribute(dwarf, unit, die).unwrap();
+        let unit = match unit_offset {
+            gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
+                let header = dwarf.debug_info.header_from_offset(offset)?;
+                dwarf.unit(header)?
+            },
+            gimli::UnitSectionOffset::DebugTypesOffset(_offset) => {
+                let mut iter = dwarf.debug_types.units();
+                let mut result = None;
+                while let Some(header) = iter.next()? {
+                    if header.offset() == unit_offset {
+                        result = Some(dwarf.unit(header)?);
+                        break;
+                    }
+                }
+                result.unwrap()
+            },
+        };
+       
+        Ok((unit, die_offset))
     }
 
 
@@ -241,25 +271,31 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                   byte_size,
                                   data_offset,
                                   encoding);
-// TODO: Should only pop piece if value is correctly evaluated
-        match self.pieces[self.piece_index].size_in_bits {
-            Some(val)   => {
-                let bytes: i32 = match byte_size {
-                    Some(val)   => (val*8) as i32,
-                    None        => 32,
-                };
 
-                if (val as i32) - bytes < 1 {
-                    self.pieces[self.piece_index].size_in_bits = Some(0);
-                    self.piece_index += 1;
-                } else {
-                    self.pieces[self.piece_index].size_in_bits = Some(val - bytes as u64);
+        // Pops piece if the value was evaluated.
+        match res.unwrap() {
+            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            ReturnResult::Value(value) => {
+                match self.pieces[self.piece_index].size_in_bits {
+                    Some(val)   => {
+                        let bytes: i32 = match byte_size {
+                            Some(val)   => (val*8) as i32,
+                            None        => 32,
+                        };
+
+                        if (val as i32) - bytes < 1 {
+                            self.pieces[self.piece_index].size_in_bits = Some(0);
+                            self.piece_index += 1;
+                        } else {
+                            self.pieces[self.piece_index].size_in_bits = Some(val - bytes as u64);
+                        }
+                    },
+                    None        => (),
                 }
-            },
-            None        => (),
-        }
 
-        return Ok(res);
+                return Ok(Some(ReturnResult::Value(value)));
+            },
+        };
     }
 
 
@@ -290,10 +326,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     {
         let address_class = attributes::address_class_attribute(die);
 
-        match address_class.unwrap().0 { // TODO: remove unwrap and the option around address_type.
+        match address_class.unwrap().0 {
             0 => {
                 let res = self.handle_eval_piece(Some(4),
-                                                 data_offset, // TODO
+                                                 data_offset,
                                                  Some(DwAte(1)));
                 return res;        
             },
@@ -330,6 +366,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             dimensions
         }
 
+        //TODO: Add the state and pop it.
         //let mut current_state = self.stack.len() - 1;
 
         //if new_state {
@@ -356,7 +393,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let count = match array_len_result {
             ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
-        };
+        } as usize;
 
         let mut partial_array = super::value::PartialArrayValue { values: vec!() };
 
@@ -367,16 +404,18 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let start = partial_array.values.len();
 
-        // TODO: Get type die and unit.
-//        for _i in start..count {
-//            match self.eval_type(data_offset, &array_type.r#type)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
-//                ReturnResult::Value(val) => partial_array.values.push(val),
-//                ReturnResult::Required(er) => {
-//                    //self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(partial_value));
-//                    return ReturnResult::Required(er);
-//                },
-//            };
-//        }
+        let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
+        let type_die = &type_unit.entry(die_offset)?;
+
+        for _i in start..count {
+            match self.eval_type(dwarf, &type_unit, type_die, data_offset)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
+                ReturnResult::Value(val) => partial_array.values.push(val),
+                ReturnResult::Required(req) => {
+                    //self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(partial_value));
+                    return Ok(Some(ReturnResult::Required(req)));
+                },
+            };
+        }
         
 
         //self.stack.pop();
@@ -518,20 +557,20 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None        => data_offset,
         };
 
-        let name = attributes::name_attribute(dwarf, die).unwrap();
+        let name = attributes::name_attribute(dwarf, die);
 
-        // TODO: Get type die.
-        //let value = match self.eval_type(type_core, type_die, new_data_offset)?.unwrap() {
-        //    ReturnResult::Value(val) => val,
-        //    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
-        //};
+        let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
+        let type_die = &type_unit.entry(die_offset)?;
+        
+        let value = match self.eval_type(dwarf, &type_unit, type_die, new_data_offset)?.unwrap() {
+            ReturnResult::Value(val) => val,
+            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+        };
 
-        //Ok(Some(ReturnResult::Value(EvaluatorValue::Member(Box::new(super::value::NewMemberValue{
-        //    name:   name,
-        //    value:  value
-        //})))))
-
-        Ok(None)
+        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::NewMemberValue{
+            name:   name,
+            value:  value
+        })))))
     }
 
 
@@ -560,10 +599,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             enumerators
         }
         // TODO: Create new evaluator state.
-        // TODO: get type unit and die.
-        //let value = get_udata(self.eval_type(type_unit, type_die, data_offset)?.unwrap().to_value().unwrap());
-        let value = 0;
-        
+
+        let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
+        let type_die = &type_unit.entry(die_offset)?;
+
+        let type_result = match self.eval_type(dwarf, &type_unit, type_die, data_offset)?.unwrap() {
+            ReturnResult::Value(val) => val,
+            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+        };
+        let value = super::value::get_udata_new(type_result.to_value().unwrap());
+
         let enumerations = get_enumerations(unit, die);
 
         for e in &enumerations {
@@ -599,13 +644,13 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None        => (),
         };
 
-        // TODO: Get type die.
-//        match &*subrange_type.r#type {
-//            Some(val)   => return self.eval_type(unit, type_die, data_offset),
-//            None        => (),
-//        };
+        let (type_unit, die_offset) = match self.get_type_info(dwarf, unit, die) {
+            Ok(val) => val,
+            Err(_) => return Ok(None),
+        };
+        let type_die = &type_unit.entry(die_offset)?;
 
-        Ok(None)
+        self.eval_type(dwarf, &type_unit, type_die, data_offset)
     }
 
 
