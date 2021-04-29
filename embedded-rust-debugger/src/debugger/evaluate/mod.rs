@@ -71,6 +71,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     expr:       Expression<R>,
                     frame_base: Option<u64>,
                     vtype:      Option<&DebuggerType>,
+                    type_die:   Option<(&gimli::Unit<R>, &gimli::DebuggingInformationEntry<'_, '_, R>)>
                     ) -> Result<DebuggerValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
@@ -123,7 +124,8 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                                                                       pc,
                                                                       e,
                                                                       frame_base, 
-                                                                      None
+                                                                      None,
+                                                                      None,
                                                                       )?.to_value().unwrap()))?,
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
@@ -131,7 +133,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                         let die     = unit.entry(unit_offset)?;
                         let dtype   = self.type_attribute(unit, pc, &die).unwrap();
                         let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(core, unit, pc, expr, frame_base, Some(&dtype))?;
+                        let value   = self.evaluate(core, unit, pc, expr, frame_base, Some(&dtype), Some((type_die.unwrap().0, &die)))?;
 
                         if let DebuggerValue::Value(Value::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val)?;
@@ -153,12 +155,36 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     
         //println!("Type: {:#?}", vtype);
         let mut pieces = eval.result();
+
+        match type_die {
+            Some((unit, die)) => {
+                let mut evaluator = evaluate::Evaluator::new(pieces.clone(), unit, die);
+                loop {
+                    match evaluator.evaluate(&self.dwarf) {
+                        evaluate::EvaluatorResult::Complete => break,
+                        evaluate::EvaluatorResult::RequireReg(reg) => {
+                            let data = core.read_core_reg(reg)?;
+                            evaluator.add_register(reg, data);
+                        },
+                        evaluate::EvaluatorResult::RequireData {address, num_words} => {
+                            let mut data: [u32; 1] = [0];
+                            core.read_32(address as u32, &mut data)?;
+                            evaluator.add_address(address, data[0]);
+                        },
+                    };
+                }
+                println!("Evaluator: {:#?}", evaluator.get_value());
+            },
+            None => (),
+        };
+
+
         println!("{:#?}", pieces);
         let value =  match vtype {
             Some(t) => self.eval_type(core, &mut pieces, &mut 0, 0, t),
             None => self.eval_piece(core, pieces.remove(0), None, 0, None),
         };
-        //println!("Value: {:#?}", value);
+        println!("Value: {:#?}", value);
         Ok(value?.unwrap())
     }
 
@@ -255,7 +281,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
             
             let dtype   = self.type_attribute(unit, pc, &die).unwrap();
-            let val     = self.evaluate(core, &unit, pc, expr, frame_base, Some(&dtype))?;
+            let val     = self.call_evaluate(core, &unit, pc, expr, frame_base, Some(&dtype), &unit, &die)?;
 
             if let DebuggerValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b)?;

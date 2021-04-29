@@ -86,20 +86,20 @@ impl<R: Reader<Offset = usize>> EvaluatorState<R> {
 }
 
 
-enum EvaluatorResult {
+pub enum EvaluatorResult {
     Complete,
     RequireReg(u16),
     RequireData {address: u32, num_words: usize},
 }
 
 
-enum ReturnResult<R: Reader<Offset = usize>> {
+pub enum ReturnResult<R: Reader<Offset = usize>> {
     Value(super::value::EvaluatorValue<R>),
     Required(EvaluatorResult),
 }
 
 
-struct Evaluator<R: Reader<Offset = usize>> {
+pub struct Evaluator<R: Reader<Offset = usize>> {
     pieces:         Vec<Piece<R>>,
     piece_index:    usize,
     stack:          Vec<EvaluatorState<R>>,
@@ -135,6 +135,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>) -> EvaluatorResult {
+        self.piece_index = 0;
+
         let state = &self.stack[0];
         
         let unit = match state.unit_offset {
@@ -345,6 +347,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          data_offset:   u64
                          ) -> Result<Option<ReturnResult<R>>>
     {
+        match die.tag() {
+            gimli::DW_TAG_base_type => (),
+            _ => panic!("Wrong implementation"),
+        };
+
         let byte_size = attributes::byte_size_attribute(die);
         let encoding =  attributes::encoding_attribute(die);
         match byte_size {
@@ -364,6 +371,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              data_offset:   u64
                              ) -> Result<Option<ReturnResult<R>>>
     {
+        match die.tag() {
+            gimli::DW_TAG_pointer_type => (),
+            _ => panic!("Wrong implementation"),
+        };
+
         let address_class = attributes::address_class_attribute(die);
 
         match address_class.unwrap().0 {
@@ -386,25 +398,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            new_state:   bool
                            ) -> Result<Option<ReturnResult<R>>>
     {
-        fn get_dimensions<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<NewArrayDimension> {
-            let mut dimensions  = Vec::new();
-            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-            let node = tree.root().unwrap();
-
-            let mut children = node.children();
-            if let Some(child) = children.next().unwrap() { 
-                let c_die = child.entry();
-                match c_die.tag() {
-                    gimli::DW_TAG_subrange_type     => dimensions.push(NewArrayDimension::SubrangeType(c_die.offset())),
-                    gimli::DW_TAG_enumeration_type  => dimensions.push(NewArrayDimension::EnumerationType(c_die.offset())),
-                    _ => {
-                        unimplemented!(); //TODO: Add parser for generic_subrange.
-                    },
-                };
-            }
-            
-            dimensions
-        }
+        match die.tag() {
+            gimli::DW_TAG_array_type => (),
+            _ => panic!("Wrong implementation"),
+        };
 
         //TODO: Add the state and pop it.
         //let mut current_state = self.stack.len() - 1;
@@ -415,21 +412,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         //    self.stack[current_state].data_offset = data_offset;
         //    self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(super::value::PartialArrayValue { values: vec!() }));
-        //}
+        //} 
 
-        let dimensions = get_dimensions(unit, die);
-
-        let array_len_result = match &dimensions[0] {
-            NewArrayDimension::EnumerationType(die_offset) => {
-                let new_die = unit.entry(*die_offset)?;
-                self.eval_enumeration_type(dwarf, unit, &new_die, data_offset)?.unwrap()
-            },
-            NewArrayDimension::SubrangeType(die_offset) => {
-                let new_die = unit.entry(*die_offset)?;
-                self.eval_subrange_type(dwarf, unit, &new_die, data_offset)?.unwrap()
-            },
+        let children = get_children(unit, die);
+        let dimension_die = unit.entry(children[0])?;
+        let array_len_result = match dimension_die.tag() {
+            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset)?.unwrap(),
+            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset)?.unwrap(),
+            _ => unimplemented!(),
         };
-
+        
         let count = match array_len_result {
             ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
@@ -471,18 +463,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                 new_state:   bool
                                 ) -> Result<Option<ReturnResult<R>>>
     {
-        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
-            let mut result = Vec::new();
-            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-            let node = tree.root().unwrap();
-
-            let mut children = node.children();
-            if let Some(child) = children.next().unwrap() { 
-                result.push(child.entry().offset());
-            }
-            
-            result
-        }
+        match die.tag() {
+            gimli::DW_TAG_structure_type => (),
+            _ => panic!("Wrong implementation"),
+        };
 
         let name = attributes::name_attribute(dwarf, die).unwrap();
 
@@ -537,20 +521,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            data_offset: u64,
                            new_state:   bool
                            ) -> Result<Option<ReturnResult<R>>>
-    {
-        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
-            let mut result = Vec::new();
-            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-            let node = tree.root().unwrap();
+    { 
+        match die.tag() {
+            gimli::DW_TAG_union_type => (),
+            _ => panic!("Wrong implementation"),
+        };
 
-            let mut children = node.children();
-            if let Some(child) = children.next().unwrap() { 
-                result.push(child.entry().offset());
-            }
-            
-            result
-        }
-        
         let children = get_children(unit, die);
 
         let mut member_dies = vec!();
@@ -592,6 +568,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                        data_offset: u64,
                        ) -> Result<Option<ReturnResult<R>>>
     {
+        match die.tag() {
+            gimli::DW_TAG_member => (),
+            _ => panic!("Wrong implementation"),
+        };
+
         let new_data_offset = match attributes::data_member_location_attribute(die) {
             Some(val)   => data_offset + val,
             None        => data_offset,
@@ -621,23 +602,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                  data_offset:   u64
                                  ) -> Result<Option<ReturnResult<R>>>
     {
-        fn get_enumerations<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
-            let mut enumerators = Vec::new();
-            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-            let node = tree.root().unwrap();
+        match die.tag() {
+            gimli::DW_TAG_enumeration_type => (),
+            _ => panic!("Wrong implementation"),
+        };
 
-            let mut children = node.children();
-            if let Some(child) = children.next().unwrap() { 
-                let c_die = child.entry();
-                match c_die.tag() {
-                    gimli::DW_TAG_enumerator  => enumerators.push(c_die.offset()),
-                    gimli::DW_TAG_subprogram => (),
-                    _ => unimplemented!(),
-                };
-            }
-            
-            enumerators
-        }
         // TODO: Create new evaluator state.
 
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
@@ -649,23 +618,28 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
         let value = super::value::get_udata_new(type_result.to_value().unwrap());
 
-        let enumerations = get_enumerations(unit, die);
+        let children = get_children(unit, die);
 
-        for e in &enumerations {
-            let e_die = unit.entry(*e)?;
-
-            let const_value = attributes::const_value_attribute(&e_die).unwrap();
-
-            if const_value == value {
-                let name = attributes::name_attribute(dwarf, die).unwrap();
-
-                let e_name = attributes::name_attribute(dwarf, &e_die).unwrap(); 
-
-                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue {
-                    name:   name,
-                    value:  super::value::EvaluatorValue::Name(e_name),
-                })))));
-            }
+        for c in children {
+            let c_die = unit.entry(c)?;
+            match c_die.tag() {
+                gimli::DW_TAG_enumerator  => {
+                    let const_value = attributes::const_value_attribute(&c_die).unwrap();
+        
+                    if const_value == value {
+                        let name = attributes::name_attribute(dwarf, die).unwrap();
+        
+                        let e_name = attributes::name_attribute(dwarf, &c_die).unwrap(); 
+        
+                        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue {
+                            name:   name,
+                            value:  super::value::EvaluatorValue::Name(e_name),
+                        })))));
+                    }
+                },
+                gimli::DW_TAG_subprogram => (),
+                _ => unimplemented!(),
+            };
         }
 
         Ok(None)
@@ -679,6 +653,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                               data_offset:   u64
                               ) -> Result<Option<ReturnResult<R>>>
     {
+        match die.tag() {
+            gimli::DW_TAG_subrange_type => (),
+            _ => panic!("Wrong implementation"),
+        };
+
         match attributes::count_attribute(die) {
             Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::BaseValue::U64(val))))),
             None        => (),
@@ -701,27 +680,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              data_offset:   u64
                              ) -> Result<Option<ReturnResult<R>>>
     {
-        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
-            let mut result = Vec::new();
-            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-            let node = tree.root().unwrap();
-
-            let mut children = node.children();
-            if let Some(child) = children.next().unwrap() { 
-                result.push(child.entry().offset());
-            }
-            
-            result
-        }
+        match die.tag() {
+            gimli::DW_TAG_variant_part => (),
+            _ => panic!("Wrong implementation"),
+        };
 
         let mut children = get_children(unit, die);
         let mut member = None;
         let mut variants = vec!();
-        for c in children {
-            let c_die = unit.entry(c)?;
+        for c in &children {
+            let c_die = unit.entry(*c)?;
             match c_die.tag() {
                 gimli::DW_TAG_member => {
-                    if member.is_none() {
+                    if member.is_some() {
                         panic!("Expacted only one member");
                     }
                     member = Some(c_die);
@@ -737,12 +708,14 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
                     ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                 };
+
+
                 for v in &variants {
                     let discr_value = attributes::discr_value_attribute(v).unwrap();
 
                     if discr_value == variant {
 
-                        return self.eval_variant(dwarf, unit, die, data_offset);
+                        return self.eval_variant(dwarf, unit, v, data_offset);
 
                         //return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue{
                         //    name:   v.member.name.clone().unwrap(),
@@ -766,18 +739,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         data_offset:   u64
                         ) -> Result<Option<ReturnResult<R>>>
     {
-        fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>, die: &gimli::DebuggingInformationEntry<'_, '_, R>) -> Vec<gimli::UnitOffset> {
-            let mut result = Vec::new();
-            let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-            let node = tree.root().unwrap();
-
-            let mut children = node.children();
-            if let Some(child) = children.next().unwrap() { 
-                result.push(child.entry().offset());
-            }
-            
-            result
-        }
+        match die.tag() {
+            gimli::DW_TAG_variant => (),
+            _ => panic!("Wrong implementation"),
+        };
 
         let mut children = get_children(unit, die);
         for c in children {
@@ -801,6 +766,32 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         unimplemented!();
     }
 }
+
+
+fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
+                                           die: &gimli::DebuggingInformationEntry<'_, '_, R>
+                                           ) -> Vec<gimli::UnitOffset>
+{
+    let mut result = Vec::new();
+    let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
+    let node = tree.root().unwrap();
+
+    let mut children = node.children();
+    while let Some(child) = children.next().unwrap() { 
+        result.push(child.entry().offset());
+    }
+    
+    result
+}
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+
 
 
 

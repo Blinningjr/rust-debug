@@ -425,6 +425,54 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     }
 
 
+    fn call_evaluate(&mut self,
+                    core:       &mut probe_rs::Core,
+                    nunit:      &Unit<R>,
+                    pc:         u32,
+                    expr:       gimli::Expression<R>,
+                    frame_base: Option<u64>,
+                    vtype:      Option<&DebuggerType>,
+
+                    unit:     &Unit<R>,
+                    die: &DebuggingInformationEntry<R>
+                    ) -> Result<DebuggerValue<R>>
+    {
+        if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
+            match die.attr_value(gimli::DW_AT_type)? {
+                Some(gimli::AttributeValue::UnitRef(offset)) => {
+                    let die = unit.entry(offset)?;
+                    return self.evaluate(core, nunit, pc, expr, frame_base, vtype, Some((unit, &die)));
+                },
+                Some(gimli::AttributeValue::DebugInfoRef(di_offset)) => {
+                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                    let mut iter = self.dwarf.debug_info.units();
+                    while let Ok(Some(header)) = iter.next() {
+                        let unit = self.dwarf.unit(header).unwrap();
+                        if let Some(offset) = offset.to_unit_offset(&unit) {
+                            let die = unit.entry(offset)?;
+                            return self.evaluate(core, nunit, pc, expr, frame_base, vtype, Some((&unit, &die)));
+                        }
+                    }
+                    return Err(anyhow!(""));
+                },
+                _ => return Err(anyhow!("")),
+            };
+        } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            match die_offset {
+                UnitRef(offset) => {
+                    if let Ok(ndie) = unit.entry(offset) {
+                        return self.call_evaluate(core, nunit, pc, expr, frame_base, vtype, unit, &ndie);
+                    }
+                },
+                _ => {
+                    println!("{:?}", die_offset);
+                    unimplemented!();
+                },
+            };
+        }
+        return Err(anyhow!(""));
+    }
+
     fn eval_location(&mut self,
                      core:              &mut probe_rs::Core,
                      unit:              &Unit<R>,
@@ -438,7 +486,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 self.print_die(&die)?;
-                let value = self.evaluate(core, unit, pc, expr, frame_base, Some(dtype))?;
+                let value = self.call_evaluate(core, unit, pc, expr, frame_base, Some(dtype), unit, die)?;
                 println!("\n");
 
                 return Ok(Some(value));
@@ -450,7 +498,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     //let value = self.evaluate(unit, llent.data, frame_base, Some(&dtype)).unwrap();
                     //println!("\n");
                     if in_range(pc, &llent.range) {
-                        let value = self.evaluate(core, unit, pc, llent.data, frame_base, Some(dtype))?;
+                        let value = self.call_evaluate(core, unit, pc, llent.data, frame_base, Some(dtype), unit, die)?;
                         println!("\n");
 
                         return Ok(Some(value));
@@ -478,7 +526,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None) {
+                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None) {
                     Ok(DebuggerValue::Value(Value::U64(v))) => Some(v),
                     Ok(DebuggerValue::Value(Value::U32(v))) => Some(v as u64),
                     Ok(v) => {
