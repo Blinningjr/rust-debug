@@ -104,7 +104,8 @@ struct Evaluator<R: Reader<Offset = usize>> {
     piece_index:    usize,
     stack:          Vec<EvaluatorState<R>>,
     result:         Option<super::value::EvaluatorValue<R>>,
-    // TODO: Add hashmap for registers maybe?
+    registers:      std::collections::HashMap<u16, u32>,
+    addresses:      std::collections::HashMap<u32, u32>,
 }
 
 
@@ -119,11 +120,47 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             piece_index:    0,
             stack:          vec!(EvaluatorState::new(unit, die)),
             result:         None,
+            registers:      std::collections::HashMap::new(),
+            addresses:      std::collections::HashMap::new(),
         }
     }
 
+    pub fn add_address(&mut self, address: u32, value: u32) {
+        self.addresses.insert(address, value);
+    }
+    
+    pub fn add_register(&mut self, register: u16, value: u32) {
+        self.registers.insert(register, value);
+    }
 
-    pub fn evaluate(&mut self) -> EvaluatorResult {
+
+    pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>) -> EvaluatorResult {
+        let state = &self.stack[0];
+        
+        let unit = match state.unit_offset {
+            gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
+                let header = dwarf.debug_info.header_from_offset(offset).unwrap();
+                dwarf.unit(header).unwrap()
+            },
+            gimli::UnitSectionOffset::DebugTypesOffset(_offset) => {
+                let mut iter = dwarf.debug_types.units();
+                let mut result = None;
+                while let Some(header) = iter.next().unwrap() {
+                    if header.offset() == state.unit_offset {
+                        result = Some(dwarf.unit(header).unwrap());
+                        break;
+                    }
+                }
+                result.unwrap()
+            },
+        };
+
+        let die = &unit.entry(state.die_offset).unwrap();
+
+        match self.eval_type(dwarf, &unit, die, 0).unwrap().unwrap() {
+            ReturnResult::Value(val) => self.result = Some(val),
+            ReturnResult::Required(req) => return req,
+        };
 
         EvaluatorResult::Complete
     }
@@ -211,10 +248,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          register:  gimli::Register
                          ) -> Option<ReturnResult<R>>
     {
-        Some(ReturnResult::Required(EvaluatorResult::RequireReg(register.0)))
-        // TODO
-        //let data = core.read_core_reg(register.0)?;
-        //return Ok(Some(DebuggerValue::Value(Value::U32(data)))); // TODO: Mask the important bits?
+        match self.registers.get(&register.0) {
+            Some(val) => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::BaseValue::U32(*val)))), // TODO: Mask the important bits?
+            None    => Some(ReturnResult::Required(EvaluatorResult::RequireReg(register.0))),
+        }
     }
 
 
@@ -238,18 +275,21 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         //address -= address%4; // TODO: Is this correct?
 
 
+        let mut data: Vec<u32> = Vec::new();
+        for i in 0..num_words as usize {
+            match self.addresses.get(&((address + (i as u64) * 2) as u32)) {
+                Some(val) => data.push(*val), // TODO: Mask the important bits?
+                None    => return Some(ReturnResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 2) as u32, num_words: 1 })),
+            }
+        }
 
-        Some(ReturnResult::Required(EvaluatorResult::RequireData {address: address as u32, num_words: num_words as usize}))
-        // TODO
-        //let mut data: Vec<u32> = vec![0; num_words as usize];
-        //core.read_32(address as u32, &mut data)?;
+        Some(ReturnResult::Value(
+                super::value::EvaluatorValue::Value(
+                    super::value::convert_from_gimli_value_new(
+                        super::value::convert_to_gimli_value(
+                            eval_base_type(&data, encoding, byte_size.unwrap()))))))
 
-        //let mut res: Vec<u32> = Vec::new();
-        //for d in data.iter() {
-        //    res.push(*d);
-        //}
-
-        //return Ok(Some(DebuggerValue::Value(eval_base_type(&data, encoding, byte_size.unwrap()))));
+//        Some(ReturnResult::Required(EvaluatorResult::RequireData {address: address as u32, num_words: num_words as usize}))
     }
 
 
