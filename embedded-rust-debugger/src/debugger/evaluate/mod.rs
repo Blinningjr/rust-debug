@@ -173,7 +173,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                         },
                     };
                 }
-                println!("Evaluator: {:#?}", evaluator.get_value());
+                println!("Evaluator: {}", evaluator.get_value().unwrap());
             },
             None => (),
         };
@@ -184,7 +184,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
             Some(t) => self.eval_type(core, &mut pieces, &mut 0, 0, t),
             None => self.eval_piece(core, pieces.remove(0), None, 0, None),
         };
-        println!("Value: {:#?}", value);
+//        println!("Value: {:#?}", value);
         Ok(value?.unwrap())
     }
 

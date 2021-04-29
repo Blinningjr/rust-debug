@@ -58,6 +58,25 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     ZeroSize, 
 }
 
+
+impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match self {
+            EvaluatorValue::Value           (val)   => val.fmt(f),
+            EvaluatorValue::Bytes           (byt)   => write!(f, "{:?}", byt),
+            EvaluatorValue::Array           (arr)   => arr.fmt(f),
+            EvaluatorValue::Struct          (stu)   => stu.fmt(f),
+            EvaluatorValue::Enum            (enu)   => enu.fmt(f),
+            EvaluatorValue::Union           (uni)   => uni.fmt(f),
+            EvaluatorValue::Member          (mem)   => mem.fmt(f),
+            EvaluatorValue::Name            (nam)   => nam.fmt(f),
+            EvaluatorValue::OutOfRange              => write!(f, "< OutOfRange >"),
+            EvaluatorValue::OptimizedOut            => write!(f, "< OptimizedOut >"),
+            EvaluatorValue::ZeroSize                => write!(f, "< ZeroSize >"),
+        };
+    }
+}
+
 impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     pub fn to_value(self) -> Option<BaseValue> {
         match self {
@@ -81,11 +100,32 @@ pub fn get_udata_new(value: BaseValue) -> u64 {
     }
 }
 
+fn format_values_new<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
+    let len = values.len(); 
+    if len == 0 {
+        return "".to_string();
+    } else if len == 1 {
+        return format!("{}", values[0]);
+    }
+
+    let mut res = format!("{}", values[0]);
+    for i in 1..len {
+        res = format!("{}, {}", res, values[i]);
+    }
+    return res;
+}
+
 
 
 #[derive(Debug, Clone)]
 pub struct NewArrayValue<R: Reader<Offset = usize>> {
     pub values:  Vec<EvaluatorValue<R>>,
+}
+
+impl<R: Reader<Offset = usize>> fmt::Display for NewArrayValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[ {} ]", format_values_new(&self.values))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -94,10 +134,22 @@ pub struct NewStructValue<R: Reader<Offset = usize>> {
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
+impl<R: Reader<Offset = usize>> fmt::Display for NewStructValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {{ {} }}", self.name, format_values_new(&self.members))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NewEnumValue<R: Reader<Offset = usize>> {
     pub name:   String,
     pub value: EvaluatorValue<R>,
+}
+
+impl<R: Reader<Offset = usize>> fmt::Display for NewEnumValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}::{}", self.name, self.value)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -106,10 +158,25 @@ pub struct NewUnionValue<R: Reader<Offset = usize>> {
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
+impl<R: Reader<Offset = usize>> fmt::Display for NewUnionValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ( {} )", self.name, format_values_new(&self.members))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NewMemberValue<R: Reader<Offset = usize>> {
     pub name:   Option<String>,
     pub value:  EvaluatorValue<R>,
+}
+
+impl<R: Reader<Offset = usize>> fmt::Display for NewMemberValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match &self.name {
+            Some(name)  => write!(f, "{}::{}", name, self.value),
+            None        => write!(f, "{}", self.value),
+        };
+    }
 }
 
 
@@ -134,10 +201,28 @@ pub enum BaseValue {
     F64(f64),
 }
 
+impl fmt::Display for BaseValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match self {
+            BaseValue::Generic      (val)   => write!(f, "Generic {}", val),
+            BaseValue::I8           (val)   => write!(f, "I8 {}", val),
+            BaseValue::U8           (val)   => write!(f, "U8 {}", val),
+            BaseValue::I16          (val)   => write!(f, "I16 {}", val),
+            BaseValue::U16          (val)   => write!(f, "U16 {}", val),
+            BaseValue::I32          (val)   => write!(f, "I32 {}", val),
+            BaseValue::U32          (val)   => write!(f, "U32 {}", val),
+            BaseValue::I64          (val)   => write!(f, "I64 {}", val),
+            BaseValue::U64          (val)   => write!(f, "U64 {}", val),
+            BaseValue::F32          (val)   => write!(f, "F32 {}", val),
+            BaseValue::F64          (val)   => write!(f, "F64 {}", val),
+            BaseValue::Address32    (val)   => write!(f, "'Address' {:#10x}", val),
+        };
+    }
+}
+
 
 
 // Old values
-
 #[derive(Debug)]
 pub enum DebuggerValue<R: Reader<Offset = usize>> {
     Value(Value),
