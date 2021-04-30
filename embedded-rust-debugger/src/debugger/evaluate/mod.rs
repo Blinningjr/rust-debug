@@ -70,8 +70,8 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     pc:         u32,
                     expr:       Expression<R>,
                     frame_base: Option<u64>,
-                    vtype:      Option<&DebuggerType>,
-                    type_die:   Option<(&gimli::Unit<R>, &gimli::DebuggingInformationEntry<'_, '_, R>)>
+                    type_unit:  Option<&gimli::Unit<R>>,
+                    type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>
                     ) -> Result<EvaluatorValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
@@ -79,7 +79,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     
         //println!("fb: {:?}", frame_base);
         loop {
-            println!("{:#?}", result);
+            //println!("{:#?}", result);
             match result {
                 Complete => break,
                 RequiresMemory{address, size, space, base_type} =>
@@ -125,15 +125,14 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                                                                       e,
                                                                       frame_base, 
                                                                       None,
-                                                                      None,
+                                                                      None
                                                                       )?.to_value().unwrap()))?,
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die     = unit.entry(unit_offset)?;
-                        let dtype   = self.type_attribute(unit, pc, &die).unwrap();
                         let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(core, unit, pc, expr, frame_base, Some(&dtype), Some((type_die.unwrap().0, &die)))?;
+                        let value   = self.evaluate(core, unit, pc, expr, frame_base, type_unit, Some(&die))?;
 
                         if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val)?;
@@ -153,31 +152,25 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
             };
         }
     
-        //println!("Type: {:#?}", vtype);
         let mut pieces = eval.result();
-
         println!("{:#?}", pieces);
-        let value = match type_die {
-            Some((unit, die)) => {
-                let mut evaluator = evaluate::Evaluator::new(pieces.clone(), unit, die);
-                loop {
-                    match evaluator.evaluate(&self.dwarf) {
-                        evaluate::EvaluatorResult::Complete => break,
-                        evaluate::EvaluatorResult::RequireReg(reg) => {
-                            let data = core.read_core_reg(reg)?;
-                            evaluator.add_register(reg, data);
-                        },
-                        evaluate::EvaluatorResult::RequireData {address, num_words} => {
-                            let mut data: [u32; 1] = [0];
-                            core.read_32(address as u32, &mut data)?;
-                            evaluator.add_address(address, data[0]);
-                        },
-                    };
-                }
-                evaluator.get_value()
-            },
-            None => self.eval_piece(core, pieces.remove(0), None, 0, None)?,
-        };
+
+        let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
+        loop {
+            match evaluator.evaluate(&self.dwarf) {
+                evaluate::EvaluatorResult::Complete => break,
+                evaluate::EvaluatorResult::RequireReg(reg) => {
+                    let data = core.read_core_reg(reg)?;
+                    evaluator.add_register(reg, data);
+                },
+                evaluate::EvaluatorResult::RequireData {address, num_words} => {
+                    let mut data: [u32; 1] = [0];
+                    core.read_32(address as u32, &mut data)?;
+                    evaluator.add_address(address, data[0]);
+                },
+            };
+        }
+        let value = evaluator.get_value();
 
 //        println!("Value: {:#?}", value);
         Ok(value.unwrap())
@@ -275,8 +268,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         let die = unit.entry(unit_offset)?;
         if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
             
-            let dtype   = self.type_attribute(unit, pc, &die).unwrap();
-            let val     = self.call_evaluate(core, &unit, pc, expr, frame_base, Some(&dtype), &unit, &die)?;
+            let val = self.call_evaluate(core, &unit, pc, expr, frame_base, &unit, &die)?;
 
             if let EvaluatorValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b)?;
@@ -346,7 +338,7 @@ pub fn eval_base_type(data:         &[u32],
         (DwAte(2), 1) => BaseValue::Generic((value as u8) as u64), // Should be returned as bool?
         (DwAte(1), 4) => BaseValue::Address32(value as u32),
         _ => {
-            println!("{:?}, {:?}", encoding, byte_size);
+            //println!("{:?}, {:?}", encoding, byte_size);
             unimplemented!()
         },
     }

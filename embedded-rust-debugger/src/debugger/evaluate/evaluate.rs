@@ -79,14 +79,23 @@ pub struct Evaluator<R: Reader<Offset = usize>> {
 
 impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn new(pieces:  Vec<Piece<R>>,
-               unit:    &gimli::Unit<R>,
-               die:     &gimli::DebuggingInformationEntry<'_, '_, R>
+               unit:    Option<&gimli::Unit<R>>,
+               die:     Option<&gimli::DebuggingInformationEntry<'_, '_, R>>
                ) -> Evaluator<R>
     {
+        let stack = match unit {
+            Some(u) => {
+                match die {
+                    Some(d) => vec!(EvaluatorState::new(u, d)),
+                    None => vec!(),
+                }
+            },
+            None => vec!(),
+        };
         Evaluator {
             pieces:         pieces,
             piece_index:    0,
-            stack:          vec!(EvaluatorState::new(unit, die)),
+            stack:          stack,
             result:         None,
             registers:      std::collections::HashMap::new(),
             addresses:      std::collections::HashMap::new(),
@@ -96,7 +105,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn add_address(&mut self, address: u32, value: u32) {
         self.addresses.insert(address, value);
     }
-    
+
     pub fn add_register(&mut self, register: u16, value: u32) {
         self.registers.insert(register, value);
     }
@@ -104,6 +113,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
     pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>) -> EvaluatorResult {
         self.piece_index = 0;
+
+        if self.stack.len() == 0 {
+            match self.eval_piece(self.pieces[0].clone(), None, 0, None).unwrap() {
+                ReturnResult::Value(val) => {
+                    self.result = Some(val);
+                    return EvaluatorResult::Complete;
+                },
+                ReturnResult::Required(req) => return req,
+            };
+        } 
 
         let state = &self.stack[0];
         
@@ -237,10 +256,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None        => 1,
         };
 
-        println!("Address: {:#10x}", address);
-        println!("data_offset: {}", data_offset);
+        //println!("Address: {:#10x}", address);
+        //println!("data_offset: {}", data_offset);
         address += (data_offset/4) * 4;
-        println!("Address: {:#10x}", address);
+        //println!("Address: {:#10x}", address);
 
         //address -= address%4; // TODO: Is this correct?
 
@@ -748,79 +767,5 @@ fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
     }
     
     result
-}
-
-
-
-
-
-
-/////////////////////////////////////////////////////////////////////////////
-
-
-// TODO: Add none type evaluator
-impl<R: Reader<Offset = usize>> Debugger<R> {
-    pub fn eval_piece(&mut self,
-                      core:         &mut probe_rs::Core,
-                      piece:        Piece<R>,
-                      byte_size:    Option<u64>,
-                      data_offset:  u64,
-                      encoding:     Option<DwAte>
-                      ) -> Result<Option<super::value::EvaluatorValue<R>>>
-    {
-        //println!("{:#?}", piece);
-
-        return match piece.location {
-            Location::Empty                                         => Ok(Some(super::value::EvaluatorValue::OptimizedOut)),
-            Location::Register        { register }                  => self.eval_register(core, register),
-            Location::Address         { address }                   => self.eval_address(core, address, byte_size, data_offset, encoding.unwrap()),
-            Location::Value           { value }                     => Ok(Some(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value_new(value)))),
-            Location::Bytes           { value }                     => Ok(Some(super::value::EvaluatorValue::Bytes(value))),
-            Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
-        };
-    }
-
-
-    pub fn eval_register(&mut self,
-                         core:      &mut probe_rs::Core,
-                         register:  gimli::Register
-                         ) -> Result<Option<super::value::EvaluatorValue<R>>>
-    {
-        let data = core.read_core_reg(register.0)?;
-        return Ok(Some(super::value::EvaluatorValue::Value(super::value::BaseValue::U32(data)))); // TODO: Mask the important bits?
-    }
-
-
-    pub fn eval_address(&mut self,
-                        core:           &mut probe_rs::Core,
-                        mut address:    u64,
-                        byte_size:      Option<u64>,
-                        data_offset:    u64,
-                        encoding:       DwAte
-                        ) -> Result<Option<super::value::EvaluatorValue<R>>>
-    {
-        let num_words = match byte_size {
-            Some(val)   => (val + 4 - 1 )/4,
-            None        => 1,
-        };
-
-        println!("Address: {:#10x}", address);
-        println!("data_offset: {}", data_offset);
-        address += (data_offset/4) * 4;
-        println!("Address: {:#10x}", address);
-
-        //address -= address%4; // TODO: Is this correct?
-
-        let mut data: Vec<u32> = vec![0; num_words as usize];
-        core.read_32(address as u32, &mut data)?;
-
-        let mut res: Vec<u32> = Vec::new();
-        for d in data.iter() {
-            res.push(*d);
-        }
-
-        Ok(Some(super::value::EvaluatorValue::Value(
-                    eval_base_type(&data, encoding, byte_size.unwrap()))))
-    }
 }
 
