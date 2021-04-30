@@ -1,7 +1,9 @@
 use super::{
     attributes,
     Debugger,
-    eval_base_type,
+    value::{
+        BaseValue,
+    },
 };
 
 
@@ -20,14 +22,6 @@ use anyhow::{
 
 
 use probe_rs::MemoryInterface;
-
-
-// TODO
-#[derive(Debug, PartialEq)]
-pub enum NewArrayDimension {
-    EnumerationType(gimli::UnitOffset),
-    SubrangeType(gimli::UnitOffset),
-}
 
 
 // TODO: piece evaluator state.
@@ -226,7 +220,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             Location::Empty                                         => Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
             Location::Register        { register }                  => self.eval_register(register),
             Location::Address         { address }                   => self.eval_address(address, byte_size, data_offset, encoding.unwrap()),
-            Location::Value           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value_new(value)))),
+            Location::Value           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value(value)))),
             Location::Bytes           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(value))),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
         };
@@ -238,7 +232,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          ) -> Option<ReturnResult<R>>
     {
         match self.registers.get(&register.0) {
-            Some(val) => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::BaseValue::U32(*val)))), // TODO: Mask the important bits?
+            Some(val) => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U32(*val)))), // TODO: Mask the important bits?
             None    => Some(ReturnResult::Required(EvaluatorResult::RequireReg(register.0))),
         }
     }
@@ -408,7 +402,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
         
         let count = match array_len_result {
-            ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
+            ReturnResult::Value(val) => super::value::get_udata(val.to_value().unwrap()),
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
         } as usize;
 
@@ -436,7 +430,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         
 
         //self.stack.pop();
-        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::NewArrayValue {values: partial_array.values})))))
+        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::ArrayValue {values: partial_array.values})))))
     }
 
 
@@ -468,7 +462,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                     });
 
-                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::NewStructValue {
+                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
                         name:       name,
                         members:    members,
                     })))));
@@ -492,7 +486,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             members.push(member);
         }
 
-        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::NewStructValue {
+        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
             name:       name,
             members:    members,
         })))));
@@ -539,7 +533,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let name = attributes::name_attribute(dwarf, die).unwrap();
 
-        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Union(Box::new(super::value::NewUnionValue {
+        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Union(Box::new(super::value::UnionValue {
             name:       name,
             members:    members,
         })))));
@@ -573,7 +567,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
         };
 
-        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::NewMemberValue{
+        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue{
             name:   name,
             value:  value
         })))))
@@ -601,7 +595,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
         };
-        let value = super::value::get_udata_new(type_result.to_value().unwrap());
+        let value = super::value::get_udata(type_result.to_value().unwrap());
 
         let children = get_children(unit, die);
 
@@ -616,7 +610,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         
                         let e_name = attributes::name_attribute(dwarf, &c_die).unwrap(); 
         
-                        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue {
+                        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                             name:   name,
                             value:  super::value::EvaluatorValue::Name(e_name),
                         })))));
@@ -644,7 +638,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         match attributes::count_attribute(die) {
-            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::BaseValue::U64(val))))),
+            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val))))),
             None        => (),
         };
 
@@ -690,7 +684,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match &member {
             Some    (member)   => {
                 let variant = match self.eval_member(dwarf, unit, member, data_offset)?.unwrap() {
-                    ReturnResult::Value(val) => super::value::get_udata_new(val.to_value().unwrap()),
+                    ReturnResult::Value(val) => super::value::get_udata(val.to_value().unwrap()),
                     ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                 };
 
@@ -699,13 +693,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     let discr_value = attributes::discr_value_attribute(v).unwrap();
 
                     if discr_value == variant {
-
                         return self.eval_variant(dwarf, unit, v, data_offset);
-
-                        //return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue{
-                        //    name:   v.member.name.clone().unwrap(),
-                        //    value:  self.eval_member(core, pieces, index, data_offset, &v.member)?.unwrap(),
-                        //}))));
                     }
                 }
                 unimplemented!();
@@ -740,7 +728,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     };
                     let name = attributes::name_attribute(dwarf, &c_die).unwrap();
 
-                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::NewEnumValue {
+                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                         name:   name,
                         value:  value,
                     })))));
@@ -767,5 +755,80 @@ fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
     }
     
     result
+}
+
+
+pub fn eval_base_type(data:         &[u32],
+                      encoding:     DwAte,
+                      byte_size:    u64
+                      ) -> BaseValue
+{
+    if byte_size == 0 {
+        panic!("expected byte size to be larger then 0");
+    }
+
+    let value = slize_as_u64(data);
+    match (encoding, byte_size) { 
+        (DwAte(7), 1) => BaseValue::U8(value as u8),       // (unsigned, 8)
+        (DwAte(7), 2) => BaseValue::U16(value as u16),     // (unsigned, 16)
+        (DwAte(7), 4) => BaseValue::U32(value as u32),     // (unsigned, 32)
+        (DwAte(7), 8) => BaseValue::U64(value),            // (unsigned, 64)
+        
+        (DwAte(5), 1) => BaseValue::I8(value as i8),       // (signed, 8)
+        (DwAte(5), 2) => BaseValue::I16(value as i16),     // (signed, 16)
+        (DwAte(5), 4) => BaseValue::I32(value as i32),     // (signed, 32)
+        (DwAte(5), 8) => BaseValue::I64(value as i64),     // (signed, 64)
+
+        (DwAte(2), 1) => BaseValue::Generic((value as u8) as u64), // Should be returned as bool?
+        (DwAte(1), 4) => BaseValue::Address32(value as u32),
+        _ => {
+            //println!("{:?}, {:?}", encoding, byte_size);
+            unimplemented!()
+        },
+    }
+}
+
+
+pub fn slize_as_u64(data: &[u32]) -> u64
+{
+    // TODO: Take account to what endian it is
+    // TODO: Check and test if correct
+    if data.len() < 2 {
+        return data[0] as u64;
+    }
+    if data.len() > 2 {
+        panic!("To big value");
+    }
+    return ((data[0] as u64)<< 32) + (data[1] as u64);
+}
+
+
+pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
+                      data:         &[u32],
+                      base_type:    gimli::UnitOffset<usize>
+                      ) -> BaseValue
+                      where R: Reader<Offset = usize>
+{
+    if base_type.0 == 0 {
+        return BaseValue::Generic(slize_as_u64(data));
+    }
+    let die = unit.entry(base_type).unwrap();
+
+    // I think that the die returned must be a base type tag.
+    if die.tag() != gimli::DW_TAG_base_type {
+        println!("{:?}", die.tag().static_string());
+        panic!("die tag not base type");
+    }
+
+    let encoding = match die.attr_value(gimli::DW_AT_encoding) {
+        Ok(Some(gimli::AttributeValue::Encoding(dwate))) => dwate,
+        _ => panic!("expected Encoding"),
+    };
+    let byte_size = match die.attr_value(gimli::DW_AT_byte_size) {
+        Ok(Some(gimli::AttributeValue::Udata(v))) => v,
+        _ => panic!("expected Udata"),
+    };
+    
+    eval_base_type(data, encoding, byte_size)
 }
 

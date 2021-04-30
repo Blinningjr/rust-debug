@@ -47,13 +47,18 @@ use gimli::{
 
 pub use value::{
     EvaluatorValue,
-    NewStructValue,
-    NewEnumValue,
-    NewMemberValue,
-    NewUnionValue,
-    NewArrayValue,
-    convert_to_gimli_value_new,
+    StructValue,
+    EnumValue,
+    MemberValue,
+    UnionValue,
+    ArrayValue,
+    convert_to_gimli_value,
     BaseValue,
+};
+
+use evaluate::{
+    eval_base_type,
+    parse_base_type,
 };
 
 
@@ -119,7 +124,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(convert_to_gimli_value_new(self.evaluate(core,
+                  result = eval.resume_with_entry_value(convert_to_gimli_value(self.evaluate(core,
                                                                       unit,
                                                                       pc,
                                                                       e,
@@ -148,7 +153,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     result = eval.resume_with_indexed_address(self.dwarf.address(unit, index)?)?,
 
                 RequiresBaseType(unit_offset) => // TODO: Check and test if correct
-                    result = eval.resume_with_base_type(convert_to_gimli_value_new(parse_base_type(unit, &[0], unit_offset)).value_type())?,
+                    result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)).value_type())?,
             };
         }
     
@@ -196,7 +201,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
         core.read_32(address as u32, &mut data)?;
         let value = parse_base_type(unit, &data, base_type);
-        *result = eval.resume_with_memory(convert_to_gimli_value_new(value))?;    
+        *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
 
         Ok(())
         // TODO: Mask the relevant bits?
@@ -219,7 +224,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     {
         let data    = core.read_core_reg(reg.0)?;
         let value   = parse_base_type(unit, &[data], base_type);
-        *result     = eval.resume_with_register(convert_to_gimli_value_new(value))?;    
+        *result     = eval.resume_with_register(convert_to_gimli_value(value))?;    
 
         Ok(())
     }
@@ -284,76 +289,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
 }
 
 
-fn parse_base_type<R>(unit:         &Unit<R>,
-                      data:         &[u32],
-                      base_type:    UnitOffset<usize>
-                      ) -> BaseValue
-                      where R: Reader<Offset = usize>
-{
-    if base_type.0 == 0 {
-        return BaseValue::Generic(slize_as_u64(data));
-    }
-    let die = unit.entry(base_type).unwrap();
-
-    // I think that the die returned must be a base type tag.
-    if die.tag() != gimli::DW_TAG_base_type {
-        println!("{:?}", die.tag().static_string());
-        panic!("die tag not base type");
-    }
-
-    let encoding = match die.attr_value(gimli::DW_AT_encoding) {
-        Ok(Some(Encoding(dwate))) => dwate,
-        _ => panic!("expected Encoding"),
-    };
-    let byte_size = match die.attr_value(gimli::DW_AT_byte_size) {
-        Ok(Some(Udata(v))) => v,
-        _ => panic!("expected Udata"),
-    };
-    
-    eval_base_type(data, encoding, byte_size)
-}
 
 
-pub fn eval_base_type(data:         &[u32],
-                      encoding:     DwAte,
-                      byte_size:    u64
-                      ) -> BaseValue
-{
-    if byte_size == 0 {
-        panic!("expected byte size to be larger then 0");
-    }
 
-    let value = slize_as_u64(data);
-    match (encoding, byte_size) { 
-        (DwAte(7), 1) => BaseValue::U8(value as u8),       // (unsigned, 8)
-        (DwAte(7), 2) => BaseValue::U16(value as u16),     // (unsigned, 16)
-        (DwAte(7), 4) => BaseValue::U32(value as u32),     // (unsigned, 32)
-        (DwAte(7), 8) => BaseValue::U64(value),            // (unsigned, 64)
-        
-        (DwAte(5), 1) => BaseValue::I8(value as i8),       // (signed, 8)
-        (DwAte(5), 2) => BaseValue::I16(value as i16),     // (signed, 16)
-        (DwAte(5), 4) => BaseValue::I32(value as i32),     // (signed, 32)
-        (DwAte(5), 8) => BaseValue::I64(value as i64),     // (signed, 64)
-
-        (DwAte(2), 1) => BaseValue::Generic((value as u8) as u64), // Should be returned as bool?
-        (DwAte(1), 4) => BaseValue::Address32(value as u32),
-        _ => {
-            //println!("{:?}, {:?}", encoding, byte_size);
-            unimplemented!()
-        },
-    }
-}
-
-fn slize_as_u64(data: &[u32]) -> u64
-{
-    // TODO: Take account to what endian it is
-    // TODO: Check and test if correct
-    if data.len() < 2 {
-        return data[0] as u64;
-    }
-    if data.len() > 2 {
-        panic!("To big value");
-    }
-    return ((data[0] as u64)<< 32) + (data[1] as u64);
-}
 

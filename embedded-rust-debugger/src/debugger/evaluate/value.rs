@@ -45,11 +45,11 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     Value(BaseValue),
     Bytes(R),
     
-    Array(Box<NewArrayValue<R>>),
-    Struct(Box<NewStructValue<R>>),
-    Enum(Box<NewEnumValue<R>>),
-    Union(Box<NewUnionValue<R>>),
-    Member(Box<NewMemberValue<R>>),
+    Array(Box<ArrayValue<R>>),
+    Struct(Box<StructValue<R>>),
+    Enum(Box<EnumValue<R>>),
+    Union(Box<UnionValue<R>>),
+    Member(Box<MemberValue<R>>),
     Name(String),
 
     OutOfRange,     // NOTE: Variable does not have a value currently.
@@ -88,7 +88,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 }
 
 
-pub fn get_udata_new(value: BaseValue) -> u64 {
+pub fn get_udata(value: BaseValue) -> u64 {
     match value {
        BaseValue::U8        (v) => v as u64,
        BaseValue::U16       (v) => v as u64,
@@ -99,7 +99,7 @@ pub fn get_udata_new(value: BaseValue) -> u64 {
     }
 }
 
-fn format_values_new<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
+fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
     let len = values.len(); 
     if len == 0 {
         return "".to_string();
@@ -117,59 +117,59 @@ fn format_values_new<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>)
 
 
 #[derive(Debug, Clone)]
-pub struct NewArrayValue<R: Reader<Offset = usize>> {
+pub struct ArrayValue<R: Reader<Offset = usize>> {
     pub values:  Vec<EvaluatorValue<R>>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for NewArrayValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for ArrayValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[ {} ]", format_values_new(&self.values))
+        write!(f, "[ {} ]", format_values(&self.values))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NewStructValue<R: Reader<Offset = usize>> {
+pub struct StructValue<R: Reader<Offset = usize>> {
     pub name:       String,
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for NewStructValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for StructValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {{ {} }}", self.name, format_values_new(&self.members))
+        write!(f, "{} {{ {} }}", self.name, format_values(&self.members))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NewEnumValue<R: Reader<Offset = usize>> {
+pub struct EnumValue<R: Reader<Offset = usize>> {
     pub name:   String,
     pub value: EvaluatorValue<R>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for NewEnumValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for EnumValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}::{}", self.name, self.value)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NewUnionValue<R: Reader<Offset = usize>> {
+pub struct UnionValue<R: Reader<Offset = usize>> {
     pub name:       String,
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for NewUnionValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for UnionValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} ( {} )", self.name, format_values_new(&self.members))
+        write!(f, "{} ( {} )", self.name, format_values(&self.members))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NewMemberValue<R: Reader<Offset = usize>> {
+pub struct MemberValue<R: Reader<Offset = usize>> {
     pub name:   Option<String>,
     pub value:  EvaluatorValue<R>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for NewMemberValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for MemberValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match &self.name {
             Some(name)  => write!(f, "{}::{}", name, self.value),
@@ -221,7 +221,7 @@ impl fmt::Display for BaseValue {
 
 
 
-pub fn convert_to_gimli_value_new(value: BaseValue) -> gimli::Value {
+pub fn convert_to_gimli_value(value: BaseValue) -> gimli::Value {
     match value {
         BaseValue::Generic      (val)   => gimli::Value::Generic(val),
         BaseValue::I8           (val)   => gimli::Value::I8(val),
@@ -239,7 +239,7 @@ pub fn convert_to_gimli_value_new(value: BaseValue) -> gimli::Value {
 }
 
 
-pub fn convert_from_gimli_value_new(value: gimli::Value) -> BaseValue {
+pub fn convert_from_gimli_value(value: gimli::Value) -> BaseValue {
     match value {
         gimli::Value::Generic  (val)   => BaseValue::Generic(val),
         gimli::Value::I8       (val)   => BaseValue::I8(val),
