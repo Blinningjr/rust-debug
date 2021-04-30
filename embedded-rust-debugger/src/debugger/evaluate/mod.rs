@@ -46,14 +46,14 @@ use gimli::{
 };
 
 pub use value::{
-    DebuggerValue,
-    StructValue,
-    EnumValue,
-    MemberValue,
-    UnionValue,
-    ArrayValue,
-    convert_to_gimli_value,
-    Value,
+    EvaluatorValue,
+    NewStructValue,
+    NewEnumValue,
+    NewMemberValue,
+    NewUnionValue,
+    NewArrayValue,
+    convert_to_gimli_value_new,
+    BaseValue,
 };
 
 
@@ -72,7 +72,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     frame_base: Option<u64>,
                     vtype:      Option<&DebuggerType>,
                     type_die:   Option<(&gimli::Unit<R>, &gimli::DebuggingInformationEntry<'_, '_, R>)>
-                    ) -> Result<DebuggerValue<R>>
+                    ) -> Result<EvaluatorValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate()?;
@@ -119,7 +119,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                                                       die_ref)?,
 
                 RequiresEntryValue(e) =>
-                  result = eval.resume_with_entry_value(convert_to_gimli_value(self.evaluate(core,
+                  result = eval.resume_with_entry_value(convert_to_gimli_value_new(self.evaluate(core,
                                                                       unit,
                                                                       pc,
                                                                       e,
@@ -135,7 +135,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                         let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
                         let value   = self.evaluate(core, unit, pc, expr, frame_base, Some(&dtype), Some((type_die.unwrap().0, &die)))?;
 
-                        if let DebuggerValue::Value(Value::U64(val)) = value {
+                        if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val)?;
                         } else {
                             return Err(anyhow!("could not find parameter"));
@@ -149,14 +149,15 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     result = eval.resume_with_indexed_address(self.dwarf.address(unit, index)?)?,
 
                 RequiresBaseType(unit_offset) => // TODO: Check and test if correct
-                    result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)).value_type())?,
+                    result = eval.resume_with_base_type(convert_to_gimli_value_new(parse_base_type(unit, &[0], unit_offset)).value_type())?,
             };
         }
     
         //println!("Type: {:#?}", vtype);
         let mut pieces = eval.result();
 
-        match type_die {
+        println!("{:#?}", pieces);
+        let value = match type_die {
             Some((unit, die)) => {
                 let mut evaluator = evaluate::Evaluator::new(pieces.clone(), unit, die);
                 loop {
@@ -173,19 +174,13 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                         },
                     };
                 }
-                println!("Evaluator: {}", evaluator.get_value().unwrap());
+                evaluator.get_value()
             },
-            None => (),
+            None => self.eval_piece(core, pieces.remove(0), None, 0, None)?,
         };
 
-
-        println!("{:#?}", pieces);
-        let value =  match vtype {
-            Some(t) => self.eval_type(core, &mut pieces, &mut 0, 0, t),
-            None => self.eval_piece(core, pieces.remove(0), None, 0, None),
-        };
 //        println!("Value: {:#?}", value);
-        Ok(value?.unwrap())
+        Ok(value.unwrap())
     }
 
 
@@ -208,7 +203,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
         core.read_32(address as u32, &mut data)?;
         let value = parse_base_type(unit, &data, base_type);
-        *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
+        *result = eval.resume_with_memory(convert_to_gimli_value_new(value))?;    
 
         Ok(())
         // TODO: Mask the relevant bits?
@@ -231,7 +226,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     {
         let data    = core.read_core_reg(reg.0)?;
         let value   = parse_base_type(unit, &[data], base_type);
-        *result     = eval.resume_with_register(convert_to_gimli_value(value))?;    
+        *result     = eval.resume_with_register(convert_to_gimli_value_new(value))?;    
 
         Ok(())
     }
@@ -283,7 +278,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
             let dtype   = self.type_attribute(unit, pc, &die).unwrap();
             let val     = self.call_evaluate(core, &unit, pc, expr, frame_base, Some(&dtype), &unit, &die)?;
 
-            if let DebuggerValue::Bytes(b) = val {
+            if let EvaluatorValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b)?;
                return Ok(());
             } else {
@@ -300,11 +295,11 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
 fn parse_base_type<R>(unit:         &Unit<R>,
                       data:         &[u32],
                       base_type:    UnitOffset<usize>
-                      ) -> Value
+                      ) -> BaseValue
                       where R: Reader<Offset = usize>
 {
     if base_type.0 == 0 {
-        return Value::Generic(slize_as_u64(data));
+        return BaseValue::Generic(slize_as_u64(data));
     }
     let die = unit.entry(base_type).unwrap();
 
@@ -330,7 +325,7 @@ fn parse_base_type<R>(unit:         &Unit<R>,
 pub fn eval_base_type(data:         &[u32],
                       encoding:     DwAte,
                       byte_size:    u64
-                      ) -> Value
+                      ) -> BaseValue
 {
     if byte_size == 0 {
         panic!("expected byte size to be larger then 0");
@@ -338,18 +333,18 @@ pub fn eval_base_type(data:         &[u32],
 
     let value = slize_as_u64(data);
     match (encoding, byte_size) { 
-        (DwAte(7), 1) => Value::U8(value as u8),       // (unsigned, 8)
-        (DwAte(7), 2) => Value::U16(value as u16),     // (unsigned, 16)
-        (DwAte(7), 4) => Value::U32(value as u32),     // (unsigned, 32)
-        (DwAte(7), 8) => Value::U64(value),            // (unsigned, 64)
+        (DwAte(7), 1) => BaseValue::U8(value as u8),       // (unsigned, 8)
+        (DwAte(7), 2) => BaseValue::U16(value as u16),     // (unsigned, 16)
+        (DwAte(7), 4) => BaseValue::U32(value as u32),     // (unsigned, 32)
+        (DwAte(7), 8) => BaseValue::U64(value),            // (unsigned, 64)
         
-        (DwAte(5), 1) => Value::I8(value as i8),       // (signed, 8)
-        (DwAte(5), 2) => Value::I16(value as i16),     // (signed, 16)
-        (DwAte(5), 4) => Value::I32(value as i32),     // (signed, 32)
-        (DwAte(5), 8) => Value::I64(value as i64),     // (signed, 64)
+        (DwAte(5), 1) => BaseValue::I8(value as i8),       // (signed, 8)
+        (DwAte(5), 2) => BaseValue::I16(value as i16),     // (signed, 16)
+        (DwAte(5), 4) => BaseValue::I32(value as i32),     // (signed, 32)
+        (DwAte(5), 8) => BaseValue::I64(value as i64),     // (signed, 64)
 
-        (DwAte(2), 1) => Value::Generic((value as u8) as u64), // Should be returned as bool?
-        (DwAte(1), 4) => Value::Address32(value as u32),
+        (DwAte(2), 1) => BaseValue::Generic((value as u8) as u64), // Should be returned as bool?
+        (DwAte(1), 4) => BaseValue::Address32(value as u32),
         _ => {
             println!("{:?}, {:?}", encoding, byte_size);
             unimplemented!()

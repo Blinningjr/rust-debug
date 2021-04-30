@@ -15,8 +15,8 @@ use crate::debugger::types::DebuggerType;
 
 
 use evaluate::value::{
-    DebuggerValue,
-    Value,
+    EvaluatorValue,
+    BaseValue,
 };
 
 
@@ -301,7 +301,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                          search:    &str
-                         ) -> Result<DebuggerValue<R>>
+                         ) -> Result<EvaluatorValue<R>>
     {
         let mut tree    = unit.entries_tree(None)?;
         let root        = tree.root()?;
@@ -323,7 +323,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                         node:           EntriesTreeNode<R>,
                         mut frame_base: Option<u64>,
                         search:         &str
-                        ) -> Result<Option<DebuggerValue<R>>>
+                        ) -> Result<Option<EvaluatorValue<R>>>
     {
         let die = node.entry();
 
@@ -435,7 +435,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
 
                     unit:     &Unit<R>,
                     die: &DebuggingInformationEntry<R>
-                    ) -> Result<DebuggerValue<R>>
+                    ) -> Result<EvaluatorValue<R>>
     {
         if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
             match die.attr_value(gimli::DW_AT_type)? {
@@ -480,7 +480,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                      die:               &DebuggingInformationEntry<R>,
                      dtype:             &DebuggerType,
                      frame_base:        Option<u64>
-                     ) -> Result<Option<DebuggerValue<R>>> 
+                     ) -> Result<Option<EvaluatorValue<R>>> 
     {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
@@ -505,7 +505,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     }
                 }
 
-                return Ok(Some(DebuggerValue::OutOfRange));
+                return Ok(Some(EvaluatorValue::OutOfRange));
             },
             None => return Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
             Some(v) => {
@@ -527,8 +527,8 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
                 return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None) {
-                    Ok(DebuggerValue::Value(Value::U64(v))) => Some(v),
-                    Ok(DebuggerValue::Value(Value::U32(v))) => Some(v as u64),
+                    Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
+                    Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
                     Ok(v) => {
                         println!("{:?}", v);
                         unimplemented!()
