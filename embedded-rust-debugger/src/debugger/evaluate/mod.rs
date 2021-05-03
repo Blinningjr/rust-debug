@@ -1,5 +1,6 @@
 pub mod value;
 pub mod evaluate;
+pub mod attributes;
 
 use super::{
     Debugger,
@@ -45,14 +46,19 @@ use gimli::{
 };
 
 pub use value::{
-    DebuggerValue,
+    EvaluatorValue,
     StructValue,
     EnumValue,
     MemberValue,
     UnionValue,
     ArrayValue,
     convert_to_gimli_value,
-    Value,
+    BaseValue,
+};
+
+use evaluate::{
+    eval_base_type,
+    parse_base_type,
 };
 
 
@@ -69,15 +75,16 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                     pc:         u32,
                     expr:       Expression<R>,
                     frame_base: Option<u64>,
-                    vtype:      Option<&DebuggerType>,
-                    ) -> Result<DebuggerValue<R>>
+                    type_unit:  Option<&gimli::Unit<R>>,
+                    type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>
+                    ) -> Result<EvaluatorValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate()?;
     
         //println!("fb: {:?}", frame_base);
         loop {
-            println!("{:#?}", result);
+            //println!("{:#?}", result);
             match result {
                 Complete => break,
                 RequiresMemory{address, size, space, base_type} =>
@@ -122,17 +129,17 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                                                                       pc,
                                                                       e,
                                                                       frame_base, 
+                                                                      None,
                                                                       None
                                                                       )?.to_value().unwrap()))?,
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die     = unit.entry(unit_offset)?;
-                        let dtype   = self.type_attribute(unit, pc, &die).unwrap();
                         let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(core, unit, pc, expr, frame_base, Some(&dtype))?;
+                        let value   = self.evaluate(core, unit, pc, expr, frame_base, type_unit, Some(&die))?;
 
-                        if let DebuggerValue::Value(Value::U64(val)) = value {
+                        if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val)?;
                         } else {
                             return Err(anyhow!("could not find parameter"));
@@ -150,15 +157,28 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
             };
         }
     
-        //println!("Type: {:#?}", vtype);
         let mut pieces = eval.result();
         println!("{:#?}", pieces);
-        let value =  match vtype {
-            Some(t) => self.eval_type(core, &mut pieces, &mut 0, 0, t),
-            None => self.eval_piece(core, pieces.remove(0), None, 0, None),
-        };
-        //println!("Value: {:#?}", value);
-        Ok(value?.unwrap())
+
+        let mut evaluator = evaluate::Evaluator::new(&self.dwarf, pieces.clone(), type_unit, type_die);
+        loop {
+            match evaluator.evaluate(&self.dwarf) {
+                evaluate::EvaluatorResult::Complete => break,
+                evaluate::EvaluatorResult::RequireReg(reg) => {
+                    let data = core.read_core_reg(reg)?;
+                    evaluator.add_register(reg, data);
+                },
+                evaluate::EvaluatorResult::RequireData {address, num_words} => {
+                    let mut data: [u32; 1] = [0];
+                    core.read_32(address as u32, &mut data)?;
+                    evaluator.add_address(address, data[0]);
+                },
+            };
+        }
+        let value = evaluator.get_value();
+
+//        println!("Value: {:#?}", value);
+        Ok(value.unwrap())
     }
 
 
@@ -253,10 +273,9 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         let die = unit.entry(unit_offset)?;
         if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
             
-            let dtype   = self.type_attribute(unit, pc, &die).unwrap();
-            let val     = self.evaluate(core, &unit, pc, expr, frame_base, Some(&dtype))?;
+            let val = self.call_evaluate(core, &unit, pc, expr, frame_base, &unit, &die)?;
 
-            if let DebuggerValue::Bytes(b) = val {
+            if let EvaluatorValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b)?;
                return Ok(());
             } else {
@@ -270,76 +289,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
 }
 
 
-fn parse_base_type<R>(unit:         &Unit<R>,
-                      data:         &[u32],
-                      base_type:    UnitOffset<usize>
-                      ) -> Value
-                      where R: Reader<Offset = usize>
-{
-    if base_type.0 == 0 {
-        return Value::Generic(slize_as_u64(data));
-    }
-    let die = unit.entry(base_type).unwrap();
-
-    // I think that the die returned must be a base type tag.
-    if die.tag() != gimli::DW_TAG_base_type {
-        println!("{:?}", die.tag().static_string());
-        panic!("die tag not base type");
-    }
-
-    let encoding = match die.attr_value(gimli::DW_AT_encoding) {
-        Ok(Some(Encoding(dwate))) => dwate,
-        _ => panic!("expected Encoding"),
-    };
-    let byte_size = match die.attr_value(gimli::DW_AT_byte_size) {
-        Ok(Some(Udata(v))) => v,
-        _ => panic!("expected Udata"),
-    };
-    
-    eval_base_type(data, encoding, byte_size)
-}
 
 
-pub fn eval_base_type(data:         &[u32],
-                      encoding:     DwAte,
-                      byte_size:    u64
-                      ) -> Value
-{
-    if byte_size == 0 {
-        panic!("expected byte size to be larger then 0");
-    }
 
-    let value = slize_as_u64(data);
-    match (encoding, byte_size) { 
-        (DwAte(7), 1) => Value::U8(value as u8),       // (unsigned, 8)
-        (DwAte(7), 2) => Value::U16(value as u16),     // (unsigned, 16)
-        (DwAte(7), 4) => Value::U32(value as u32),     // (unsigned, 32)
-        (DwAte(7), 8) => Value::U64(value),            // (unsigned, 64)
-        
-        (DwAte(5), 1) => Value::I8(value as i8),       // (signed, 8)
-        (DwAte(5), 2) => Value::I16(value as i16),     // (signed, 16)
-        (DwAte(5), 4) => Value::I32(value as i32),     // (signed, 32)
-        (DwAte(5), 8) => Value::I64(value as i64),     // (signed, 64)
-
-        (DwAte(2), 1) => Value::Generic((value as u8) as u64), // Should be returned as bool?
-        (DwAte(1), 4) => Value::Address32(value as u32),
-        _ => {
-            println!("{:?}, {:?}", encoding, byte_size);
-            unimplemented!()
-        },
-    }
-}
-
-fn slize_as_u64(data: &[u32]) -> u64
-{
-    // TODO: Take account to what endian it is
-    // TODO: Check and test if correct
-    if data.len() < 2 {
-        return data[0] as u64;
-    }
-    if data.len() > 2 {
-        panic!("To big value");
-    }
-    return ((data[0] as u64)<< 32) + (data[1] as u64);
-}
 

@@ -15,8 +15,8 @@ use crate::debugger::types::DebuggerType;
 
 
 use evaluate::value::{
-    DebuggerValue,
-    Value,
+    EvaluatorValue,
+    BaseValue,
 };
 
 
@@ -301,7 +301,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                          unit:      &Unit<R>,
                          pc:        u32,
                          search:    &str
-                         ) -> Result<DebuggerValue<R>>
+                         ) -> Result<EvaluatorValue<R>>
     {
         let mut tree    = unit.entries_tree(None)?;
         let root        = tree.root()?;
@@ -323,7 +323,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                         node:           EntriesTreeNode<R>,
                         mut frame_base: Option<u64>,
                         search:         &str
-                        ) -> Result<Option<DebuggerValue<R>>>
+                        ) -> Result<Option<EvaluatorValue<R>>>
     {
         let die = node.entry();
 
@@ -337,11 +337,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
 
         // Check for the searched vairable.
         if self.check_var_name(unit, pc, &die, search) {
-            //println!("\n");
-            //self.print_die(&die)?;
-            let dtype = self.get_var_type(unit, pc, &die).unwrap();
-            println!("{:#?}", dtype);
-            match self.eval_location(core, unit, pc, &die, &dtype, frame_base) {
+            match self.eval_location(core, unit, pc, &die, frame_base) {
                 Ok(v) => return Ok(v),
                 Err(_) => (),
             };
@@ -425,20 +421,65 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     }
 
 
+    fn call_evaluate(&mut self,
+                    core:       &mut probe_rs::Core,
+                    nunit:      &Unit<R>,
+                    pc:         u32,
+                    expr:       gimli::Expression<R>,
+                    frame_base: Option<u64>,
+                    unit:     &Unit<R>,
+                    die: &DebuggingInformationEntry<R>
+                    ) -> Result<EvaluatorValue<R>>
+    {
+        if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
+            match die.attr_value(gimli::DW_AT_type)? {
+                Some(gimli::AttributeValue::UnitRef(offset)) => {
+                    let die = unit.entry(offset)?;
+                    return self.evaluate(core, nunit, pc, expr, frame_base, Some(unit), Some(&die));
+                },
+                Some(gimli::AttributeValue::DebugInfoRef(di_offset)) => {
+                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                    let mut iter = self.dwarf.debug_info.units();
+                    while let Ok(Some(header)) = iter.next() {
+                        let unit = self.dwarf.unit(header).unwrap();
+                        if let Some(offset) = offset.to_unit_offset(&unit) {
+                            let die = unit.entry(offset)?;
+                            return self.evaluate(core, nunit, pc, expr, frame_base, Some(&unit), Some(&die));
+                        }
+                    }
+                    return Err(anyhow!(""));
+                },
+                _ => return Err(anyhow!("")),
+            };
+        } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            match die_offset {
+                UnitRef(offset) => {
+                    if let Ok(ndie) = unit.entry(offset) {
+                        return self.call_evaluate(core, nunit, pc, expr, frame_base, unit, &ndie);
+                    }
+                },
+                _ => {
+                    println!("{:?}", die_offset);
+                    unimplemented!();
+                },
+            };
+        }
+        return Err(anyhow!(""));
+    }
+
     fn eval_location(&mut self,
                      core:              &mut probe_rs::Core,
                      unit:              &Unit<R>,
                      pc:                u32,
                      die:               &DebuggingInformationEntry<R>,
-                     dtype:             &DebuggerType,
                      frame_base:        Option<u64>
-                     ) -> Result<Option<DebuggerValue<R>>> 
+                     ) -> Result<Option<EvaluatorValue<R>>> 
     {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 self.print_die(&die)?;
-                let value = self.evaluate(core, unit, pc, expr, frame_base, Some(dtype))?;
+                let value = self.call_evaluate(core, unit, pc, expr, frame_base, unit, die)?;
                 println!("\n");
 
                 return Ok(Some(value));
@@ -447,17 +488,13 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
                 self.print_die(&die)?;
                 let mut locations = self.dwarf.locations(unit, offset)?;
                 while let Some(llent) = locations.next()? {
-                    //let value = self.evaluate(unit, llent.data, frame_base, Some(&dtype)).unwrap();
-                    //println!("\n");
                     if in_range(pc, &llent.range) {
-                        let value = self.evaluate(core, unit, pc, llent.data, frame_base, Some(dtype))?;
-                        println!("\n");
-
+                        let value = self.call_evaluate(core, unit, pc, llent.data, frame_base, unit, die)?;
                         return Ok(Some(value));
                     }
                 }
 
-                return Ok(Some(DebuggerValue::OutOfRange));
+                return Ok(Some(EvaluatorValue::OutOfRange));
             },
             None => return Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
             Some(v) => {
@@ -478,9 +515,9 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None) {
-                    Ok(DebuggerValue::Value(Value::U64(v))) => Some(v),
-                    Ok(DebuggerValue::Value(Value::U32(v))) => Some(v as u64),
+                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None) {
+                    Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
+                    Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
                     Ok(v) => {
                         println!("{:?}", v);
                         unimplemented!()
