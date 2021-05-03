@@ -27,7 +27,9 @@ use anyhow::{
 use probe_rs::MemoryInterface;
 
 
-// TODO: piece evaluator state.
+/*
+ * The state of a partially evaluated type.
+ */
 struct EvaluatorState<R: Reader<Offset = usize>> {
     pub unit_offset:    gimli::UnitSectionOffset,
     pub die_offset:     gimli::UnitOffset,
@@ -71,19 +73,31 @@ impl<R: Reader<Offset = usize>> EvaluatorState<R> {
 }
 
 
+/*
+ * The result of the evaluation.
+ */
 pub enum EvaluatorResult {
+    // Evaluator has evaluated the type into a value.
     Complete,
+    // Evaluator requires the value of a register.
     RequireReg(u16),
+    // Evaluator requires the value of a address.
     RequireData {address: u32, num_words: usize},
 }
 
 
+/*
+ * Internal result struct that show if a value is reached or if a value is required.
+ */
 pub enum ReturnResult<R: Reader<Offset = usize>> {
     Value(super::value::EvaluatorValue<R>),
     Required(EvaluatorResult),
 }
 
 
+/*
+ * Evaluates the value of a type given Dwarf pieces.
+ */
 pub struct Evaluator<R: Reader<Offset = usize>> {
     pieces:         Vec<Piece<R>>,
     piece_index:    usize,
@@ -101,6 +115,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                die:     Option<&gimli::DebuggingInformationEntry<'_, '_, R>>
                ) -> Evaluator<R>
     {
+        // If no unit and die is given then the first piece will be evaluated.
         let stack = match unit {
             Some(u) => {
                 match die {
@@ -130,8 +145,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>) -> EvaluatorResult {
-        println!("stack len: {}", self.stack.len());
+        // If the value has already been evaluated then don't evaluated it again.
+        if self.result.is_some() {
+            return EvaluatorResult::Complete;
+        }
 
+        // If the stack is empty then the first piece will be evaluated.
         if self.stack.len() == 0 {
             match self.eval_piece(self.pieces[0].clone(), None, 0, None).unwrap() {
                 ReturnResult::Value(val) => {
@@ -142,15 +161,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         } 
 
+        // Loop through the stack until it is empty because then the value is found.
         let mut result = None;
         loop {
+            // If the stack is empty then the current result should be correct value.
             if self.stack.len() == 0 {
                 self.result = result;
                 return EvaluatorResult::Complete;
             }
 
+            // Get the current state.
             let state = &self.stack[self.stack.len() - 1];
-            
+        
+            // Get the unit of the current state.
             let unit = match state.unit_offset {
                 gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
                     let header = dwarf.debug_info.header_from_offset(offset).unwrap();
@@ -169,8 +192,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 },
             };
 
+            // Get the die of the current state.
             let die = &unit.entry(state.die_offset).unwrap();
 
+            // Continue evaluating the value of the current state.
             match self.eval_type(dwarf, &unit, die, state.data_offset, result, false).unwrap().unwrap() {
                 ReturnResult::Value(val) => result = Some(val),
                 ReturnResult::Required(req) => return req,
@@ -179,12 +204,18 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Get the result of the evaluator.
+     */
     pub fn get_value(self) -> Option<super::value::EvaluatorValue<R>> {
         self.result
     }
 
 
-    pub fn get_type_info(&mut self,
+    /*
+     * Helper method for getting the unit and die from the type attribute of the current die.
+     */
+    fn get_type_info(&mut self,
                          dwarf: &gimli::Dwarf<R>,
                          unit:  &gimli::Unit<R>,
                          die:   &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -213,6 +244,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluates the value of a type.
+     */
     pub fn eval_type(&mut self,
                      dwarf:         &gimli::Dwarf<R>,
                      unit:          &gimli::Unit<R>,
@@ -241,6 +275,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a piece.
+     */
     pub fn eval_piece(&mut self,
                       piece:        Piece<R>,
                       byte_size:    Option<u64>,
@@ -259,6 +296,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a register.
+     */
     pub fn eval_register(&mut self,
                          register:  gimli::Register
                          ) -> Option<ReturnResult<R>>
@@ -270,6 +310,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a address.
+     */
     pub fn eval_address(&mut self,
                         mut address:    u64,
                         byte_size:      Option<u64>,
@@ -301,11 +344,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         Some(ReturnResult::Value(
                 super::value::EvaluatorValue::Value(
                     eval_base_type(&data, encoding, byte_size.unwrap()))))
-
-//        Some(ReturnResult::Required(EvaluatorResult::RequireData {address: address as u32, num_words: num_words as usize}))
     }
 
 
+    /*
+     * Evaluates the value of a piece and decides if the piece should be discarded or kept.
+     */
     pub fn handle_eval_piece(&mut self,
                              byte_size:         Option<u64>,
                              mut data_offset:   u64,
@@ -319,7 +363,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if self.pieces.len() > 1 {
             data_offset = 0;
         }
-        
+       
+        // Evaluate the value of the piece.
         let res = self.eval_piece(self.pieces[self.piece_index].clone(),
                                   byte_size,
                                   data_offset,
@@ -352,30 +397,40 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a base type.
+     */
     pub fn eval_basetype(&mut self,
                          unit:          &gimli::Unit<R>,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                          data_offset:   u64
                          ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_base_type.
         match die.tag() {
             gimli::DW_TAG_base_type => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // Get byte size and encoding from the die.
         let byte_size = attributes::byte_size_attribute(die);
         let encoding =  attributes::encoding_attribute(die);
         match byte_size {
+            // If the byte size is 0 then the value is optimized out.
             Some(0) => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize))),
             _       => (),
         };
 
+        // Evaluate the value.
         self.handle_eval_piece(byte_size,
                                data_offset, // TODO
                                encoding)
     }
 
 
+    /*
+     * Evaluate the value of a pointer type.
+     */
     pub fn eval_pointer_type(&mut self,
                              dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
@@ -385,16 +440,21 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              create_state:  bool,
                              ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_array_type.
         match die.tag() {
             gimli::DW_TAG_pointer_type => (),
             _ => panic!("Wrong implementation"),
         };
         
+        // Create a new state if it doesn't already exist.
         if create_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
         }
 
+        // Get the name of the die.
         let name = attributes::name_attribute(dwarf, die);
+
+        // Use already evaluated value.
         match old_result {
             Some(val) => {
                 self.stack.pop();
@@ -403,8 +463,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None => (),
         };
 
+        // Evaluate the pointer type value.
         let address_class = attributes::address_class_attribute(die);
-
         match address_class.unwrap().0 {
             0 => {
                 let res = self.handle_eval_piece(Some(4),
@@ -418,6 +478,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a array type.
+     */
     pub fn eval_array_type(&mut self,
                            dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
@@ -427,23 +490,28 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            new_state:   bool
                            ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_array_type.
         match die.tag() {
             gimli::DW_TAG_array_type => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // Get the index of the current state.
         let mut current_state = self.stack.len() - 1;
 
+        // Create a new state if it doesn't already exist.
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
         } 
 
+        // Get the partial array value from the current state.
         let mut partial_array = match &self.stack[current_state].partial_value {
             super::value::PartialValue::Array   (array) => array.clone(),
-            _ => return Err(anyhow!("Critical Error: expected parital array")),
+            _ => return Err(anyhow!("Critical Error: expected partial array")),
         };
-        
+       
+        // Evaluate the length of the array.
         let count = match partial_array.count {
             Some(val)   => val,
             None        => {
@@ -474,17 +542,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             },
         };
 
-
+        // Add already evaluated value.
         match old_result {
             Some(val) => partial_array.values.push(val),
             None => (),
         };
 
-        let start = partial_array.values.len();
-
+        // Get type attribute unit and die.
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
         let type_die = &type_unit.entry(die_offset)?;
 
+
+        // Evaluate all the values in the array.
+        let start = partial_array.values.len();
         for _i in start..count {
             match self.eval_type(dwarf, &type_unit, type_die, data_offset, None, true)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
                 ReturnResult::Value(val) => partial_array.values.push(val),
@@ -500,6 +570,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a structure type.
+     */
     pub fn eval_structured_type(&mut self,
                                 dwarf:          &gimli::Dwarf<R>,
                                 unit:           &gimli::Unit<R>,
@@ -509,31 +582,37 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                 new_state:      bool
                                 ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_structure_type.
         match die.tag() {
             gimli::DW_TAG_structure_type => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // Get the index of the current state.
         let mut current_state = self.stack.len() - 1;
 
+        // Create a new state if it doesn't already exist.
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
         } 
 
+        // Get the partial struct value from the current state.
         let mut partial_struct = match &self.stack[current_state].partial_value {
             super::value::PartialValue::Struct   (struct_) => struct_.clone(),
             e => panic!("{:?}", e),//return Err(anyhow!("Critical Error: expected partial struct")),
         };
 
+        // Get all the DW_TAG_member dies.
         let children = get_children(unit, die);
-
         let mut member_dies = Vec::new();
         for c in &children {
             let c_die = unit.entry(*c)?;
             match c_die.tag() {
+                // If it is a DW_TAG_variant_part die then it is a enum and only have on value.
                 gimli::DW_TAG_variant_part => {
 
+                    // Get the value.
                     let members = match old_result {
                         Some(val) => vec!(val),
                         None => {
@@ -558,13 +637,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         }
 
+        // Add already evaluated value.
         match old_result {
             Some(val) => partial_struct.members.push(val),
             None => (),
         };
 
+        // Sort the members in the evaluation order.
         member_dies.sort_by_key(|m| m.0);
-        
+
+        // Evaluate all the members.
         let start = partial_struct.members.len();
         for i in start..member_dies.len() {
             let m_die = &member_dies[i].1;
@@ -586,6 +668,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a union type.
+     */
     pub fn eval_union_type(&mut self,
                            dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
@@ -595,25 +680,29 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            new_state:   bool
                            ) -> Result<Option<ReturnResult<R>>>
     { 
+        // Make sure that the die has the tag DW_TAG_union_type.
         match die.tag() {
             gimli::DW_TAG_union_type => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // Get the index of the current state.
         let mut current_state = self.stack.len() - 1;
 
+        // Create a new state if it doesn't already exist.
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
         } 
 
+        // Get the partial union value from the current state.
         let mut partial_union = match &self.stack[current_state].partial_value {
             super::value::PartialValue::Union   (union) => union.clone(),
-            _ => return Err(anyhow!("Critical Error: expected parital union")),
+            _ => return Err(anyhow!("Critical Error: expected partial union")),
         };
 
+        // Get all children of type DW_TAG_member.
         let children = get_children(unit, die);
-
         let mut member_dies = vec!();
         for c in children {
             let c_die = unit.entry(c)?;
@@ -626,13 +715,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         }
 
+        // Add already evaluated value.
         match old_result {
             Some(val)   => partial_union.members.push(val),
             None        => (),
         };
- 
+
+        // Sort all the members in the order they need to be evaluated.
         member_dies.sort_by_key(|m| m.0);
 
+        // Evaluate all the members.
         let start = partial_union.members.len();
         for i in start..member_dies.len() {
             let m_die = &member_dies[i].1;
@@ -655,6 +747,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a member.
+     */
     pub fn eval_member(&mut self,
                        dwarf:           &gimli::Dwarf<R>,
                        unit:            &gimli::Unit<R>,
@@ -664,16 +759,21 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                        create_state:    bool
                        ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_member
         match die.tag() {
             gimli::DW_TAG_member => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // Create a new state if it doesn't already exist.
         if create_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
         }
 
+        // Get the name of the member.
         let name = attributes::name_attribute(dwarf, die);
+
+        // If value is already evaluated, then use it.
         match old_result {
             Some(val) => {
                 self.stack.pop();
@@ -685,16 +785,17 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None => (),
         };
 
-
+        // Calculate the new data offset.
         let new_data_offset = match attributes::data_member_location_attribute(die) {
             Some(val)   => data_offset + val,
             None        => data_offset,
         };
 
-
+        // Get the type attribute unit and die.
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
         let type_die = &type_unit.entry(die_offset)?;
-        
+
+        // Evaluate the value.
         let value = match self.eval_type(dwarf, &type_unit, type_die, new_data_offset, old_result, true)?.unwrap() {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
@@ -708,6 +809,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a enumeration type.
+     */
     pub fn eval_enumeration_type(&mut self,
                                  dwarf:         &gimli::Dwarf<R>,
                                  unit:          &gimli::Unit<R>,
@@ -716,21 +820,25 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                  mut old_result: Option<EvaluatorValue<R>>,
                                  ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_enumeration_type
         match die.tag() {
             gimli::DW_TAG_enumeration_type => (),
             _ => panic!("Wrong implementation"),
         };
 
-        // TODO: Create new evaluator state.
 
+        // Get type attribute unit and die.
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
         let type_die = &type_unit.entry(die_offset)?;
 
+        // Get type value.
         let type_result = match old_result {
+            // Use already evaluated value.
             Some(val)   => {
                 old_result = None;
                 val
             },
+            // Evaluate the type value.
             None        => {
                 match self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)?.unwrap() {
                     ReturnResult::Value(val) => val,
@@ -739,19 +847,22 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             },
         };
 
+        // Get the value as a unsigned int.
         let value = super::value::get_udata(type_result.to_value().unwrap());
 
+        // Go through the children and find the correct enumerator value.
         let children = get_children(unit, die);
-
         for c in children {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
                 gimli::DW_TAG_enumerator  => {
                     let const_value = attributes::const_value_attribute(&c_die).unwrap();
-        
+
+                    // Check if it is the correct one.
                     if const_value == value {
-                        let name = attributes::name_attribute(dwarf, die).unwrap();
-        
+
+                        // Get the name of the enum type and the enum variant.
+                        let name = attributes::name_attribute(dwarf, die).unwrap(); 
                         let e_name = attributes::name_attribute(dwarf, &c_die).unwrap(); 
         
                         return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
@@ -769,6 +880,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a subrange type.
+     */
     pub fn eval_subrange_type(&mut self,
                               dwarf:        &gimli::Dwarf<R>,
                               unit:          &gimli::Unit<R>,
@@ -778,31 +892,39 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                               new_state:    bool,
                               ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has the tag DW_TAG_subrange_type
         match die.tag() {
             gimli::DW_TAG_subrange_type => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // If the die has a count attribute then that is the value.
         match attributes::count_attribute(die) {
             Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val))))),
             None        => (),
         };
 
+        // Use the already evaluated value.
         match old_result {
             Some(val)   => return Ok(Some(ReturnResult::Value(val))),
             None        => (),
         };
 
+        // Get the type unit and die.
         let (type_unit, die_offset) = match self.get_type_info(dwarf, unit, die) {
             Ok(val) => val,
             Err(_) => return Ok(None),
         };
         let type_die = &type_unit.entry(die_offset)?;
 
+        // Evaluate the type attribute value.
         self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)
     }
 
 
+    /*
+     * Evaluate the value of a variant part.
+     */
     pub fn eval_variant_part(&mut self,
                              dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
@@ -812,23 +934,28 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              new_state:     bool
                              ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die has tag DW_TAG_variant_part
         match die.tag() {
             gimli::DW_TAG_variant_part => (),
             _ => panic!("Wrong implementation"),
         };
-        
+       
+        // Get the current state index.
         let mut current_state = self.stack.len() - 1;
 
+        // Create a new state if it doesn't already exist.
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
         } 
-        
+
+        // Get the partial value of the current state.
         let mut partial_variant_part = match &self.stack[current_state].partial_value {
             super::value::PartialValue::VariantPart   (vp) => vp.clone(),
-            _ => return Err(anyhow!("Critical Error: expected parital variant_part")),
+            _ => return Err(anyhow!("Critical Error: expected partial variant_part")),
         };
 
+        // Find the DW_TAG_member die and all the DW_TAG_variant dies.
         let mut children = get_children(unit, die);
         let mut member = None;
         let mut variants = vec!();
@@ -836,8 +963,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             let c_die = unit.entry(*c)?;
             match c_die.tag() {
                 gimli::DW_TAG_member => {
+
+                    // There should only be one DW_TAG_member die.
                     if member.is_some() {
-                        panic!("Expacted only one member");
+                        panic!("Expected only one member");
                     }
                     member = Some(c_die);
                 },
@@ -848,32 +977,41 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         match &member {
             Some    (member)   => {
+
+                // Get the variant type.
                 let variant = match partial_variant_part.variant {
-                    Some(val) => val,
+                    Some(val) => val, // Use the value stored in the state.
                     None      => {
                         let value = match old_result {
                             Some(val)   => {
+                                // Use the already evaluated value.
                                 old_result = None;
                                 val
                             },
                             None        => {
+                                // Evaluate the DW_TAG_member value.
                                 match self.eval_member(dwarf, unit, member, data_offset, None, true)?.unwrap() {
                                     ReturnResult::Value(val) => val,
                                     ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                                 }
                             },
                         };
+
+                        // The value should be a unsigned int thus convert the value to a u64.
                         let variant = super::value::get_udata(value.to_value().unwrap());
-                        partial_variant_part.variant = Some(variant);
+                        partial_variant_part.variant = Some(variant); // Store variant value in state.
                         variant
                     },
                 };
 
-
+                // Find the right variant type and evaluate it.
                 for v in &variants {
                     let discr_value = attributes::discr_value_attribute(v).unwrap();
 
+                    // Check if it is the correct variant.
                     if discr_value == variant {
+
+                        // Evaluate the value of the variant.
                         match self.eval_variant(dwarf, unit, v, data_offset, old_result)?.unwrap() {
                             ReturnResult::Value(val) => {
                                 self.stack.pop();
@@ -895,6 +1033,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
+    /*
+     * Evaluate the value of a variant.
+     */
     pub fn eval_variant(&mut self,
                         dwarf:          &gimli::Dwarf<R>,
                         unit:           &gimli::Unit<R>,
@@ -903,19 +1044,24 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         old_result:     Option<EvaluatorValue<R>>,
                         ) -> Result<Option<ReturnResult<R>>>
     {
+        // Make sure that the die is of type DW_TAG_variant
         match die.tag() {
             gimli::DW_TAG_variant => (),
             _ => panic!("Wrong implementation"),
         };
 
+        // Find the child die of type DW_TAG_member
         let mut children = get_children(unit, die);
         for c in children {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
                 gimli::DW_TAG_member => {
+
+                    // Get the value of the member.
                     let value = match old_result {
-                        Some(val)   => val,
+                        Some(val)   => val, // Use the already evaluated value.
                         None        => {
+                            // Evaluate the value of the member.
                             match self.eval_member(dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
                                 ReturnResult::Value(val) => val,
                                 ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
@@ -923,6 +1069,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         },
                     };
 
+                    // Get the name of the die.
                     let name = attributes::name_attribute(dwarf, &c_die).unwrap();
 
                     return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
@@ -938,6 +1085,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 }
 
 
+/*
+ * Helper function for getting all the children of a die.
+ */
 fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
                                            die: &gimli::DebuggingInformationEntry<'_, '_, R>
                                            ) -> Vec<gimli::UnitOffset>
@@ -955,6 +1105,9 @@ fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
 }
 
 
+/*
+ * Evaluates the value of a base type.
+ */
 pub fn eval_base_type(data:         &[u32],
                       encoding:     DwAte,
                       byte_size:    u64
@@ -986,6 +1139,9 @@ pub fn eval_base_type(data:         &[u32],
 }
 
 
+/*
+ * Helper function that turns slice into a u64
+ */
 pub fn slize_as_u64(data: &[u32]) -> u64
 {
     // TODO: Take account to what endian it is
@@ -1000,6 +1156,9 @@ pub fn slize_as_u64(data: &[u32]) -> u64
 }
 
 
+/*
+ * Evaluates the value of a base type.
+ */
 pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
                       data:         &[u32],
                       base_type:    gimli::UnitOffset<usize>
