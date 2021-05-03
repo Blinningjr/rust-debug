@@ -3,6 +3,9 @@ use super::{
     Debugger,
     value::{
         BaseValue,
+        get_udata, 
+        PartialValue,
+        EvaluatorValue,
     },
 };
 
@@ -34,15 +37,35 @@ struct EvaluatorState<R: Reader<Offset = usize>> {
 
 
 impl<R: Reader<Offset = usize>> EvaluatorState<R> {
-    pub fn new(unit:    &gimli::Unit<R>,
-               die:    &gimli::DebuggingInformationEntry<'_, '_, R>
+    pub fn new(dwarf:       &gimli::Dwarf<R>,
+               unit:        &gimli::Unit<R>,
+               die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
+               data_offset: u64
                ) -> EvaluatorState<R>
     {
+        let partial_value = match die.tag() { 
+            gimli::DW_TAG_array_type => {
+                super::value::PartialValue::Array(Box::new(super::value::PartialArrayValue { count: None, values: vec!() }))
+            },
+            gimli::DW_TAG_structure_type => {
+                let name = attributes::name_attribute(dwarf, die).unwrap();
+                super::value::PartialValue::Struct(Box::new(super::value::PartialStructValue { name: name, members: vec!() }))
+            },
+            gimli::DW_TAG_union_type => {
+                let name = attributes::name_attribute(dwarf, die).unwrap();
+                super::value::PartialValue::Union(Box::new(super::value::PartialUnionValue { name: name, members: vec!() }))
+            },
+            gimli::DW_TAG_variant_part => {
+                super::value::PartialValue::VariantPart(super::value::PartialVariantPartValue { variant: None }) 
+            }, 
+            _ => PartialValue::NotEvaluated,
+        };
+
         EvaluatorState {
             unit_offset:    unit.header.offset(),
             die_offset:     die.offset(),
-            partial_value:  super::value::PartialValue::NotEvaluated,
-            data_offset:    0,
+            partial_value:  partial_value,
+            data_offset:    data_offset,
         }
     }
 }
@@ -72,7 +95,8 @@ pub struct Evaluator<R: Reader<Offset = usize>> {
 
 
 impl<R: Reader<Offset = usize>> Evaluator<R> {
-    pub fn new(pieces:  Vec<Piece<R>>,
+    pub fn new(dwarf:   &gimli::Dwarf<R>,
+               pieces:  Vec<Piece<R>>,
                unit:    Option<&gimli::Unit<R>>,
                die:     Option<&gimli::DebuggingInformationEntry<'_, '_, R>>
                ) -> Evaluator<R>
@@ -80,7 +104,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let stack = match unit {
             Some(u) => {
                 match die {
-                    Some(d) => vec!(EvaluatorState::new(u, d)),
+                    Some(d) => vec!(EvaluatorState::new(dwarf, u, d, 0)),
                     None => vec!(),
                 }
             },
@@ -106,7 +130,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>) -> EvaluatorResult {
-        self.piece_index = 0;
+        println!("stack len: {}", self.stack.len());
 
         if self.stack.len() == 0 {
             match self.eval_piece(self.pieces[0].clone(), None, 0, None).unwrap() {
@@ -118,34 +142,40 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         } 
 
-        let state = &self.stack[0];
-        
-        let unit = match state.unit_offset {
-            gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
-                let header = dwarf.debug_info.header_from_offset(offset).unwrap();
-                dwarf.unit(header).unwrap()
-            },
-            gimli::UnitSectionOffset::DebugTypesOffset(_offset) => {
-                let mut iter = dwarf.debug_types.units();
-                let mut result = None;
-                while let Some(header) = iter.next().unwrap() {
-                    if header.offset() == state.unit_offset {
-                        result = Some(dwarf.unit(header).unwrap());
-                        break;
+        let mut result = None;
+        loop {
+            if self.stack.len() == 0 {
+                self.result = result;
+                return EvaluatorResult::Complete;
+            }
+
+            let state = &self.stack[self.stack.len() - 1];
+            
+            let unit = match state.unit_offset {
+                gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
+                    let header = dwarf.debug_info.header_from_offset(offset).unwrap();
+                    dwarf.unit(header).unwrap()
+                },
+                gimli::UnitSectionOffset::DebugTypesOffset(_offset) => {
+                    let mut iter = dwarf.debug_types.units();
+                    let mut result = None;
+                    while let Some(header) = iter.next().unwrap() {
+                        if header.offset() == state.unit_offset {
+                            result = Some(dwarf.unit(header).unwrap());
+                            break;
+                        }
                     }
-                }
-                result.unwrap()
-            },
-        };
+                    result.unwrap()
+                },
+            };
 
-        let die = &unit.entry(state.die_offset).unwrap();
+            let die = &unit.entry(state.die_offset).unwrap();
 
-        match self.eval_type(dwarf, &unit, die, 0).unwrap().unwrap() {
-            ReturnResult::Value(val) => self.result = Some(val),
-            ReturnResult::Required(req) => return req,
-        };
-
-        EvaluatorResult::Complete
+            match self.eval_type(dwarf, &unit, die, state.data_offset, result, false).unwrap().unwrap() {
+                ReturnResult::Value(val) => result = Some(val),
+                ReturnResult::Required(req) => return req,
+            };
+        }
     }
 
 
@@ -187,21 +217,23 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                      dwarf:         &gimli::Dwarf<R>,
                      unit:          &gimli::Unit<R>,
                      die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                     data_offset:   u64
+                     data_offset:   u64,
+                     old_result:    Option<EvaluatorValue<R>>,
+                     create_state:  bool,
                      ) -> Result<Option<ReturnResult<R>>>
     { 
         match die.tag() {
             gimli::DW_TAG_base_type                 => self.eval_basetype(unit, die, data_offset),
-            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(unit, die, data_offset),
-            gimli::DW_TAG_array_type                => self.eval_array_type(dwarf, unit, die, data_offset, false), // TODO: fix the bool
-            gimli::DW_TAG_structure_type            => self.eval_structured_type(dwarf, unit, die, data_offset, false),
-            gimli::DW_TAG_union_type                => self.eval_union_type(dwarf, unit, die, data_offset, false),
-            gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset),
-            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset),
+            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_array_type                => self.eval_array_type(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_structure_type            => self.eval_structured_type(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_union_type                => self.eval_union_type(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset, old_result),
             gimli::DW_TAG_string_type               => unimplemented!(),
             gimli::DW_TAG_generic_subrange          => unimplemented!(),
             gimli::DW_TAG_template_type_parameter   => unimplemented!(),
-            gimli::DW_TAG_variant_part              => self.eval_variant_part(dwarf, unit, die, data_offset),
+            gimli::DW_TAG_variant_part              => self.eval_variant_part(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_subroutine_type           => unimplemented!(),
             gimli::DW_TAG_subprogram                => unimplemented!(),
             _ => unimplemented!(),
@@ -345,14 +377,30 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn eval_pointer_type(&mut self,
+                             dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                             data_offset:   u64
+                             data_offset:   u64,
+                             old_result:    Option<EvaluatorValue<R>>,
+                             create_state:  bool,
                              ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
             gimli::DW_TAG_pointer_type => (),
             _ => panic!("Wrong implementation"),
+        };
+        
+        if create_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+        }
+
+        let name = attributes::name_attribute(dwarf, die);
+        match old_result {
+            Some(val) => {
+                self.stack.pop();
+                return Ok(Some(ReturnResult::Value(val)));
+            },
+            None => (),
         };
 
         let address_class = attributes::address_class_attribute(die);
@@ -362,6 +410,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 let res = self.handle_eval_piece(Some(4),
                                                  data_offset,
                                                  Some(DwAte(1)));
+                self.stack.pop();
                 return res;        
             },
             _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
@@ -374,6 +423,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
                            data_offset: u64,
+                           mut old_result:  Option<EvaluatorValue<R>>,
                            new_state:   bool
                            ) -> Result<Option<ReturnResult<R>>>
     {
@@ -382,36 +432,53 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             _ => panic!("Wrong implementation"),
         };
 
-        //TODO: Add the state and pop it.
-        //let mut current_state = self.stack.len() - 1;
+        let mut current_state = self.stack.len() - 1;
 
-        //if new_state {
-        //    self.stack.push(EvaluatorState::new(unit, die));
-        //    current_state += 1;
+        if new_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+            current_state += 1;
+        } 
 
-        //    self.stack[current_state].data_offset = data_offset;
-        //    self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(super::value::PartialArrayValue { values: vec!() }));
-        //} 
-
-        let children = get_children(unit, die);
-        let dimension_die = unit.entry(children[0])?;
-        let array_len_result = match dimension_die.tag() {
-            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset)?.unwrap(),
-            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset)?.unwrap(),
-            _ => unimplemented!(),
+        let mut partial_array = match &self.stack[current_state].partial_value {
+            super::value::PartialValue::Array   (array) => array.clone(),
+            _ => return Err(anyhow!("Critical Error: expected parital array")),
         };
         
-        let count = match array_len_result {
-            ReturnResult::Value(val) => super::value::get_udata(val.to_value().unwrap()),
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
-        } as usize;
+        let count = match partial_array.count {
+            Some(val)   => val,
+            None        => {
+                let children = get_children(unit, die);
+                let dimension_die = unit.entry(children[0])?;
+                let value = match old_result {
+                    Some(val)   => {
+                        old_result = None;
+                        val
+                    },
+                    None    => {
+                        let result = match dimension_die.tag() {
+                            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
+                            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset, old_result.clone())?.unwrap(),
+                            _ => unimplemented!(),
+                        };
+                        match result {
+                            ReturnResult::Value(val) => val,
+                            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                        }
+                    },
+                };
+                
+                let count = super::value::get_udata(value.to_value().unwrap()) as usize;
 
-        let mut partial_array = super::value::PartialArrayValue { values: vec!() };
+                partial_array.count = Some(count);
+                count
+            },
+        };
 
-        //let mut partial_array = match &self.stack[current_state].partial_value {
-        //    super::value::PartialValue::Array   (array) => array.clone(),
-        //    _ => return Err(anyhow!("Critical Error: expected parital array")),
-        //};
+
+        match old_result {
+            Some(val) => partial_array.values.push(val),
+            None => (),
+        };
 
         let start = partial_array.values.len();
 
@@ -419,27 +486,27 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         for _i in start..count {
-            match self.eval_type(dwarf, &type_unit, type_die, data_offset)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
+            match self.eval_type(dwarf, &type_unit, type_die, data_offset, None, true)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
                 ReturnResult::Value(val) => partial_array.values.push(val),
                 ReturnResult::Required(req) => {
-                    //self.stack[current_state].partial_value = super::value::PartialValue::Array(Box::new(partial_value));
+                    self.stack[current_state].partial_value = super::value::PartialValue::Array(partial_array);
                     return Ok(Some(ReturnResult::Required(req)));
                 },
             };
         }
         
-
-        //self.stack.pop();
+        self.stack.pop();
         Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::ArrayValue {values: partial_array.values})))))
     }
 
 
     pub fn eval_structured_type(&mut self,
-                                dwarf:       &gimli::Dwarf<R>,
-                                unit:        &gimli::Unit<R>,
-                                die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
-                                data_offset: u64,
-                                new_state:   bool
+                                dwarf:          &gimli::Dwarf<R>,
+                                unit:           &gimli::Unit<R>,
+                                die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
+                                data_offset:    u64,
+                                old_result:     Option<EvaluatorValue<R>>,
+                                new_state:      bool
                                 ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
@@ -447,7 +514,17 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             _ => panic!("Wrong implementation"),
         };
 
-        let name = attributes::name_attribute(dwarf, die).unwrap();
+        let mut current_state = self.stack.len() - 1;
+
+        if new_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+            current_state += 1;
+        } 
+
+        let mut partial_struct = match &self.stack[current_state].partial_value {
+            super::value::PartialValue::Struct   (struct_) => struct_.clone(),
+            e => panic!("{:?}", e),//return Err(anyhow!("Critical Error: expected partial struct")),
+        };
 
         let children = get_children(unit, die);
 
@@ -457,13 +534,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             match c_die.tag() {
                 gimli::DW_TAG_variant_part => {
 
-                    let members = vec!(match self.eval_variant_part(dwarf, unit, &c_die, data_offset)?.unwrap() {
-                        ReturnResult::Value(val) => val,
-                        ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
-                    });
+                    let members = match old_result {
+                        Some(val) => vec!(val),
+                        None => {
+                            match self.eval_variant_part(dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
+                                ReturnResult::Value(val) => vec!(val),
+                                ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                            }
+                        },
+                    };
 
+                    self.stack.pop();
                     return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
-                        name:       name,
+                        name:       partial_struct.name,
                         members:    members,
                     })))));
                 },
@@ -475,20 +558,30 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         }
 
-        member_dies.sort_by_key(|m| m.0);
+        match old_result {
+            Some(val) => partial_struct.members.push(val),
+            None => (),
+        };
 
-        let mut members = vec!();
-        for (_, m) in &member_dies {
-            let member = match self.eval_member(dwarf, unit, m, data_offset)?.unwrap() {
+        member_dies.sort_by_key(|m| m.0);
+        
+        let start = partial_struct.members.len();
+        for i in start..member_dies.len() {
+            let m_die = &member_dies[i].1;
+            let member = match self.eval_member(dwarf, unit, m_die, data_offset, None, true)?.unwrap() {
                 ReturnResult::Value(val) => val,
-                ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                ReturnResult::Required(req) => {
+                    self.stack[current_state].partial_value = super::value::PartialValue::Struct(partial_struct);
+                    return Ok(Some(ReturnResult::Required(req)));
+                },
             };
-            members.push(member);
+            partial_struct.members.push(member);
         }
 
+        self.stack.pop();
         return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
-            name:       name,
-            members:    members,
+            name:       partial_struct.name,
+            members:    partial_struct.members,
         })))));
     }
 
@@ -498,12 +591,25 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
                            data_offset: u64,
+                           old_result:  Option<EvaluatorValue<R>>,
                            new_state:   bool
                            ) -> Result<Option<ReturnResult<R>>>
     { 
         match die.tag() {
             gimli::DW_TAG_union_type => (),
             _ => panic!("Wrong implementation"),
+        };
+
+        let mut current_state = self.stack.len() - 1;
+
+        if new_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+            current_state += 1;
+        } 
+
+        let mut partial_union = match &self.stack[current_state].partial_value {
+            super::value::PartialValue::Union   (union) => union.clone(),
+            _ => return Err(anyhow!("Critical Error: expected parital union")),
         };
 
         let children = get_children(unit, die);
@@ -519,32 +625,43 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 _ => continue,
             };
         }
+
+        match old_result {
+            Some(val)   => partial_union.members.push(val),
+            None        => (),
+        };
  
         member_dies.sort_by_key(|m| m.0);
 
-        let mut members = vec!();
-        for (_, m) in &member_dies {
-            let member = match self.eval_member(dwarf, unit, m, data_offset)?.unwrap() {
+        let start = partial_union.members.len();
+        for i in start..member_dies.len() {
+            let m_die = &member_dies[i].1;
+            let member = match self.eval_member(dwarf, unit, m_die, data_offset, None, true)?.unwrap() {
                 ReturnResult::Value(val) => val,
-                ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                ReturnResult::Required(req) => {
+                    self.stack[current_state].partial_value = super::value::PartialValue::Union(partial_union);
+                    return Ok(Some(ReturnResult::Required(req)));
+                },
             };
-            members.push(member);
+            partial_union.members.push(member);
         }
 
-        let name = attributes::name_attribute(dwarf, die).unwrap();
 
+        self.stack.pop();
         return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Union(Box::new(super::value::UnionValue {
-            name:       name,
-            members:    members,
+            name:       partial_union.name,
+            members:    partial_union.members,
         })))));
     }
 
 
     pub fn eval_member(&mut self,
-                       dwarf:       &gimli::Dwarf<R>,
-                       unit:        &gimli::Unit<R>,
-                       die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
-                       data_offset: u64,
+                       dwarf:           &gimli::Dwarf<R>,
+                       unit:            &gimli::Unit<R>,
+                       die:             &gimli::DebuggingInformationEntry<'_, '_, R>,
+                       data_offset:     u64,
+                       old_result:  Option<EvaluatorValue<R>>,
+                       create_state:    bool
                        ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
@@ -552,21 +669,38 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             _ => panic!("Wrong implementation"),
         };
 
+        if create_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+        }
+
+        let name = attributes::name_attribute(dwarf, die);
+        match old_result {
+            Some(val) => {
+                self.stack.pop();
+                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue{
+                    name:   name,
+                    value:  val,
+                })))));
+            },
+            None => (),
+        };
+
+
         let new_data_offset = match attributes::data_member_location_attribute(die) {
             Some(val)   => data_offset + val,
             None        => data_offset,
         };
 
-        let name = attributes::name_attribute(dwarf, die);
 
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
         let type_die = &type_unit.entry(die_offset)?;
         
-        let value = match self.eval_type(dwarf, &type_unit, type_die, new_data_offset)?.unwrap() {
+        let value = match self.eval_type(dwarf, &type_unit, type_die, new_data_offset, old_result, true)?.unwrap() {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
         };
 
+        self.stack.pop();
         Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue{
             name:   name,
             value:  value
@@ -578,7 +712,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                  dwarf:         &gimli::Dwarf<R>,
                                  unit:          &gimli::Unit<R>,
                                  die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                                 data_offset:   u64
+                                 data_offset:   u64,
+                                 mut old_result: Option<EvaluatorValue<R>>,
                                  ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
@@ -591,10 +726,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
         let type_die = &type_unit.entry(die_offset)?;
 
-        let type_result = match self.eval_type(dwarf, &type_unit, type_die, data_offset)?.unwrap() {
-            ReturnResult::Value(val) => val,
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+        let type_result = match old_result {
+            Some(val)   => {
+                old_result = None;
+                val
+            },
+            None        => {
+                match self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)?.unwrap() {
+                    ReturnResult::Value(val) => val,
+                    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                }
+            },
         };
+
         let value = super::value::get_udata(type_result.to_value().unwrap());
 
         let children = get_children(unit, die);
@@ -629,7 +773,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                               dwarf:        &gimli::Dwarf<R>,
                               unit:          &gimli::Unit<R>,
                               die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                              data_offset:   u64
+                              data_offset:   u64,
+                              old_result:   Option<EvaluatorValue<R>>,
+                              new_state:    bool,
                               ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
@@ -642,13 +788,18 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None        => (),
         };
 
+        match old_result {
+            Some(val)   => return Ok(Some(ReturnResult::Value(val))),
+            None        => (),
+        };
+
         let (type_unit, die_offset) = match self.get_type_info(dwarf, unit, die) {
             Ok(val) => val,
             Err(_) => return Ok(None),
         };
         let type_die = &type_unit.entry(die_offset)?;
 
-        self.eval_type(dwarf, &type_unit, type_die, data_offset)
+        self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)
     }
 
 
@@ -656,12 +807,26 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                             data_offset:   u64
+                             data_offset:   u64,
+                             mut old_result: Option<EvaluatorValue<R>>,
+                             new_state:     bool
                              ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
             gimli::DW_TAG_variant_part => (),
             _ => panic!("Wrong implementation"),
+        };
+        
+        let mut current_state = self.stack.len() - 1;
+
+        if new_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+            current_state += 1;
+        } 
+        
+        let mut partial_variant_part = match &self.stack[current_state].partial_value {
+            super::value::PartialValue::VariantPart   (vp) => vp.clone(),
+            _ => return Err(anyhow!("Critical Error: expected parital variant_part")),
         };
 
         let mut children = get_children(unit, die);
@@ -683,9 +848,25 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         match &member {
             Some    (member)   => {
-                let variant = match self.eval_member(dwarf, unit, member, data_offset)?.unwrap() {
-                    ReturnResult::Value(val) => super::value::get_udata(val.to_value().unwrap()),
-                    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                let variant = match partial_variant_part.variant {
+                    Some(val) => val,
+                    None      => {
+                        let value = match old_result {
+                            Some(val)   => {
+                                old_result = None;
+                                val
+                            },
+                            None        => {
+                                match self.eval_member(dwarf, unit, member, data_offset, None, true)?.unwrap() {
+                                    ReturnResult::Value(val) => val,
+                                    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                                }
+                            },
+                        };
+                        let variant = super::value::get_udata(value.to_value().unwrap());
+                        partial_variant_part.variant = Some(variant);
+                        variant
+                    },
                 };
 
 
@@ -693,7 +874,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     let discr_value = attributes::discr_value_attribute(v).unwrap();
 
                     if discr_value == variant {
-                        return self.eval_variant(dwarf, unit, v, data_offset);
+                        match self.eval_variant(dwarf, unit, v, data_offset, old_result)?.unwrap() {
+                            ReturnResult::Value(val) => {
+                                self.stack.pop();
+                                return Ok(Some(ReturnResult::Value(val)));
+                            },
+                            ReturnResult::Required(req) =>{
+                                self.stack[current_state].partial_value = super::value::PartialValue::VariantPart(partial_variant_part);
+                                return Ok(Some(ReturnResult::Required(req)));
+                            }, 
+                        };
                     }
                 }
                 unimplemented!();
@@ -706,10 +896,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
     pub fn eval_variant(&mut self,
-                        dwarf:         &gimli::Dwarf<R>,
-                        unit:          &gimli::Unit<R>,
-                        die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                        data_offset:   u64
+                        dwarf:          &gimli::Dwarf<R>,
+                        unit:           &gimli::Unit<R>,
+                        die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
+                        data_offset:    u64,
+                        old_result:     Option<EvaluatorValue<R>>,
                         ) -> Result<Option<ReturnResult<R>>>
     {
         match die.tag() {
@@ -722,10 +913,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
                 gimli::DW_TAG_member => {
-                    let value = match self.eval_member(dwarf, unit, &c_die, data_offset)?.unwrap() {
-                        ReturnResult::Value(val) => val,
-                        ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                    let value = match old_result {
+                        Some(val)   => val,
+                        None        => {
+                            match self.eval_member(dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
+                                ReturnResult::Value(val) => val,
+                                ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                            }
+                        },
                     };
+
                     let name = attributes::name_attribute(dwarf, &c_die).unwrap();
 
                     return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {

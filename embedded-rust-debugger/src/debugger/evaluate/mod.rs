@@ -160,7 +160,7 @@ impl<R: Reader<Offset = usize>> Debugger<R> {
         let mut pieces = eval.result();
         println!("{:#?}", pieces);
 
-        let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
+        let mut evaluator = evaluate::Evaluator::new(&self.dwarf, pieces.clone(), type_unit, type_die);
         loop {
             match evaluator.evaluate(&self.dwarf) {
                 evaluate::EvaluatorResult::Complete => break,

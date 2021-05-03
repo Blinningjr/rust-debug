@@ -9,13 +9,14 @@ use gimli::{
 pub enum PartialValue<R: Reader<Offset = usize>> {
     Array(Box<PartialArrayValue<R>>),
     Struct(Box<PartialStructValue<R>>),
-    Enum(Box<PartialEnumValue>),
     Union(Box<PartialUnionValue<R>>),
+    VariantPart(PartialVariantPartValue),
     NotEvaluated,
 }
 
 #[derive(Debug, Clone)]
 pub struct PartialArrayValue<R: Reader<Offset = usize>> {
+    pub count: Option<usize>,
     pub values:  Vec<EvaluatorValue<R>>,
 }
 
@@ -32,12 +33,11 @@ pub struct PartialUnionValue<R: Reader<Offset = usize>> {
     pub members:    Vec<EvaluatorValue<R>>,
 }
 
-
 #[derive(Debug, Clone)]
-pub struct PartialEnumValue {
-    pub name:       String,
-    pub enum_val:   u32,
+pub struct PartialVariantPartValue {
+    pub variant: Option<u64>,
 }
+
 
 
 #[derive(Debug, Clone)]
