@@ -268,9 +268,6 @@ impl<R: Read, W: Write> Session<R, W> {
                 });
             }
         }
-
-
-        // TODO: Follow DAP spec
        
         let total_frames = stack_frames.len() as i64;
         let body = StackTraceResponseBody {
@@ -290,6 +287,97 @@ impl<R: Read, W: Write> Session<R, W> {
         
         self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
     
+        Ok(false)
+    }
+
+
+    pub fn scopes_command_request(&mut self, req: &Request) -> Result<bool>
+    {
+        let args: debugserver_types::ScopesArguments = get_arguments(&req)?;
+        debug!("args: {:?}", args);
+
+        let mut scopes = vec!();
+
+        if let (Some((dwarf, fs)), Some(sess)) = (&self.dwarf, &mut self.sess) {
+            let mut core = sess.core(0)?;
+            use crate::Debugger;
+            let mut debugger = Debugger::new(dwarf, fs);
+            let stacktrace = debugger.get_current_stacktrace(&mut core)?;
+
+            if let Some(s) = stacktrace.iter().find(|sf| sf.call_frame.id as i64 == args.frame_id) {
+                let source = debugserver_types::Source {
+                    name: s.source.file.clone(),
+                    path: s.source.directory.clone(),
+                    source_reference: None,
+                    presentation_hint: None,
+                    origin: None,
+                    sources: None,
+                    adapter_data: None,
+                    checksums: None,
+                };
+                scopes.push(debugserver_types::Scope {
+                    column: s.source.column.map(|v| v as i64),
+                    end_column: None,
+                    end_line: None,
+                    expensive: false,
+                    indexed_variables: None,
+                    line: s.source.line.map(|v| v as i64),
+                    name: s.name.clone(),
+                    named_variables: None,
+                    source: Some(source),
+                    variables_reference: s.call_frame.id as i64,
+                });
+            }
+        }
+
+
+        let body = debugserver_types::ScopesResponseBody {
+            scopes: scopes,
+        };
+
+        let resp = Response {
+            body:           Some(json!(body)),
+            command:        req.command.clone(),
+            message:        None,
+            request_seq:    req.seq,
+            seq:            req.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+
+        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+
+        Ok(false)
+    }
+
+
+    pub fn variables_command_request(&mut self, req: &Request) -> Result<bool>
+    {
+        println!("variables here");
+
+        let args: debugserver_types::VariablesArguments = get_arguments(&req)?;
+        debug!("args: {:?}", args);
+
+        let mut variables = vec!();
+
+        // TODO: get variables
+
+        let body = debugserver_types::VariablesResponseBody {
+            variables: variables,
+        };
+
+        let resp = Response {
+            body:           Some(json!(body)),
+            command:        req.command.clone(),
+            message:        None,
+            request_seq:    req.seq,
+            seq:            req.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+
+        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+
         Ok(false)
     }
 

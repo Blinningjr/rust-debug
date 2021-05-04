@@ -265,9 +265,9 @@ impl<R: Read, W: Write> Session<R, W> {
             "stackTrace"                => self.stack_trace_command_request(&req),
             "disconnect"                => self.disconnect_command_request(&req),
             "continue"                  => self.continue_command_request(&req),
-            "scopes"                    => unimplemented!(), // TODO
+            "scopes"                    => self.scopes_command_request(&req),
             "source"                    => unimplemented!(), // TODO
-            "variables"                 => unimplemented!(), // TODO
+            "variables"                 => self.variables_command_request(&req),
             "next"                      => self.next_command_request(&req), // TODO
             "stepOut"                   => unimplemented!(), // TODO
             _ => panic!("command: {}", req.command),
