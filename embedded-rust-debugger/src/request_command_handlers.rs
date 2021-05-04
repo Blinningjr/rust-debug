@@ -359,6 +359,26 @@ impl<R: Read, W: Write> Session<R, W> {
         debug!("args: {:?}", args);
 
         let mut variables = vec!();
+        
+        if let (Some((dwarf, fs)), Some(sess)) = (&self.dwarf, &mut self.sess) {
+            let mut core = sess.core(0)?;
+            use crate::Debugger;
+            let mut debugger = Debugger::new(dwarf, fs);
+            let stacktrace = debugger.get_current_stacktrace(&mut core)?;
+
+            if let Some(s) = stacktrace.iter().find(|sf| sf.call_frame.id as i64 == args.variables_reference) {
+                variables.push(debugserver_types::Variable {
+                    evaluate_name: None, //Option<String>,
+                    indexed_variables: None,
+                    name: "variable name".to_string(),
+                    named_variables: None,
+                    presentation_hint: None,
+                    type_: None,
+                    value: "value".to_string(),//String,
+                    variables_reference: 0, // i64,
+                });
+            }
+        }
 
         // TODO: get variables
 

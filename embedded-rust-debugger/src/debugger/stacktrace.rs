@@ -35,6 +35,7 @@ pub struct StackFrame {
     pub call_frame: CallFrame,
     pub name: String,
     pub source: SourceReference,
+    pub variables: Vec<(Option<String>, String)>,
 }
 
 

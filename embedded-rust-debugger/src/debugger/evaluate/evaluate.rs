@@ -30,6 +30,7 @@ use probe_rs::MemoryInterface;
 /*
  * The state of a partially evaluated type.
  */
+#[derive(Debug)]
 struct EvaluatorState<R: Reader<Offset = usize>> {
     pub unit_offset:    gimli::UnitSectionOffset,
     pub die_offset:     gimli::UnitOffset,
@@ -152,7 +153,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // If the stack is empty then the first piece will be evaluated.
         if self.stack.len() == 0 {
-            match self.eval_piece(self.pieces[0].clone(), None, 0, None).unwrap() {
+            match self.eval_piece(self.pieces[0].clone(), Some(4), 0, Some(DwAte(1))).unwrap() {
                 ReturnResult::Value(val) => {
                     self.result = Some(val);
                     return EvaluatorResult::Complete;
@@ -164,6 +165,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Loop through the stack until it is empty because then the value is found.
         let mut result = None;
         loop {
+            //println!("eval stack len: {:#?}", self.stack.len());
+
             // If the stack is empty then the current result should be correct value.
             if self.stack.len() == 0 {
                 self.result = result;
@@ -194,6 +197,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
             // Get the die of the current state.
             let die = &unit.entry(state.die_offset).unwrap();
+            //println!("die tag {:?}", die.tag().static_string());
 
             // Continue evaluating the value of the current state.
             match self.eval_type(dwarf, &unit, die, state.data_offset, result, false).unwrap().unwrap() {
@@ -257,13 +261,13 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                      ) -> Result<Option<ReturnResult<R>>>
     { 
         match die.tag() {
-            gimli::DW_TAG_base_type                 => self.eval_basetype(unit, die, data_offset),
+            gimli::DW_TAG_base_type                 => self.eval_basetype(dwarf, unit, die, data_offset, create_state),
             gimli::DW_TAG_pointer_type              => self.eval_pointer_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_array_type                => self.eval_array_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_structure_type            => self.eval_structured_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_union_type                => self.eval_union_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset, old_result),
+            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset, old_result), // TODO: Add create state.
             gimli::DW_TAG_string_type               => unimplemented!(),
             gimli::DW_TAG_generic_subrange          => unimplemented!(),
             gimli::DW_TAG_template_type_parameter   => unimplemented!(),
@@ -401,9 +405,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a base type.
      */
     pub fn eval_basetype(&mut self,
+                         dwarf:         &gimli::Dwarf<R>,
                          unit:          &gimli::Unit<R>,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
-                         data_offset:   u64
+                         data_offset:   u64,
+                         new_state:      bool,
                          ) -> Result<Option<ReturnResult<R>>>
     {
         // Make sure that the die has the tag DW_TAG_base_type.
@@ -411,6 +417,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             gimli::DW_TAG_base_type => (),
             _ => panic!("Wrong implementation"),
         };
+
+        if new_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+        }
 
         // Get byte size and encoding from the die.
         let byte_size = attributes::byte_size_attribute(die);
@@ -422,9 +432,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Evaluate the value.
-        self.handle_eval_piece(byte_size,
-                               data_offset, // TODO
-                               encoding)
+        match self.handle_eval_piece(byte_size,
+                                     data_offset, // TODO
+                                     encoding)?.unwrap()
+        {
+            ReturnResult::Value(val) => {
+                self.stack.pop();
+                return Ok(Some(ReturnResult::Value(val)));
+            },
+            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+        };
     }
 
 
