@@ -21,7 +21,7 @@ use anyhow::{
 };
 
 
-impl<R: Reader<Offset = usize>> Debugger<R> {
+impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn print_tree(&mut self, 
                          unit:      &Unit<R>,
                          pc:        u32,

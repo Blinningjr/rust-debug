@@ -92,8 +92,8 @@ impl<R: Read, W: Write> Session<R, W> {
         info!("> program: {:?}", args.program);
         self.file_path = Some(PathBuf::from(args.program));
 
-        let (dwarf, _) = read_dwarf(self.file_path.as_ref().unwrap())?;
-        self.dwarf = Some(dwarf);
+        let dwarf_sections = read_dwarf(self.file_path.as_ref().unwrap())?;
+        self.dwarf = Some(dwarf_sections);
         debug!("> Read dwarf file");
 
         match attach_probe() {
@@ -237,11 +237,45 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn stack_trace_command_request(&mut self, req: &Request) -> Result<bool>
     {
+        let mut stack_frames = vec!();
+        if let (Some((dwarf, fs)), Some(sess)) = (&self.dwarf, &mut self.sess) {
+            let mut core = sess.core(0)?;
+            use crate::Debugger;
+            let mut debugger = Debugger::new(dwarf, fs);
+            let stacktrace = debugger.get_current_stacktrace(&mut core)?;
+
+            for s in stacktrace {
+                let source = debugserver_types::Source {
+                    name: s.source.file,
+                    path: s.source.directory,
+                    source_reference: None,
+                    presentation_hint: None,
+                    origin: None,
+                    sources: None,
+                    adapter_data: None,
+                    checksums: None,
+                };
+                stack_frames.push(debugserver_types::StackFrame {
+                    id: s.call_frame.id as i64,
+                    name: s.name,
+                    source: Some(source),
+                    line: s.source.line.unwrap() as i64,
+                    column: match s.source.column {Some(v) => v as i64, None => 0,},
+                    end_column: None,
+                    end_line: None,
+                    module_id: None,
+                    presentation_hint: Some("normal".to_owned()),
+                });
+            }
+        }
+
+
         // TODO: Follow DAP spec
-        
+       
+        let total_frames = stack_frames.len() as i64;
         let body = StackTraceResponseBody {
-            stack_frames: vec!(),
-            total_frames: None,
+            stack_frames: stack_frames,
+            total_frames: Some(total_frames),
         };
 
         let resp = Response {

@@ -68,7 +68,7 @@ pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger
                 stacktrace.push(val);
             },
             None        => {
-                stacktrace = stacktrace.iter().rev().cloned().collect();
+                //stacktrace = stacktrace.iter().rev().cloned().collect();
                 return Ok(stacktrace);
             },
 
@@ -77,8 +77,8 @@ pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger
 }
 
 
-pub struct CallFrameIterator<'b, R: Reader<Offset = usize>> {
-    debugger:       &'b mut Debugger<R>,
+pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
+    debugger:       &'b mut Debugger<'a, R>,
     frame_counter:  u64,
     code_location:  Option<u64>,
     registers:      [Option<u32>; 16],
@@ -93,8 +93,8 @@ pub struct CallFrameIterator<'b, R: Reader<Offset = usize>> {
 }
 
 
-impl<'b, R: Reader<Offset = usize>> CallFrameIterator<'b, R> {
-    pub fn new(debugger: &'b mut Debugger<R>, core: &mut probe_rs::Core) -> Result<CallFrameIterator<'b, R>>
+impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
+    pub fn new(debugger: &'b mut Debugger<'a, R>, core: &mut probe_rs::Core) -> Result<CallFrameIterator<'a, 'b, R>>
     {
         let pc =        core.registers().program_counter();
         let pc_val =    core.read_core_reg(pc)?;

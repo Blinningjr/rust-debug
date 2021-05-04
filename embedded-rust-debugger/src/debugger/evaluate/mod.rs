@@ -68,7 +68,7 @@ use anyhow::{
 };
 
 
-impl<R: Reader<Offset = usize>> Debugger<R> {
+impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn evaluate(&mut self,
                     core:       &mut probe_rs::Core,
                     unit:       &Unit<R>,

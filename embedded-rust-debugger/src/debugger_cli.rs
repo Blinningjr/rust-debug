@@ -23,15 +23,15 @@ use rustyline::Editor;
 use capstone::arch::BuildsCapstone;
 
 
-pub struct DebuggerCli<R: Reader<Offset = usize>> {
+pub struct DebuggerCli<'a, R: Reader<Offset = usize>> {
     pub commands:   Vec<Command<R>>,
-    pub debugger:   Debugger<R>,
+    pub debugger:   Debugger<'a, R>,
     pub session:    probe_rs::Session,
     pub capstone:   capstone::Capstone,
 }
 
-impl<R: Reader<Offset = usize>> DebuggerCli<R> {
-    pub fn new(debugger: Debugger<R>, session: probe_rs::Session) -> Result<DebuggerCli<R>>
+impl<'a, R: Reader<Offset = usize>> DebuggerCli<'a, R> {
+    pub fn new(debugger: Debugger<'a, R>, session: probe_rs::Session) -> Result<DebuggerCli<'a, R>>
     {
         let cs = capstone::Capstone::new() // TODO: Set the capstone base on the arch of the chip.
             .arm()

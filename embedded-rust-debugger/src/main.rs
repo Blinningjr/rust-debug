@@ -125,7 +125,7 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 //
 //    let debug_frame = gimli::EndianSlice::new(&owned_debug_frame, gimli::LittleEndian).into();
 
-    let debugger = Debugger::new(owned_dwarf, owned_debug_frame);
+    let debugger = Debugger::new(&owned_dwarf, &owned_debug_frame);
 
     let mut cli = DebuggerCli::new(debugger, session)?;
     cli.run()?;

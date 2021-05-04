@@ -53,17 +53,17 @@ use super::get_current_unit;
 
 
 
-pub struct Debugger<R: Reader<Offset = usize>> {
-    pub dwarf:          Dwarf<R>,
-    pub debug_frame:    DebugFrame<R>,
+pub struct Debugger<'a, R: Reader<Offset = usize>> {
+    pub dwarf:          &'a Dwarf<R>,
+    pub debug_frame:    &'a DebugFrame<R>,
     pub breakpoints:    Vec<u32>,
 }
 
 
-impl<R: Reader<Offset = usize>> Debugger<R> {
-    pub fn new(dwarf:       Dwarf<R>,
-               debug_frame: DebugFrame<R>,
-               ) -> Debugger<R> {
+impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
+    pub fn new(dwarf:       &'a Dwarf<R>,
+               debug_frame: &'a DebugFrame<R>,
+               ) -> Debugger<'a, R> {
         Debugger{
             dwarf:          dwarf,
             debug_frame:    debug_frame,

@@ -6,7 +6,6 @@ use std::net::{
 };
 
 
-
 use anyhow::{
     anyhow,
     Result,
@@ -120,7 +119,7 @@ pub struct Session<R: Read, W: Write> {
     pub seq:    i64,
     pub sess:   Option<probe_rs::Session>,
     pub file_path:  Option<PathBuf>,
-    pub dwarf:  Option<Dwarf<EndianRcSlice<LittleEndian>>>,
+    pub dwarf:  Option<(Dwarf<EndianRcSlice<LittleEndian>>, gimli::DebugFrame<EndianRcSlice<LittleEndian>>)>,
     pub breakpoints: Vec<BreakpointInfo>,
     pub bkpt_id: u32,
     pub status: bool,
@@ -148,7 +147,7 @@ impl<R: Read, W: Write> Session<R, W> {
             success:        true,
             type_:          "response".to_string(),
         };
-        
+
         let mut seq = send_data(&mut writer, &to_vec(&resp)?, 0)?;
 
         seq = send_data(&mut writer,

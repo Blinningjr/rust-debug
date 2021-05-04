@@ -27,7 +27,7 @@ use gimli::{
 };
 
 
-impl<R: Reader<Offset = usize>> Debugger<R> {
+impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn name_attribute(&mut self,
                           die: &DebuggingInformationEntry<R>
                           ) -> Option<String>
