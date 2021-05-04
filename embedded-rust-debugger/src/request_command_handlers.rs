@@ -367,16 +367,18 @@ impl<R: Read, W: Write> Session<R, W> {
             let stacktrace = debugger.get_current_stacktrace(&mut core)?;
 
             if let Some(s) = stacktrace.iter().find(|sf| sf.call_frame.id as i64 == args.variables_reference) {
-                variables.push(debugserver_types::Variable {
-                    evaluate_name: None, //Option<String>,
-                    indexed_variables: None,
-                    name: "variable name".to_string(),
-                    named_variables: None,
-                    presentation_hint: None,
-                    type_: None,
-                    value: "value".to_string(),//String,
-                    variables_reference: 0, // i64,
-                });
+                for var in &s.variables {
+                    variables.push(debugserver_types::Variable {
+                        evaluate_name: None, //Option<String>,
+                        indexed_variables: None,
+                        name: match &var.0 {Some(name) => name.clone(), None => "<unknown>".to_string(),},
+                        named_variables: None,
+                        presentation_hint: None,
+                        type_: None,
+                        value: var.1.clone(),
+                        variables_reference: 0, // i64,
+                    });
+                }
             }
         }
 
