@@ -267,7 +267,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             gimli::DW_TAG_structure_type            => self.eval_structured_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_union_type                => self.eval_union_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset, old_result), // TODO: Add create state.
+            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_string_type               => unimplemented!(),
             gimli::DW_TAG_generic_subrange          => unimplemented!(),
             gimli::DW_TAG_template_type_parameter   => unimplemented!(),
@@ -334,14 +334,14 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         address += (data_offset/4) * 4;
         //println!("Address: {:#10x}", address);
 
-        //address -= address%4; // TODO: Is this correct?
+        address -= address%4; // TODO: Is this correct?
 
 
         let mut data: Vec<u32> = Vec::new();
         for i in 0..num_words as usize {
-            match self.addresses.get(&((address + (i as u64) * 2) as u32)) {
+            match self.addresses.get(&((address + (i as u64) * 4) as u32)) {
                 Some(val) => data.push(*val), // TODO: Mask the important bits?
-                None    => return Some(ReturnResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 2) as u32, num_words: 1 })),
+                None    => return Some(ReturnResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 4) as u32, num_words: 1 })),
             }
         }
 
@@ -542,7 +542,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     None    => {
                         let result = match dimension_die.tag() {
                             gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
-                            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset, old_result.clone())?.unwrap(),
+                            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
                             _ => unimplemented!(),
                         };
                         match result {
@@ -835,6 +835,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                  die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                                  data_offset:   u64,
                                  mut old_result: Option<EvaluatorValue<R>>,
+                                 new_state:     bool,
                                  ) -> Result<Option<ReturnResult<R>>>
     {
         // Make sure that the die has the tag DW_TAG_enumeration_type
@@ -843,6 +844,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             _ => panic!("Wrong implementation"),
         };
 
+        // Create a new state if it doesn't already exist.
+        if new_state {
+            self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
+        }
 
         // Get type attribute unit and die.
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
@@ -881,7 +886,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         // Get the name of the enum type and the enum variant.
                         let name = attributes::name_attribute(dwarf, die).unwrap(); 
                         let e_name = attributes::name_attribute(dwarf, &c_die).unwrap(); 
-        
+
+                        self.stack.pop();
                         return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                             name:   name,
                             value:  super::value::EvaluatorValue::Name(e_name),
@@ -893,6 +899,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         }
 
+        self.stack.pop();
         Ok(None)
     }
 

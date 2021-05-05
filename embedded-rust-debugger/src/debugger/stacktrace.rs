@@ -107,7 +107,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
 
         Ok(CallFrameIterator {
             debugger:       debugger,
-            frame_counter:  0,
+            frame_counter:  1,
             code_location:  Some(pc_val as u64),
             registers:      register, 
             bases:          gimli::BaseAddresses::default(),

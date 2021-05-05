@@ -245,9 +245,16 @@ impl<R: Read, W: Write> Session<R, W> {
             let stacktrace = debugger.get_current_stacktrace(&mut core)?;
 
             for s in stacktrace {
+
                 let source = debugserver_types::Source {
-                    name: s.source.file,
-                    path: s.source.directory,
+                    name: s.source.file.clone(),
+                    path: match &s.source.directory { // TODO: Make path os independent?
+                        Some(dir) => match &s.source.file {
+                            Some(file) => Some(format!("{}/{}", dir, file)),
+                            None => None,
+                        },
+                        None => None,
+                    },
                     source_reference: None,
                     presentation_hint: None,
                     origin: None,
@@ -305,9 +312,16 @@ impl<R: Read, W: Write> Session<R, W> {
             let stacktrace = debugger.get_current_stacktrace(&mut core)?;
 
             if let Some(s) = stacktrace.iter().find(|sf| sf.call_frame.id as i64 == args.frame_id) {
-                let source = debugserver_types::Source {
+                
+                let source = debugserver_types::Source { // TODO: Make path os independent?
                     name: s.source.file.clone(),
-                    path: s.source.directory.clone(),
+                    path: match &s.source.directory {
+                        Some(dir) => match &s.source.file {
+                            Some(file) => Some(format!("{}/{}", dir, file)),
+                            None => None,
+                        },
+                        None => None,
+                    },
                     source_reference: None,
                     presentation_hint: None,
                     origin: None,
@@ -353,7 +367,6 @@ impl<R: Read, W: Write> Session<R, W> {
 
     pub fn variables_command_request(&mut self, req: &Request) -> Result<bool>
     {
-        println!("variables here");
 
         let args: debugserver_types::VariablesArguments = get_arguments(&req)?;
         debug!("args: {:?}", args);

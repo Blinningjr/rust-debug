@@ -233,12 +233,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             return Ok(());
         }
 
-        match self.eval_location(core, unit, pc, &die, frame_base) {
-            Ok(v) => {
+        match self.eval_location(core, unit, pc, &die, frame_base)? {
+            Some(val) => {
                 let name = self.get_var_name(unit, pc, die)?; // TODO: get name
-                variables.push((name, v.unwrap()));
+                variables.push((name, val));
             },
-            Err(_) => (),
+            None => (),
         };
 
         // Recursively process the children.
@@ -325,7 +325,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             None => None,
             Some(v) => unimplemented!("{:?}", v),
         };
-
+        
         Ok(stacktrace::SourceReference {
             directory: directory,
             file: file,
@@ -426,9 +426,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         // Check for the searched vairable.
         if self.check_var_name(unit, pc, &die, search) {
-            match self.eval_location(core, unit, pc, &die, frame_base) {
-                Ok(v) => return Ok(v),
-                Err(_) => (),
+            match self.eval_location(core, unit, pc, &die, frame_base)? {
+                Some(val) => return Ok(Some(val)),
+                None => (),
             };
         }
         
@@ -585,7 +585,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
                 return Ok(Some(EvaluatorValue::OutOfRange));
             },
-            None => return Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
+            None => return Ok(None), //Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
             Some(v) => {
                 println!("{:?}", v);
                 unimplemented!();
