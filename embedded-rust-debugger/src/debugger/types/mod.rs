@@ -59,7 +59,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base)?;
+        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base, &vec!())?;
 
         // Check for the searched type.
         if let Some(DebugStrRef(offset)) =  die.attr_value(gimli::DW_AT_name)? { // Get the name of the variable.

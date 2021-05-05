@@ -76,7 +76,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     expr:       Expression<R>,
                     frame_base: Option<u64>,
                     type_unit:  Option<&gimli::Unit<R>>,
-                    type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>
+                    type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
+                    registers:     &Vec<(u16, u32)>,
                     ) -> Result<EvaluatorValue<R>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
@@ -121,7 +122,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                                       &mut eval,
                                                       &mut result,
                                                       frame_base,
-                                                      die_ref)?,
+                                                      die_ref,
+                                                      registers)?,
 
                 RequiresEntryValue(e) =>
                   result = eval.resume_with_entry_value(convert_to_gimli_value(self.evaluate(core,
@@ -130,14 +132,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                                                       e,
                                                                       frame_base, 
                                                                       None,
-                                                                      None
+                                                                      None,
+                                                                      registers
                                                                       )?.to_value().unwrap()))?,
 
                 RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
                     {
                         let die     = unit.entry(unit_offset)?;
                         let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-                        let value   = self.evaluate(core, unit, pc, expr, frame_base, type_unit, Some(&die))?;
+                        let value   = self.evaluate(core, unit, pc, expr, frame_base, type_unit, Some(&die), registers)?;
 
                         if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
                             result = eval.resume_with_parameter_ref(val)?;
@@ -161,10 +164,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //println!("{:#?}", pieces);
 
         let mut evaluator = evaluate::Evaluator::new(&self.dwarf, pieces.clone(), type_unit, type_die);
+        for (reg, data) in registers {
+            evaluator.add_register(*reg, *data);
+        }
         loop {
             match evaluator.evaluate(&self.dwarf) {
                 evaluate::EvaluatorResult::Complete => break,
-                evaluate::EvaluatorResult::RequireReg(reg) => {
+                evaluate::EvaluatorResult::RequireReg(reg) => { 
                     let data = core.read_core_reg(reg)?;
                     evaluator.add_register(reg, data);
                 },
@@ -237,20 +243,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                     eval:       &mut Evaluation<R>,
                                     result:     &mut EvaluationResult<R>,
                                     frame_base: Option<u64>,
-                                    die_ref:    DieReference<usize>
+                                    die_ref:    DieReference<usize>,
+                                    registers:     &Vec<(u16, u32)>,
                                     ) -> Result<()>
                                     where R: Reader<Offset = usize>
     { 
         match die_ref {
             DieReference::UnitRef(unit_offset) => {
-                return self.help_at_location(core, unit, pc, eval, result, frame_base, unit_offset);
+                return self.help_at_location(core, unit, pc, eval, result, frame_base, unit_offset, registers);
             },
 
             DieReference::DebugInfoRef(debug_info_offset) => {
                 let unit_header = self.dwarf.debug_info.header_from_offset(debug_info_offset)?;
                 if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                     let new_unit = self.dwarf.unit(unit_header)?;
-                    return self.help_at_location(core, &new_unit, pc, eval, result, frame_base, unit_offset);
+                    return self.help_at_location(core, &new_unit, pc, eval, result, frame_base, unit_offset, registers);
                 } else {
                     return Err(anyhow!("Could not find at location"));
                 }    
@@ -266,14 +273,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         eval:           &mut Evaluation<R>,
                         result:         &mut EvaluationResult<R>,
                         frame_base:     Option<u64>,
-                        unit_offset:    UnitOffset<usize>
+                        unit_offset:    UnitOffset<usize>,
+                        registers:     &Vec<(u16, u32)>,
                         ) -> Result<()>
                         where R: Reader<Offset = usize>
     {
         let die = unit.entry(unit_offset)?;
         if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
             
-            let val = self.call_evaluate(core, &unit, pc, expr, frame_base, &unit, &die)?;
+            let val = self.call_evaluate(core, &unit, pc, expr, frame_base, &unit, &die, registers)?;
 
             if let EvaluatorValue::Bytes(b) = val {
                *result =  eval.resume_with_at_location(b)?;

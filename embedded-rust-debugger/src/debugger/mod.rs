@@ -183,8 +183,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => "<unknown>".to_string(),
         };
 
+        let mut registers = vec!();
+        for i in 0..call_frame.registers.len() {
+            match call_frame.registers[i] {
+                Some(val) => registers.push((i as u16, val)),
+                None => (),
+            };
+        }
 
-        let variables = self.get_scope_variables(core, &unit, &die, call_frame.code_location as u32)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
+        let variables = self.get_scope_variables(core, &unit, &die, call_frame.code_location as u32, &registers)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
 
         Ok(stacktrace::StackFrame{
             call_frame: call_frame.clone(),
@@ -199,15 +206,16 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                unit:    &Unit<R>,
                                die:     &DebuggingInformationEntry<'_, '_, R>,
                                pc:      u32,
+                               registers: &Vec<(u16, u32)>,
                                ) -> Result<Vec<(Option<String>, EvaluatorValue<R>)>>
     {
         let mut variables = vec!();
-        let frame_base = self.check_frame_base(core, unit, pc, die, None)?;
+        let frame_base = self.check_frame_base(core, unit, pc, die, None, registers)?;
 
         let mut tree = unit.entries_tree(Some(die.offset()))?;
         let node = tree.root()?;
 
-        self.get_scope_variables_search(core, unit, pc, node, frame_base, &mut variables)?;
+        self.get_scope_variables_search(core, unit, pc, node, frame_base, &mut variables, registers)?;
         return Ok(variables);
     }
 
@@ -218,6 +226,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                       node:             EntriesTreeNode<R>,
                                       frame_base:       Option<u64>,
                                       variables:        &mut Vec<(Option<String>, EvaluatorValue<R>)>,
+                                      registers:        &Vec<(u16, u32)>,
                                       ) -> Result<()>
     {
         let die = node.entry();
@@ -229,11 +238,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         };
 
         // Check if we enter a new scope / frame.  // TODO: don't know if this is correct.
-        if frame_base != self.check_frame_base(core, unit, pc, die, frame_base)? {
+        if frame_base != self.check_frame_base(core, unit, pc, die, frame_base, registers)? {
             return Ok(());
         }
 
-        match self.eval_location(core, unit, pc, &die, frame_base)? {
+        match self.eval_location(core, unit, pc, &die, frame_base, registers)? {
             Some(val) => {
                 let name = self.get_var_name(unit, pc, die)?; // TODO: get name
                 variables.push((name, val));
@@ -244,7 +253,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         // Recursively process the children.
         let mut children = node.children();
         while let Some(child) = children.next()? {
-            self.get_scope_variables_search(core, unit, pc, child, frame_base, variables)?;
+            self.get_scope_variables_search(core, unit, pc, child, frame_base, variables, registers)?;
         }
         Ok(())
     }
@@ -422,11 +431,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             _ => (),
         };
 
-        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base)?;
+        let registers = self.get_registers(core)?;
+        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base, &registers)?;
 
         // Check for the searched vairable.
         if self.check_var_name(unit, pc, &die, search) {
-            match self.eval_location(core, unit, pc, &die, frame_base)? {
+            match self.eval_location(core, unit, pc, &die, frame_base, &registers)? {
                 Some(val) => return Ok(Some(val)),
                 None => (),
             };
@@ -447,6 +457,19 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }
         }
         Ok(None)
+    }
+
+    fn get_registers(&mut self, core: &mut probe_rs::Core) -> Result<Vec<(u16, u32)>>
+    {
+        let mut registers = vec!();
+
+        let register_file = core.registers();
+        for reg in register_file.registers() {
+            let value = core.read_core_reg(reg)?;
+            registers.push((probe_rs::CoreRegisterAddress::from(reg).0, value));
+        }
+
+        Ok(registers)
     }
 
 
@@ -517,14 +540,15 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     expr:       gimli::Expression<R>,
                     frame_base: Option<u64>,
                     unit:     &Unit<R>,
-                    die: &DebuggingInformationEntry<R>
+                    die: &DebuggingInformationEntry<R>,
+                    registers:     &Vec<(u16, u32)>,
                     ) -> Result<EvaluatorValue<R>>
     {
         if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
             match die.attr_value(gimli::DW_AT_type)? {
                 Some(gimli::AttributeValue::UnitRef(offset)) => {
                     let die = unit.entry(offset)?;
-                    return self.evaluate(core, nunit, pc, expr, frame_base, Some(unit), Some(&die));
+                    return self.evaluate(core, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers);
                 },
                 Some(gimli::AttributeValue::DebugInfoRef(di_offset)) => {
                     let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
@@ -533,7 +557,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         let unit = self.dwarf.unit(header).unwrap();
                         if let Some(offset) = offset.to_unit_offset(&unit) {
                             let die = unit.entry(offset)?;
-                            return self.evaluate(core, nunit, pc, expr, frame_base, Some(&unit), Some(&die));
+                            return self.evaluate(core, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers);
                         }
                     }
                     return Err(anyhow!(""));
@@ -544,7 +568,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             match die_offset {
                 UnitRef(offset) => {
                     if let Ok(ndie) = unit.entry(offset) {
-                        return self.call_evaluate(core, nunit, pc, expr, frame_base, unit, &ndie);
+                        return self.call_evaluate(core, nunit, pc, expr, frame_base, unit, &ndie, registers);
                     }
                 },
                 _ => {
@@ -557,18 +581,19 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
     fn eval_location(&mut self,
-                     core:              &mut probe_rs::Core,
-                     unit:              &Unit<R>,
-                     pc:                u32,
-                     die:               &DebuggingInformationEntry<R>,
-                     frame_base:        Option<u64>
+                     core:          &mut probe_rs::Core,
+                     unit:          &Unit<R>,
+                     pc:            u32,
+                     die:           &DebuggingInformationEntry<R>,
+                     frame_base:    Option<u64>,
+                     registers:     &Vec<(u16, u32)>,
                      ) -> Result<Option<EvaluatorValue<R>>> 
     {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
                 //self.print_die(&die)?;
-                let value = self.call_evaluate(core, unit, pc, expr, frame_base, unit, die)?;
+                let value = self.call_evaluate(core, unit, pc, expr, frame_base, unit, die, registers)?;
                 //println!("\n");
 
                 return Ok(Some(value));
@@ -578,7 +603,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 let mut locations = self.dwarf.locations(unit, offset)?;
                 while let Some(llent) = locations.next()? {
                     if in_range(pc, &llent.range) {
-                        let value = self.call_evaluate(core, unit, pc, llent.data, frame_base, unit, die)?;
+                        let value = self.call_evaluate(core, unit, pc, llent.data, frame_base, unit, die, registers)?;
                         return Ok(Some(value));
                     }
                 }
@@ -599,12 +624,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             unit:       &Unit<R>,
                             pc:         u32,
                             die:        &DebuggingInformationEntry<'_, '_, R>,
-                            frame_base: Option<u64>
+                            frame_base: Option<u64>,
+                            registers:     &Vec<(u16, u32)>,
                             ) -> Result<Option<u64>>
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None) {
+                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None, registers) {
                     Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
                     Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
                     Ok(v) => {
