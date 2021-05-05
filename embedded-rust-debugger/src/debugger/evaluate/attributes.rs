@@ -47,32 +47,6 @@ pub fn byte_size_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformation
 }
 
 
-pub fn bit_size_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
-{
-    return match die.attr_value(gimli::DW_AT_bit_size).ok()? {
-        Some(Udata(val)) => Some(val),
-        Some(unknown) => {
-            println!("bit_size_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn data_bit_offset_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
-{
-    return match die.attr_value(gimli::DW_AT_data_bit_offset).ok()? {
-        Some(Udata(val)) => Some(val),
-        Some(unknown) => {
-            println!("data_bit_offset_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
 pub fn alignment_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
 {
     return match die.attr_value(gimli::DW_AT_alignment).ok()? {
@@ -164,32 +138,6 @@ pub fn enum_class_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformatio
 }
 
 
-pub fn lower_bound_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<i64>
-{
-    return match die.attr_value(gimli::DW_AT_lower_bound).ok()? {
-        Some(Sdata(val)) => Some(val),
-        Some(unknown) => {
-            println!("lower_bound_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn upper_bound_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<i64>
-{
-    return match die.attr_value(gimli::DW_AT_upper_bound).ok()? {
-        Some(Sdata(val)) => Some(val),
-        Some(unknown) => {
-            println!("upper_bound_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
 pub fn count_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
 {
     return match die.attr_value(gimli::DW_AT_count).ok()? {
@@ -220,86 +168,6 @@ pub fn encoding_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationE
 }
 
 
-pub fn accessibility_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<bool>
-{
-    return match die.attr_value(gimli::DW_AT_accessibility).ok()? {
-        Some(Flag(val)) => Some(val),
-        Some(unknown) => {
-            println!("acessibility_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn mutable_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<bool>
-{
-    return match die.attr_value(gimli::DW_AT_mutable).ok()? {
-        Some(Flag(val)) => Some(val),
-        Some(unknown) => {
-            println!("mutable_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn string_length_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
-{
-    return match die.attr_value(gimli::DW_AT_string_length).ok()? {
-        Some(Udata(val)) => Some(val),
-        Some(unknown) => {
-            println!("string_length_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn string_length_byte_size_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
-{
-    return match die.attr_value(gimli::DW_AT_string_length_byte_size).ok()? {
-        Some(Udata(val)) => Some(val),
-        Some(unknown) => {
-            println!("string_length_byte_size_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn string_length_bit_size_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
-{
-    return match die.attr_value(gimli::DW_AT_string_length_bit_size).ok()? {
-        Some(Udata(val)) => Some(val),
-        Some(unknown) => {
-            println!("string_length_bit_size_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
-pub fn linkage_name_attribute<R: Reader<Offset = usize>>(dwarf: &gimli::Dwarf<R>,
-                              die: &DebuggingInformationEntry<R>
-                              ) -> Option<String>
-{
-    return match die.attr_value(gimli::DW_AT_linkage_name).ok()? {
-        Some(DebugStrRef(offset)) => Some(dwarf.string(offset).ok()?.to_string().ok()?.to_string()),
-        Some(unknown) => {
-            println!("linkage_name_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
 pub fn discr_value_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
 {
     return match die.attr_value(gimli::DW_AT_discr_value).ok()? {
@@ -312,18 +180,4 @@ pub fn discr_value_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformati
         _ => None,
     };
 }
-
-
-pub fn artificial_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<bool>
-{
-    return match die.attr_value(gimli::DW_AT_artificial).ok()? {
-        Some(Flag(val)) => Some(val),
-        Some(unknown) => {
-            println!("artificial_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
 

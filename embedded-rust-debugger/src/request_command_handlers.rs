@@ -19,7 +19,6 @@ use serde_json::{
 };
 
 use serde::{
-    de::DeserializeOwned,
     Deserialize,
 };
 
@@ -35,52 +34,45 @@ use debugserver_types::{
     DisconnectArguments,
     SetBreakpointsArguments,
     SetBreakpointsResponseBody,
-    SourceBreakpoint,
-    Breakpoint,
 };
 
 use log::{
     debug,
-    error,
     info,
     trace,
     warn,
 };
-
-use std::time::Duration;
 
 use super::{
     read_dwarf,
     attach_probe,
 };
 
-use probe_rs;
 
 use std::path::{
     PathBuf,
-    Path,
 };
 
 
 impl<R: Read, W: Write> Session<R, W> {
-    pub fn launch_command_request(&mut self, req: &Request) -> Result<bool> 
+    pub fn launch_command_request(&mut self, _req: &Request) -> Result<bool> 
     {
         // TODO start the debugee
         unimplemented!();
 
-        let resp = Response {
-            body:           None,
-            command:        req.command.clone(),
-            message:        None,
-            request_seq:    req.seq,
-            seq:            req.seq,
-            success:        true,
-            type_:          "response".to_string(),
-        };
-        
-        self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
+        //let resp = Response {
+        //    body:           None,
+        //    command:        req.command.clone(),
+        //    message:        None,
+        //    request_seq:    req.seq,
+        //    seq:            req.seq,
+        //    success:        true,
+        //    type_:          "response".to_string(),
+        //};
+        //
+        //self.seq = send_data(&mut self.writer, &to_vec(&resp)?, self.seq)?;
     
-        Ok(false)
+        //Ok(false)
     }
 
 

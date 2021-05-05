@@ -13,7 +13,6 @@ use super::{
 
 use gimli::{
     Reader,
-    DebugFrame,
     UnwindSection,
     RegisterRule::*,
 };
@@ -24,10 +23,6 @@ use anyhow::{
 };
 
 use probe_rs::MemoryInterface;
-
-use log::{
-    debug,
-};
 
 
 #[derive(Debug, Clone)]
@@ -183,8 +178,8 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
                     Some(value)
                 },
                 Register(reg)       => self.registers[reg.0 as usize],
-                Expression(expr)    => unimplemented!(), // TODO
-                ValExpression(expr) => unimplemented!(), // TODO
+                Expression(_expr)    => unimplemented!(), // TODO
+                ValExpression(_expr) => unimplemented!(), // TODO
                 Architectural       => unimplemented!(), // TODO
             };
         }
@@ -224,7 +219,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
                 };
                 Ok(Some((i64::from(reg_val) + offset) as u32))
             },
-            gimli::CfaRule::Expression          (expr)              => {
+            gimli::CfaRule::Expression          (_expr)              => {
                 unimplemented!(); // TODO
 //                let mut eval = expr.evaluation(cie.encoding());
 //                let mut result = eval.evaluate().unwrap();

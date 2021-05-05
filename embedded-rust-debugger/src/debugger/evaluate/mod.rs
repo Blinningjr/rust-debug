@@ -4,9 +4,6 @@ pub mod attributes;
 
 use super::{
     Debugger,
-    types::{
-        DebuggerType,
-    },
 };
 
 
@@ -31,16 +28,11 @@ use gimli::{
         RequiresIndexedAddress,
         RequiresBaseType,
     },
-    AttributeValue::{
-        Udata,
-        Encoding,
-    },
     Reader,
     Evaluation,
     EvaluationResult,
     UnitOffset,
     Register,
-    DwAte,
     Expression,
     DieReference,
 };
@@ -57,7 +49,6 @@ pub use value::{
 };
 
 use evaluate::{
-    eval_base_type,
     parse_base_type,
 };
 
@@ -160,7 +151,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
         }
     
-        let mut pieces = eval.result();
+        let pieces = eval.result();
         //println!("{:#?}", pieces);
 
         let mut evaluator = evaluate::Evaluator::new(&self.dwarf, pieces.clone(), type_unit, type_die);
@@ -174,10 +165,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     let data = core.read_core_reg(reg)?;
                     evaluator.add_register(reg, data);
                 },
-                evaluate::EvaluatorResult::RequireData {address, num_words} => {
+                evaluate::EvaluatorResult::RequireData {address, num_words: _} => {
                     let mut data: [u32; 1] = [0];
                     core.read_32(address as u32, &mut data)?;
-                    evaluator.add_address(address, data[0]);
+                    evaluator.add_address(address, data[0]); // TODO: Read more then 1 word
                 },
             };
         }

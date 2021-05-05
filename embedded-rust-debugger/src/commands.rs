@@ -1,5 +1,4 @@
 use super::{
-    Core,
     Reader,
     get_current_unit,
     Debugger,
@@ -52,7 +51,7 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "status",
                 short:          "s",
                 description:    "Show current status of CPU",
-                function:       |debugger, session, _cs, _args| status_command(session),
+                function:       |_debugger, session, _cs, _args| status_command(session),
             },
             Command {
                 name:           "print",
@@ -76,25 +75,25 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "halt",
                 short:          "h",
                 description:    "Stop the CPU",
-                function:       |debugger, session, cs, _args| halt_command(session, cs, true),
+                function:       |_debugger, session, cs, _args| halt_command(session, cs, true),
             },
             Command {
                 name:           "registers",
                 short:          "regs",
                 description:    "Show CPU register values",
-                function:       |debugger, session, _cs, _args| regs_command(session),
+                function:       |_debugger, session, _cs, _args| regs_command(session),
             },
             Command {
                 name:           "reset",
                 short:          "rt",
                 description:    "Reset the CPU",
-                function:       |debugger, session, _cs, _args| reset_command(session),
+                function:       |_debugger, session, _cs, _args| reset_command(session),
             },
             Command {
                 name:           "read",
                 short:          "rd",
                 description:    "Read 32bit value from memory",
-                function:       |debugger, session, _cs, args| read_command(session, args),
+                function:       |_debugger, session, _cs, args| read_command(session, args),
             },
             Command {
                 name:           "set_breakpoint",
@@ -124,7 +123,7 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 name:           "code",
                 short:          "ce",
                 description:    "Print first 16 lines of assembly code",
-                function:       |debugger, session, cs, _args| code_command(session, cs),
+                function:       |_debugger, session, cs, _args| code_command(session, cs),
             },
             Command {
                 name:           "stacktrace",

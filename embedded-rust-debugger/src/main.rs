@@ -16,7 +16,6 @@ use std::path::Path;
 
 use probe_rs::{
     Probe,
-    Core,
     Session,
 };
 
@@ -49,7 +48,6 @@ use debugger_cli::DebuggerCli;
 use anyhow::{Context, Result};
 
 use std::str::FromStr;
-use std::string::ParseError;
 
 
 use simplelog::*;
@@ -166,11 +164,6 @@ fn read_dwarf<'a>(path: &Path) -> Result<(Dwarf<EndianRcSlice<LittleEndian>>, De
     let file = fs::File::open(&path)?;
     let mmap = unsafe { memmap::Mmap::map(&file)? };
     let object = object::File::parse(&*mmap)?;
-    let endian = if object.is_little_endian() {
-        gimli::RunTimeEndian::Little
-    } else {
-        gimli::RunTimeEndian::Big
-    };
 
     // Load a section and return as `Cow<[u8]>`.
     let loader = |id: gimli::SectionId| -> Result<EndianRcSlice<LittleEndian>, gimli::Error> {

@@ -1,7 +1,5 @@
-use std::io::prelude::*;
 use std::net::{
     TcpListener,
-    TcpStream,
     SocketAddr,
 };
 
@@ -13,13 +11,10 @@ use anyhow::{
 
 use log::{
     debug,
-    error,
     info,
     trace,
     warn,
 };
-
-use simplelog::*;
 
 use debugserver_types::{
     ProtocolMessage,
@@ -38,12 +33,12 @@ use std::path::{
     Path,
 };
 
-use std::io;
-use std::io::{BufRead, BufReader};
-use std::io::{Read, Write};
-
-use std::str::FromStr;
-use std::string::ParseError;
+use std::io::{
+    BufRead,
+    BufReader,
+    Read,
+    Write,
+};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -53,8 +48,6 @@ use serde_json::{
     json,
     to_vec,
 };
-
-use std::time::Duration;
 
 use super::{
     commands,
@@ -85,8 +78,6 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
 
         Session::start_session(reader, writer);
     }
-
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -245,8 +236,8 @@ impl<R: Read, W: Write> Session<R, W> {
     {
         match msg {
             DebugAdapterMessage::Request    (req)   => self.handle_request(req),
-            DebugAdapterMessage::Response   (resp)  => unimplemented!(), 
-            DebugAdapterMessage::Event      (event) => unimplemented!(),
+            DebugAdapterMessage::Response   (_resp)  => unimplemented!(), 
+            DebugAdapterMessage::Event      (_event) => unimplemented!(),
         }
     }
 
@@ -479,7 +470,7 @@ fn read_dap_msg<R: Read>(reader: &mut BufReader<R>) -> Result<DebugAdapterMessag
         .ok_or_else(|| anyhow!("Failed to read content length from header '{}'", header))?;
 
     let mut content = vec![0u8; len];
-    let bytes_read = reader.read(&mut content)?;
+    let _bytes_read = reader.read(&mut content)?;
 
     // Extract protocol message
     let protocol_msg: ProtocolMessage = from_slice(&content)?;

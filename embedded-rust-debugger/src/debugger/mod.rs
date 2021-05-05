@@ -20,11 +20,6 @@ use evaluate::value::{
 };
 
 
-use probe_rs::{
-    Core,
-};
-
-
 use anyhow::{
     Result,
     anyhow,
@@ -42,9 +37,7 @@ use gimli::{
     },
     Reader,
     EntriesTreeNode,
-
     DebugFrame,
-    UnwindSection,
 };
 
 use super::get_current_unit;
@@ -442,13 +435,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             };
         }
         
-//        //self.print_die(&die)?;
-//        if let Some(dtype) = self.get_var_type(unit, pc, &die) {
-//            //println!("{:#?}", dtype);
-//            //self.print_die(&die)?;
-//            self.eval_location(unit, pc, &die, &dtype, frame_base);
-//        }
-
         // Recursively process the children.
         let mut children = node.children();
         while let Some(child) = children.next()? {
@@ -458,6 +444,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
         Ok(None)
     }
+
 
     fn get_registers(&mut self, core: &mut probe_rs::Core) -> Result<Vec<(u16, u32)>>
     {
@@ -545,12 +532,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     ) -> Result<EvaluatorValue<R>>
     {
         if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
-            match die.attr_value(gimli::DW_AT_type)? {
-                Some(gimli::AttributeValue::UnitRef(offset)) => {
+            match tattr {
+                gimli::AttributeValue::UnitRef(offset) => {
                     let die = unit.entry(offset)?;
                     return self.evaluate(core, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers);
                 },
-                Some(gimli::AttributeValue::DebugInfoRef(di_offset)) => {
+                gimli::AttributeValue::DebugInfoRef(di_offset) => {
                     let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
                     let mut iter = self.dwarf.debug_info.units();
                     while let Ok(Some(header)) = iter.next() {

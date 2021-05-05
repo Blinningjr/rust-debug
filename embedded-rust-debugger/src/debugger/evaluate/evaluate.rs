@@ -1,9 +1,7 @@
 use super::{
     attributes,
-    Debugger,
     value::{
         BaseValue,
-        get_udata, 
         PartialValue,
         EvaluatorValue,
     },
@@ -22,9 +20,6 @@ use anyhow::{
     anyhow,
     Result,
 };
-
-
-use probe_rs::MemoryInterface;
 
 
 /*
@@ -174,10 +169,14 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             }
 
             // Get the current state.
-            let state = &self.stack[self.stack.len() - 1];
+            let (unit_offset, die_offset, data_offset) = {
+                let state = &self.stack[self.stack.len() - 1];
+                (state.unit_offset, state.die_offset, state.data_offset)
+            };
+
         
             // Get the unit of the current state.
-            let unit = match state.unit_offset {
+            let unit = match unit_offset {
                 gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
                     let header = dwarf.debug_info.header_from_offset(offset).unwrap();
                     dwarf.unit(header).unwrap()
@@ -186,7 +185,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     let mut iter = dwarf.debug_types.units();
                     let mut result = None;
                     while let Some(header) = iter.next().unwrap() {
-                        if header.offset() == state.unit_offset {
+                        if header.offset() == unit_offset {
                             result = Some(dwarf.unit(header).unwrap());
                             break;
                         }
@@ -196,11 +195,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
 
             // Get the die of the current state.
-            let die = &unit.entry(state.die_offset).unwrap();
+            let die = &unit.entry(die_offset).unwrap();
             //println!("die tag {:?}", die.tag().static_string());
 
             // Continue evaluating the value of the current state.
-            match self.eval_type(dwarf, &unit, die, state.data_offset, result, false).unwrap().unwrap() {
+            match self.eval_type(dwarf, &unit, die, data_offset, result, false).unwrap().unwrap() {
                 ReturnResult::Value(val) => result = Some(val),
                 ReturnResult::Required(req) => return req,
             };
@@ -468,9 +467,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
         }
 
-        // Get the name of the die.
-        let name = attributes::name_attribute(dwarf, die);
-
         // Use already evaluated value.
         match old_result {
             Some(val) => {
@@ -541,7 +537,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     },
                     None    => {
                         let result = match dimension_die.tag() {
-                            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
+                            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset, old_result.clone())?.unwrap(),
                             gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
                             _ => unimplemented!(),
                         };
@@ -834,7 +830,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                  unit:          &gimli::Unit<R>,
                                  die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                                  data_offset:   u64,
-                                 mut old_result: Option<EvaluatorValue<R>>,
+                                 old_result: Option<EvaluatorValue<R>>,
                                  new_state:     bool,
                                  ) -> Result<Option<ReturnResult<R>>>
     {
@@ -856,10 +852,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Get type value.
         let type_result = match old_result {
             // Use already evaluated value.
-            Some(val)   => {
-                old_result = None;
-                val
-            },
+            Some(val)   => val,
             // Evaluate the type value.
             None        => {
                 match self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)?.unwrap() {
@@ -913,7 +906,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                               die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                               data_offset:   u64,
                               old_result:   Option<EvaluatorValue<R>>,
-                              new_state:    bool,
                               ) -> Result<Option<ReturnResult<R>>>
     {
         // Make sure that the die has the tag DW_TAG_subrange_type
@@ -980,7 +972,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Find the DW_TAG_member die and all the DW_TAG_variant dies.
-        let mut children = get_children(unit, die);
+        let children = get_children(unit, die);
         let mut member = None;
         let mut variants = vec!();
         for c in &children {
@@ -1075,7 +1067,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Find the child die of type DW_TAG_member
-        let mut children = get_children(unit, die);
+        let children = get_children(unit, die);
         for c in children {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
