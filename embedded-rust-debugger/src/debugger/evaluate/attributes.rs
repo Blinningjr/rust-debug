@@ -168,13 +168,28 @@ pub fn encoding_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationE
 }
 
 
+pub fn discr_attribute<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
+                                                  die: &DebuggingInformationEntry<R>
+                                                  ) -> Option<gimli::UnitOffset>
+{
+    return match die.attr_value(gimli::DW_AT_discr).ok()? {
+        Some(gimli::AttributeValue::UnitRef(offset)) => Some(offset),
+        Some(unknown) => {
+            println!("discr_attribute, unknown: {:?}", unknown);
+            unimplemented!();
+        },
+        _ => None,
+    };
+}
+
+
 pub fn discr_value_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
 {
     return match die.attr_value(gimli::DW_AT_discr_value).ok()? {
         Some(Data1(val)) => Some(val as u64),
         Some(Udata(val)) => Some(val),
         Some(unknown) => {
-            println!("byte_size_attribute, unknown: {:?}", unknown);
+            println!("discr_value_attribute, unknown: {:?}", unknown);
             unimplemented!();
         },
         _ => None,

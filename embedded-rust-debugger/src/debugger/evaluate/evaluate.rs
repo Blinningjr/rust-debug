@@ -7,8 +7,10 @@
  *          DW_AT_count
  *          DW_AT_data_member_location
  *          DW_AT_encoding
- *          DW_AT_discr
- *          DW_AT_discr_value
+ *          DW_AT_discr                     (Done)(Implemented for DW_TAG_variant_part)
+ *          DW_AT_discr_value               (Done)(Implemented for DW_TAG_variant)
+ *          DW_AT_discr_list                (Not Implemented) // NOTE: Missing discr value means
+ *          that it is a default variant.
  *          DW_AT_enum_class
  *
  *
@@ -463,7 +465,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let encoding =  attributes::encoding_attribute(die);
         match byte_size {
             // If the byte size is 0 then the value is optimized out.
-            Some(0) => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize))),
+            Some(0) => {
+                self.stack.pop();
+                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize)));
+            },
             _       => (),
         };
 
@@ -1008,67 +1013,56 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             _ => return Err(anyhow!("Critical Error: expected partial variant_part")),
         };
 
-        // Find the DW_TAG_member die and all the DW_TAG_variant dies.
-        let children = get_children(unit, die);
-        let mut member = None;
-        let mut variants = vec!();
-        for c in &children {
-            let c_die = unit.entry(*c)?;
-            match c_die.tag() {
-                gimli::DW_TAG_member => {
 
-                    // There should only be one DW_TAG_member die.
-                    if member.is_some() {
-                        panic!("Expected only one member");
-                    }
-                    member = Some(c_die);
-                },
-                gimli::DW_TAG_variant => variants.push(c_die),
-                _ => (),
-            };
-        }
+        // Get the enum variant.
+        let variant = match partial_variant_part.variant {
+            Some(val) => val, // Use the value stored in the state.
+            None      => {
+                let value = match old_result {
+                    Some(val)   => {
+                        // Use the already evaluated value.
+                        old_result = None;
+                        val
+                    },
+                    None        => {
+                        // Get member die.
+                        let die_offset = attributes::discr_attribute(unit, die).unwrap();
+                        let member = &unit.entry(die_offset).unwrap();
 
-        match &member {
-            Some    (member)   => {
-
-                // Get the variant type.
-                let variant = match partial_variant_part.variant {
-                    Some(val) => val, // Use the value stored in the state.
-                    None      => {
-                        let value = match old_result {
-                            Some(val)   => {
-                                // Use the already evaluated value.
-                                old_result = None;
-                                val
-                            },
-                            None        => {
-                                // Evaluate the DW_TAG_member value.
-                                match self.eval_member(dwarf, unit, member, data_offset, None, true)?.unwrap() {
-                                    ReturnResult::Value(val) => val,
-                                    ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
-                                }
-                            },
-                        };
-
-                        println!("variant_val: {:#?}", value);
-
-                        // The value should be a unsigned int thus convert the value to a u64.
-                        let variant = super::value::get_udata(value.to_value().unwrap());
-                        partial_variant_part.variant = Some(variant); // Store variant value in state.
-                        variant
+                        // Evaluate the DW_TAG_member value.
+                        match self.eval_member(dwarf, unit, member, data_offset, None, true)?.unwrap() {
+                            ReturnResult::Value(val) => val,
+                            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                        }
                     },
                 };
 
-                // Find the right variant type and evaluate it.
-                for v in &variants {
-                    let discr_value = attributes::discr_value_attribute(v).unwrap();
+                println!("variant_val: {:#?}", value);
+
+                // The value should be a unsigned int thus convert the value to a u64.
+                let variant = super::value::get_udata(value.to_value().unwrap());
+                partial_variant_part.variant = Some(variant); // Store variant value in state.
+                variant
+            },
+        };
+
+
+        // Find the DW_TAG_member die and all the DW_TAG_variant dies.
+        let children = get_children(unit, die);
+        for c in &children {
+            let c_die = unit.entry(*c)?;
+            match c_die.tag() {
+                gimli::DW_TAG_variant => {
+
+                    // Find the right variant type and evaluate it.
+                    let discr_value = attributes::discr_value_attribute(&c_die).unwrap();
                     println!("discr_value: {}", discr_value);
 
                     // Check if it is the correct variant.
                     if discr_value == variant {
 
                         // Evaluate the value of the variant.
-                        match self.eval_variant(dwarf, unit, v, data_offset, old_result)?.unwrap() {
+                        match self.eval_variant(dwarf, unit, &c_die, data_offset, old_result)?.unwrap() {
                             ReturnResult::Value(val) => {
                                 self.stack.pop();
                                 return Ok(Some(ReturnResult::Value(val)));
@@ -1079,15 +1073,13 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                             }, 
                         };
                     }
-                }
+                },
+                _ => (),
+            };
+        }
 
-                println!("variant: {}", variant);
-                unimplemented!();
-            },
-            None            => {
-                unimplemented!();
-            },
-        };
+        println!("variant: {}", variant);
+        unimplemented!();
     }
 
 
