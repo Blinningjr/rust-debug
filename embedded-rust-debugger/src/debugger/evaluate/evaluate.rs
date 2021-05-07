@@ -4,8 +4,8 @@
  *      Attributes for evaluating value:
  *          DW_AT_alignment
  *          DW_AT_const_value
- *          DW_AT_count
- *          DW_AT_data_member_location
+ *          DW_AT_count                     (Done)
+ *          DW_AT_data_member_location      (Maybe)
  *          DW_AT_encoding                  (Done)(Uses encoding when it is given for all of the
  *          `eval_piece` cases)
  *          DW_AT_discr                     (Done)(Implemented for DW_TAG_variant_part)
@@ -14,7 +14,8 @@
  *          that it is a default variant.
  *          DW_AT_enum_class                (Can ignore)(Flag for languages with multiple enum
  *          defenitions?)
- *
+ *          DW_AT_lower_bound
+ *          DW_AT_upper_bound
  *
  *      DW_AT_artificial
  *
@@ -873,7 +874,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Calculate the new data offset.
-        let new_data_offset = match attributes::data_member_location_attribute(die) {
+        let new_data_offset = match attributes::data_member_location_attribute(die) { // NOTE: Seams it can also be a location description and not an offset. Dwarf 5 page 118
             Some(val)   => data_offset + val,
             None        => data_offset,
         };
@@ -989,7 +990,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // If the die has a count attribute then that is the value.
-        match attributes::count_attribute(die) {
+        match attributes::count_attribute(die) { // NOTE: This could be replace with lower and upper bound
             Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val))))),
             None        => (),
         };
