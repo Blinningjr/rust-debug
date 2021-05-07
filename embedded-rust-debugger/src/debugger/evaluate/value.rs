@@ -184,7 +184,7 @@ pub enum BaseValue {
     Generic(u64),
 
     Address32(u32),
-//    Bool(bool),
+    Bool(bool),
 
     U8(u8),
     U16(u16),
@@ -203,6 +203,7 @@ pub enum BaseValue {
 impl fmt::Display for BaseValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
+            BaseValue::Bool         (val)   => write!(f, "Bool {}", val),
             BaseValue::Generic      (val)   => write!(f, "Generic {}", val),
             BaseValue::I8           (val)   => write!(f, "I8 {}", val),
             BaseValue::U8           (val)   => write!(f, "U8 {}", val),
@@ -223,6 +224,7 @@ impl fmt::Display for BaseValue {
 
 pub fn convert_to_gimli_value(value: BaseValue) -> gimli::Value {
     match value {
+        BaseValue::Bool         (val)   => gimli::Value::Generic(match val { true => 1, false => 0,}),
         BaseValue::Generic      (val)   => gimli::Value::Generic(val),
         BaseValue::I8           (val)   => gimli::Value::I8(val),
         BaseValue::U8           (val)   => gimli::Value::U8(val),

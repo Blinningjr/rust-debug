@@ -321,15 +321,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn eval_piece(&mut self,
                       piece:        Piece<R>,
                       byte_size:    Option<u64>,
-                      data_offset:  u64,
+                      data_offset:  u64,            // TODO: Maby use data offset to know which part to mask?
                       encoding:     Option<DwAte>
                       ) -> Option<ReturnResult<R>>
     {
         return match piece.location {
             Location::Empty                                         => Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
-            Location::Register        { register }                  => self.eval_register(register),
+            Location::Register        { register }                  => self.eval_register(register, byte_size, encoding),
             Location::Address         { address }                   => self.eval_address(address, byte_size, data_offset, encoding.unwrap()),
-            Location::Value           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value(value)))),
+            Location::Value           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value(value)))), // TODO: Use encoding
             Location::Bytes           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(value))),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
         };
@@ -340,12 +340,25 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a register.
      */
     pub fn eval_register(&mut self,
-                         register:  gimli::Register
+                         register:  gimli::Register,
+                         byte_size: Option<u64>,
+                         encoding:  Option<DwAte>,
                          ) -> Option<ReturnResult<R>>
     {
         match self.registers.get(&register.0) {
-            Some(val) => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U32(*val)))), // TODO: Mask the important bits?
-            None    => Some(ReturnResult::Required(EvaluatorResult::RequireReg(register.0))),
+            Some(val) => { // TODO: Mask the important bits?
+                match encoding {
+                    Some(dwate) => Some(ReturnResult::Value(
+                            super::value::EvaluatorValue::Value(
+                                eval_base_type(&[*val], dwate, match byte_size {Some(v) => v, None => 4,})))),
+                    None => Some(ReturnResult::Value(
+                            super::value::EvaluatorValue::Value(
+                                BaseValue::U32(*val)))),
+                }
+            },
+            None    => Some(ReturnResult::Required(
+                    EvaluatorResult::RequireReg(
+                        register.0))),
         }
     }
 
@@ -403,9 +416,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if self.pieces.len() > 1 {
             data_offset = 0;
         }
-
-        println!("piece: {:#?}", self.pieces[self.piece_index]);
-       
+ 
         // Evaluate the value of the piece.
         let res = self.eval_piece(self.pieces[self.piece_index].clone(),
                                   byte_size,
@@ -447,7 +458,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          unit:          &gimli::Unit<R>,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                          data_offset:   u64,
-                         new_state:      bool,
+                         new_state:     bool,
                          ) -> Result<Option<ReturnResult<R>>>
     {
         // Make sure that the die has the tag DW_TAG_base_type.
@@ -1015,6 +1026,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
         // Get the enum variant.
+        // TODO: If variant is optimised out then return optimised out and remove the pieces for
+        // this type if needed.
         let variant = match partial_variant_part.variant {
             Some(val) => val, // Use the value stored in the state.
             None      => {
@@ -1037,8 +1050,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     },
                 };
 
-                println!("variant_val: {:#?}", value);
-
                 // The value should be a unsigned int thus convert the value to a u64.
                 let variant = super::value::get_udata(value.to_value().unwrap());
                 partial_variant_part.variant = Some(variant); // Store variant value in state.
@@ -1048,38 +1059,40 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
 
         // Find the DW_TAG_member die and all the DW_TAG_variant dies.
+        let mut variants = vec!();
         let children = get_children(unit, die);
         for c in &children {
             let c_die = unit.entry(*c)?;
             match c_die.tag() {
                 gimli::DW_TAG_variant => {
-
-                    // Find the right variant type and evaluate it.
-                    let discr_value = attributes::discr_value_attribute(&c_die).unwrap();
-                    println!("discr_value: {}", discr_value);
-
-                    // Check if it is the correct variant.
-                    if discr_value == variant {
-
-                        // Evaluate the value of the variant.
-                        match self.eval_variant(dwarf, unit, &c_die, data_offset, old_result)?.unwrap() {
-                            ReturnResult::Value(val) => {
-                                self.stack.pop();
-                                return Ok(Some(ReturnResult::Value(val)));
-                            },
-                            ReturnResult::Required(req) =>{
-                                self.stack[current_state].partial_value = super::value::PartialValue::VariantPart(partial_variant_part);
-                                return Ok(Some(ReturnResult::Required(req)));
-                            }, 
-                        };
-                    }
+                    variants.push(c_die);
                 },
                 _ => (),
             };
         }
 
-        println!("variant: {}", variant);
-        unimplemented!();
+        for v in &variants {
+            // Find the right variant type and evaluate it.
+            let discr_value = attributes::discr_value_attribute(v).unwrap();
+
+            // Check if it is the correct variant.
+            if discr_value == variant % (variants.len() as u64) { // NOTE: Don't know if using modulus here is correct, but it seems to be correct.
+
+                // Evaluate the value of the variant.
+                match self.eval_variant(dwarf, unit, v, data_offset, old_result)?.unwrap() {
+                    ReturnResult::Value(val) => {
+                        self.stack.pop();
+                        return Ok(Some(ReturnResult::Value(val)));
+                    },
+                    ReturnResult::Required(req) =>{
+                        self.stack[current_state].partial_value = super::value::PartialValue::VariantPart(partial_variant_part);
+                        return Ok(Some(ReturnResult::Required(req)));
+                    }, 
+                };
+            }
+        }
+    
+        panic!("Should never reach here");
     }
 
 
@@ -1179,10 +1192,10 @@ pub fn eval_base_type(data:         &[u32],
         (DwAte(5), 4) => BaseValue::I32(value as i32),     // (signed, 32)
         (DwAte(5), 8) => BaseValue::I64(value as i64),     // (signed, 64)
 
-        (DwAte(2), 1) => BaseValue::Generic((value as u8) as u64), // Should be returned as bool?
+        (DwAte(2), 1) => BaseValue::Bool((value as u8) == 1), // Should be returned as bool?
         (DwAte(1), 4) => BaseValue::Address32(value as u32),
         _ => {
-            //println!("{:?}, {:?}", encoding, byte_size);
+            println!("{:?}, {:?}", encoding, byte_size);
             unimplemented!()
         },
     }

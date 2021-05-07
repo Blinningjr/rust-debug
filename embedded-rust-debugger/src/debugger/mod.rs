@@ -618,8 +618,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
                 return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None, registers) {
-                    Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
-                    Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
+                    //Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
+                    //Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
+                    Ok(EvaluatorValue::Value(BaseValue::Address32(v))) => Some(v as u64),
                     Ok(v) => {
                         println!("{:?}", v);
                         unimplemented!()

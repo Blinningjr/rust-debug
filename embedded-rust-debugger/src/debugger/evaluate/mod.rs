@@ -182,7 +182,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     registers:     &Vec<(u16, u32)>,
                     ) -> Result<EvaluatorValue<R>>
     {
-
         let mut evaluator = evaluate::Evaluator::new(&self.dwarf, pieces.clone(), type_unit, type_die);
         for (reg, data) in registers {
             evaluator.add_register(*reg, *data);
