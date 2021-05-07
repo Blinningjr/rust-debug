@@ -1,3 +1,38 @@
+/*
+ * TODO: Consider attributes:
+ *
+ *      Attributes for evaluating value:
+ *          DW_AT_alignment
+ *          DW_AT_const_value
+ *          DW_AT_count
+ *          DW_AT_data_member_location
+ *          DW_AT_encoding
+ *          DW_AT_discr
+ *          DW_AT_discr_value
+ *          DW_AT_enum_class
+ *
+ *
+ *      DW_AT_artificial
+ *
+ *      DW_AT_call_column
+ *      DW_AT_call_file
+ *      DW_AT_call_line
+ *
+ *      DW_AT_containing_type
+ *      DW_AT_external
+ *      DW_AT_inline
+ *      DW_AT_lower_bound
+ *      DW_AT_noreturn
+ *      DW_AT_producer
+ *      DW_AT_prototyped
+ *      DW_AT_stmt_list
+ *
+ *      DW_AT_string_length
+ *      DW_AT_string_length_byte_size
+ *      DW_AT_str_offsets_base
+ */
+
+
 use super::{
     attributes,
     value::{
@@ -366,6 +401,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if self.pieces.len() > 1 {
             data_offset = 0;
         }
+
+        println!("piece: {:#?}", self.pieces[self.piece_index]);
        
         // Evaluate the value of the piece.
         let res = self.eval_piece(self.pieces[self.piece_index].clone(),
@@ -790,7 +827,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match old_result {
             Some(val) => {
                 self.stack.pop();
-                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue{
+                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue {
                     name:   name,
                     value:  val,
                 })))));
@@ -815,7 +852,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         self.stack.pop();
-        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue{
+        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue {
             name:   name,
             value:  value
         })))))
@@ -1013,6 +1050,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                             },
                         };
 
+                        println!("variant_val: {:#?}", value);
+
                         // The value should be a unsigned int thus convert the value to a u64.
                         let variant = super::value::get_udata(value.to_value().unwrap());
                         partial_variant_part.variant = Some(variant); // Store variant value in state.
@@ -1023,6 +1062,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 // Find the right variant type and evaluate it.
                 for v in &variants {
                     let discr_value = attributes::discr_value_attribute(v).unwrap();
+                    println!("discr_value: {}", discr_value);
 
                     // Check if it is the correct variant.
                     if discr_value == variant {
@@ -1040,6 +1080,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         };
                     }
                 }
+
+                println!("variant: {}", variant);
                 unimplemented!();
             },
             None            => {

@@ -55,7 +55,15 @@ pub struct CallFrame {
 
 
 pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>, core: &mut probe_rs::Core) -> Result<Vec<CallFrame>> {
-    let mut cfi = CallFrameIterator::new(debugger, core)?;
+    let pc =        core.registers().program_counter();
+    let pc_val =    core.read_core_reg(pc)?;
+
+    let mut registers = [None; 16];
+    for i in 0..16 {
+        registers[i as usize] = core.read_core_reg(i).ok();
+    }
+
+    let mut cfi = CallFrameIterator::new(debugger, registers, pc_val as u64)?;
     let mut stacktrace = vec!();
 
     loop {
@@ -90,21 +98,16 @@ pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
 
 
 impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
-    pub fn new(debugger: &'b mut Debugger<'a, R>, core: &mut probe_rs::Core) -> Result<CallFrameIterator<'a, 'b, R>>
+    pub fn new(debugger: &'b mut Debugger<'a, R>,
+               registers: [Option<u32>;16],
+               pc:      u64,
+               ) -> Result<CallFrameIterator<'a, 'b, R>>
     {
-        let pc =        core.registers().program_counter();
-        let pc_val =    core.read_core_reg(pc)?;
-
-        let mut register = [None; 16];
-        for i in 0..16 {
-            register[i as usize] = core.read_core_reg(i).ok();
-        }
-
         Ok(CallFrameIterator {
             debugger:       debugger,
             frame_counter:  1,
-            code_location:  Some(pc_val as u64),
-            registers:      register, 
+            code_location:  Some(pc),
+            registers:      registers,
             bases:          gimli::BaseAddresses::default(),
             ctx:            gimli::UninitializedUnwindContext::new(),
         })

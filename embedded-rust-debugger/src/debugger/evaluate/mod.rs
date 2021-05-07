@@ -37,6 +37,7 @@ use gimli::{
     DieReference,
 };
 
+
 pub use value::{
     EvaluatorValue,
     StructValue,
@@ -47,6 +48,7 @@ pub use value::{
     convert_to_gimli_value,
     BaseValue,
 };
+
 
 use evaluate::{
     parse_base_type,
@@ -70,6 +72,21 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
                     registers:     &Vec<(u16, u32)>,
                     ) -> Result<EvaluatorValue<R>>
+    {
+        let pieces = self.evaluate_pieces(core, unit, pc, expr, frame_base, type_unit, registers)?;
+        self.evaluate_value(core, pieces, type_unit, type_die, registers)
+    }
+
+
+    pub fn evaluate_pieces(&mut self,
+                    core:       &mut probe_rs::Core,
+                    unit:       &Unit<R>,
+                    pc:         u32,
+                    expr:       Expression<R>,
+                    frame_base: Option<u64>,
+                    type_unit:  Option<&gimli::Unit<R>>,
+                    registers:     &Vec<(u16, u32)>,
+                    ) -> Result<Vec<gimli::Piece<R>>>
     {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate()?;
@@ -153,6 +170,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     
         let pieces = eval.result();
         //println!("{:#?}", pieces);
+        Ok(pieces)
+    }
+
+
+    pub fn evaluate_value(&mut self,
+                    core:       &mut probe_rs::Core,
+                    pieces:     Vec<gimli::Piece<R>>,
+                    type_unit:  Option<&gimli::Unit<R>>,
+                    type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
+                    registers:     &Vec<(u16, u32)>,
+                    ) -> Result<EvaluatorValue<R>>
+    {
 
         let mut evaluator = evaluate::Evaluator::new(&self.dwarf, pieces.clone(), type_unit, type_die);
         for (reg, data) in registers {
