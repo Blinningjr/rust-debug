@@ -6,12 +6,14 @@
  *          DW_AT_const_value
  *          DW_AT_count
  *          DW_AT_data_member_location
- *          DW_AT_encoding
+ *          DW_AT_encoding                  (Done)(Uses encoding when it is given for all of the
+ *          `eval_piece` cases)
  *          DW_AT_discr                     (Done)(Implemented for DW_TAG_variant_part)
  *          DW_AT_discr_value               (Done)(Implemented for DW_TAG_variant)
  *          DW_AT_discr_list                (Not Implemented) // NOTE: Missing discr value means
  *          that it is a default variant.
- *          DW_AT_enum_class
+ *          DW_AT_enum_class                (Can ignore)(Flag for languages with multiple enum
+ *          defenitions?)
  *
  *
  *      DW_AT_artificial
@@ -329,10 +331,29 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             Location::Empty                                         => Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
             Location::Register        { register }                  => self.eval_register(register, byte_size, encoding),
             Location::Address         { address }                   => self.eval_address(address, byte_size, data_offset, encoding.unwrap()),
-            Location::Value           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Value(super::value::convert_from_gimli_value(value)))), // TODO: Use encoding
+            Location::Value           { value }                     => self.eval_gimli_value(value, byte_size, encoding),
             Location::Bytes           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(value))),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
         };
+    }
+
+    pub fn eval_gimli_value(&mut self,
+                         value:     gimli::Value,
+                         byte_size: Option<u64>,
+                         encoding:  Option<DwAte>,
+                         ) -> Option<ReturnResult<R>>
+    {
+        match (value, encoding) {
+            (gimli::Value::Generic(val), Some(dwate)) => { // NOTE: Don't know if this is correct.
+                let values = vec!((val >> 32) as u32, val as u32);
+                Some(ReturnResult::Value(
+                        EvaluatorValue::Value(
+                            eval_base_type(&values, dwate, match byte_size {Some(v) => v, None => 8,}))))
+            },
+            _ => Some(ReturnResult::Value(
+                    EvaluatorValue::Value(
+                        super::value::convert_from_gimli_value(value)))),
+        }
     }
 
 
@@ -348,7 +369,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match self.registers.get(&register.0) {
             Some(val) => { // TODO: Mask the important bits?
                 match encoding {
-                    Some(dwate) => Some(ReturnResult::Value(
+                    Some(dwate) => Some(ReturnResult::Value( // NOTE: Don't know if this is correct.
                             super::value::EvaluatorValue::Value(
                                 eval_base_type(&[*val], dwate, match byte_size {Some(v) => v, None => 4,})))),
                     None => Some(ReturnResult::Value(
