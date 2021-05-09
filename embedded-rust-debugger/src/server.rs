@@ -76,7 +76,7 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
         let reader = BufReader::new(socket.try_clone()?);
         let writer = socket;
 
-        Session::start_session(reader, writer);
+        Session::start_session(reader, writer)?;
     }
 }
 
@@ -183,7 +183,7 @@ impl<R: Read, W: Write> Session<R, W> {
                 return Ok(());
             }
             if self.status {
-                self.check_bkpt();
+                self.check_bkpt()?;
             }
         }
     }
@@ -372,31 +372,53 @@ impl<R: Read, W: Write> Session<R, W> {
     }
 
 
+    pub fn get_bkpt_source_locations(&mut self,
+                              breakpoints: &Vec<SourceBreakpoint>,
+                              source_path: &Option<String>
+                              ) -> Result<Vec<Option<u64>>>
+    {
+        let mut source_locations = vec!();
+        if self.dwarf.is_some() {
+            let (dwarf, debug_frame) = self.dwarf.as_ref().unwrap();
+            let mut debugger = super::Debugger::new(dwarf, debug_frame);
+
+            for bkpt in breakpoints {
+                let source_location: Option<u64> = match source_path {
+                    Some(ref path) => debugger.find_location(
+                            dbg!(path),
+                            dbg!(bkpt.line as u64),
+                            bkpt.column.map(|c| c as u64),
+                        )?,
+                    None    => None,
+                };
+
+                source_locations.push(source_location);
+            }
+        }
+
+        Ok(source_locations)
+    }
+
+
     pub fn update_breakpoints(&mut self,
                               breakpoints: Vec<SourceBreakpoint>,
                               raw_path: Option<String>
                               ) -> Result<Vec<Breakpoint>>
     {
         let mut new_breakpoints = Vec::new();
-        let source_path = raw_path.as_ref().map(Path::new);
+        let source_path = raw_path;
 
-        if let Some(path) = &self.file_path {
-            let debug_info = probe_rs::debug::DebugInfo::from_file(path)?;
-
+        if self.dwarf.is_some() {
+            let source_locations = self.get_bkpt_source_locations(&breakpoints, &source_path)?;
             self.clear_all_breakpoints()?;
-            
-            for bkpt in breakpoints {
+
+            for i in 0..breakpoints.len() {
+                let bkpt = &breakpoints[i];
+                let source_location = source_locations[i];
                 debug!(
                     "Trying to set breakpoint {:?}, source_file {:?}",
                     bkpt, source_path
                 );
-
-                let source_location: Option<u64> = debug_info.get_breakpoint_location(
-                            dbg!(source_path.unwrap()),
-                            dbg!(bkpt.line as u64),
-                            bkpt.column.map(|c| c as u64),
-                        )
-                        .unwrap_or(None);
 
                 if let Some(location) = source_location {
                     debug!("Found source location: {:#08x}!", location);
@@ -429,7 +451,7 @@ impl<R: Read, W: Write> Session<R, W> {
                 }
             } 
         }
-        
+
         return Ok(new_breakpoints);
     }
 }
