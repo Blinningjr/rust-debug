@@ -30,7 +30,6 @@ use debugserver_types::{
 
 use std::path::{
     PathBuf,
-    Path,
 };
 
 use std::io::{

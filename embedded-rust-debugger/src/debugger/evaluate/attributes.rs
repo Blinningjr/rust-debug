@@ -11,7 +11,6 @@ use gimli::{
         Data8,
         Udata,
         Sdata,
-        Flag,
     },
     DwAddr,
     DwAte,
@@ -125,19 +124,6 @@ pub fn const_value_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformati
 }
 
 
-pub fn enum_class_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<bool>
-{
-    return match die.attr_value(gimli::DW_AT_enum_class).ok()? {
-        Some(Flag(val)) => Some(val),
-        Some(unknown) => {
-            println!("enum_class_attribute, unknown: {:?}", unknown);
-            unimplemented!();
-        },
-        _ => None,
-    };
-}
-
-
 pub fn count_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> Option<u64>
 {
     return match die.attr_value(gimli::DW_AT_count).ok()? {
@@ -168,9 +154,9 @@ pub fn encoding_attribute<R: Reader<Offset = usize>>(die: &DebuggingInformationE
 }
 
 
-pub fn discr_attribute<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
-                                                  die: &DebuggingInformationEntry<R>
-                                                  ) -> Option<gimli::UnitOffset>
+pub fn discr_attribute<R: Reader<Offset = usize>>(
+        die: &DebuggingInformationEntry<R>
+    ) -> Option<gimli::UnitOffset>
 {
     return match die.attr_value(gimli::DW_AT_discr).ok()? {
         Some(gimli::AttributeValue::UnitRef(offset)) => Some(offset),

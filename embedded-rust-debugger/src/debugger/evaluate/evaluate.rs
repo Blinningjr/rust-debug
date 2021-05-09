@@ -1061,7 +1061,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     },
                     None        => {
                         // Get member die.
-                        let die_offset = attributes::discr_attribute(unit, die).unwrap();
+                        let die_offset = attributes::discr_attribute(die).unwrap();
                         let member = &unit.entry(die_offset).unwrap();
 
                         // Evaluate the DW_TAG_member value.
