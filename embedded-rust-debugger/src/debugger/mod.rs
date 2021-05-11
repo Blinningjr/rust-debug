@@ -576,6 +576,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                      registers:     &Vec<(u16, u32)>,
                      ) -> Result<Option<EvaluatorValue<R>>> 
     {
+        println!("{:?}", die.attr_value(gimli::DW_AT_const_value));
+        match die.attr_value(gimli::DW_AT_const_value)? {
+            Some(v) => panic!("const_value: {:#?}", v), // TODO: parse the value of the variable
+            None => (),
+        };
+
+
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
