@@ -208,6 +208,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut tree = unit.entries_tree(Some(die.offset()))?;
         let node = tree.root()?;
 
+        //println!("\n\nScope start\n\n");
+
         self.get_scope_variables_search(core, unit, pc, node, frame_base, &mut variables, registers)?;
         return Ok(variables);
     }
@@ -234,6 +236,9 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         if frame_base != self.check_frame_base(core, unit, pc, die, frame_base, registers)? {
             return Ok(());
         }
+
+        //use crate::debugger::evaluate::attributes::name_attribute;
+        //println!("tag: {:?}, name: {:?}", die.tag().static_string(), name_attribute(self.dwarf, die));
 
         match self.eval_location(core, unit, pc, &die, frame_base, registers)? {
             Some(val) => {
