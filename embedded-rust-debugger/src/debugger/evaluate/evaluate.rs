@@ -3,7 +3,8 @@
  *
  *      Attributes for evaluating value:
  *          DW_AT_alignment
- *          DW_AT_const_value
+ *          DW_AT_const_value               (Implemeted for `DW_TAG_enumerator`)(TODO: Implemented
+ *          for constant variables)
  *          DW_AT_count                     (Done)
  *          DW_AT_data_member_location      (Maybe)
  *          DW_AT_encoding                  (Done)(Uses encoding when it is given for all of the
