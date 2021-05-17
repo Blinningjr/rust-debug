@@ -2,8 +2,9 @@
  * TODO: Consider attributes:
  *
  *      Attributes for evaluating value:
- *          DW_AT_alignment
- *          DW_AT_const_value               (Implemeted for `DW_TAG_enumerator`)(TODO: Implemented
+ *          DW_AT_alignment                 (Think I have implemented it correctly)(TODO: Confirm
+ *          that this is correct or improve the solution)
+ *          DW_AT_const_value               (Implemented for `DW_TAG_enumerator`)(TODO: Implemented
  *          for constant variables)
  *          DW_AT_count                     (Done)
  *          DW_AT_data_member_location      (Maybe)
@@ -287,8 +288,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         Ok((unit, die_offset))
     }
 
-
-    /*
+/*
      * Evaluates the value of a type.
      */
     pub fn eval_type(&mut self,
@@ -436,7 +436,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)));
         }
         
-        if self.pieces.len() > 1 {
+        if self.pieces.len() > 1 { // NOTE: Is this correct?
             data_offset = 0;
         }
  
@@ -493,6 +493,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
         }
+        
+        self.check_alignment(die, data_offset)?;
 
         // Get byte size and encoding from the die.
         let byte_size = attributes::byte_size_attribute(die);
@@ -551,6 +553,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             },
             None => (),
         };
+        
+        self.check_alignment(die, data_offset)?;
 
         // Evaluate the pointer type value.
         let address_class = attributes::address_class_attribute(die);
@@ -593,6 +597,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
         } 
+
+        self.check_alignment(die, data_offset)?;
 
         // Get the partial array value from the current state.
         let mut partial_array = match &self.stack[current_state].partial_value {
@@ -684,7 +690,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
-        } 
+        }
+
+        self.check_alignment(die, data_offset)?;
 
         // Get the partial struct value from the current state.
         let mut partial_struct = match &self.stack[current_state].partial_value {
@@ -784,6 +792,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             current_state += 1;
         } 
 
+        self.check_alignment(die, data_offset)?;
+
         // Get the partial union value from the current state.
         let mut partial_union = match &self.stack[current_state].partial_value {
             super::value::PartialValue::Union   (union) => union.clone(),
@@ -879,6 +889,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             Some(val)   => data_offset + val,
             None        => data_offset,
         };
+        
+        self.check_alignment(die, new_data_offset)?;
 
         // Get the type attribute unit and die.
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
@@ -920,6 +932,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
         }
+
+        self.check_alignment(die, data_offset)?;
 
         // Get type attribute unit and die.
         let (type_unit, die_offset) = self.get_type_info(dwarf, unit, die)?;
@@ -1031,7 +1045,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             gimli::DW_TAG_variant_part => (),
             _ => panic!("Wrong implementation"),
         };
-       
+
         // Get the current state index.
         let mut current_state = self.stack.len() - 1;
 
@@ -1039,7 +1053,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if new_state {
             self.stack.push(EvaluatorState::new(dwarf, unit, die, data_offset));
             current_state += 1;
-        } 
+        }
+
+        self.check_alignment(die, data_offset)?;
 
         // Get the partial value of the current state.
         let mut partial_variant_part = match &self.stack[current_state].partial_value {
@@ -1136,6 +1152,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             _ => panic!("Wrong implementation"),
         };
 
+        self.check_alignment(die, data_offset)?;
+
         // Find the child die of type DW_TAG_member
         let children = get_children(unit, die);
         for c in children {
@@ -1167,6 +1185,46 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             };
         }
         unimplemented!();
+    }
+
+    /*
+     * Check if address is correctly aligned
+     *
+     * NOTE: Don't know if it is correct.
+     */
+    fn check_alignment(&mut self,
+                       die:             &gimli::DebuggingInformationEntry<'_, '_, R>,
+                       mut data_offset: u64,
+                       ) -> Result<()>
+    {
+        match attributes::alignment_attribute(die) {
+            Some(alignment) => {
+                if self.pieces.len() <= self.piece_index {
+                    return Ok(());
+                }
+                
+                if self.pieces.len() < 1 {
+                    data_offset = 0;
+                }
+                
+                match self.pieces[self.piece_index].location {
+                    Location::Address { address } => {
+                        let mut addr = address + (data_offset/4) * 4;
+                        addr -= addr%4; // TODO: Is this correct?
+
+                        if addr % alignment != 0 {
+                            panic!("address not aligned");
+                            return Err(anyhow!("Address not aligned"));
+                        }
+                    },
+                    _ => (),
+                };
+
+            },
+            None => (),
+        };
+
+        Ok(())
     }
 }
 
