@@ -29,21 +29,6 @@
  *
  *      DW_AT_containing_type               (I think that this is not needed)(TODO: Confirm) NOTE:
  *      I do not fully understand this attribute.
- *      DW_AT_external                      NOTE: Means the name is visible to external code.
- *      DW_AT_inline                        Don't think i need this attribute. NOTE: I do not fully
- *      understand this attribute
- *      DW_AT_noreturn                      Only used for functions, don't think I need this
- *      attribute.
- *      DW_AT_producer                      Describes the compiler used for this DWARF unit.
- *      DW_AT_prototyped                    Don't understand this attribute.
- *      DW_AT_stmt_list                     Don't need to acces this directly because
- *      unit.line_program does the job.
- *
- *     
- *     Attributes related to strings:
- *          DW_AT_string_length             (Rust dosen't seem to use this)
- *          DW_AT_string_length_byte_size   (Rust dosen't seem to use this)
- *          DW_AT_str_offsets_base          (Rust dosen't seem to use this)
  */
 
 
