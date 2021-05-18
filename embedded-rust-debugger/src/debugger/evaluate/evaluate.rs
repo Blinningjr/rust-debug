@@ -4,7 +4,7 @@
  *      Attributes for evaluating value:
  *          DW_AT_alignment                 (Think I have implemented it correctly)(TODO: Confirm
  *          that this is correct or improve the solution)
- *          DW_AT_const_value               (Implemented for `DW_TAG_enumerator`)(TODO: Implemented
+ *          DW_AT_const_value               (Implemented for `DW_TAG_enumerator`)(TODO: Implement
  *          for constant variables)
  *          DW_AT_count                     (Done)
  *          DW_AT_data_member_location      (Maybe)
@@ -36,14 +36,14 @@
  *      attribute.
  *      DW_AT_producer                      Describes the compiler used for this DWARF unit.
  *      DW_AT_prototyped                    Don't understand this attribute.
- *      DW_AT_stmt_list
- *      DW_AT_lower_bound
+ *      DW_AT_stmt_list                     Don't need to acces this directly because
+ *      unit.line_program does the job.
  *
  *     
  *     Attributes related to strings:
- *          DW_AT_string_length
- *          DW_AT_string_length_byte_size
- *          DW_AT_str_offsets_base
+ *          DW_AT_string_length             (Rust dosen't seem to use this)
+ *          DW_AT_string_length_byte_size   (Rust dosen't seem to use this)
+ *          DW_AT_str_offsets_base          (Rust dosen't seem to use this)
  */
 
 
