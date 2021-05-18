@@ -24,11 +24,6 @@
  *          DW_AT_call_column
  *          DW_AT_call_file
  *          DW_AT_call_line
- *
- *      DW_AT_artificial                    (I think that this is not needed)(TODO: Confirm)
- *
- *      DW_AT_containing_type               (I think that this is not needed)(TODO: Confirm) NOTE:
- *      I do not fully understand this attribute.
  */
 
 
