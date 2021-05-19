@@ -167,19 +167,70 @@ This is partly how `DW_AT_call_line` is described in DWARF 4, page 60:
 > The call file, call line, and call column attributes are interpreted in the same way as the declaration file, declaration line, and declaration column attributes, respectively (see Section 2.14)."
 
 
-## `DW_AT_calling_convention` TODO
-## `DW_AT_common_reference` TODO
-## `DW_AT_comp_dir` TODO
-## `DW_AT_const_value` TODO
-## `DW_AT_const_expr` TODO
+## DW\_AT\_calling\_convention <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_calling_convention` is described in DWARF 4, page 54:
+
+> "A subroutine entry may contain a `DW_AT_calling_convention` attribute, whose value is an integer constant.
+> The set of calling convention codes is given in Figure 10."
+> <br></br>
+> ...
+> <br></br>
+> If this attribute is not present, or its value is the constant `DW_CC_normal`, then the subroutine may be safely called by obeying the “standard” calling conventions of the target architecture.
+> If the value of the calling convention attribute is the constant `DW_CC_nocall`, the subroutine does not obey standard calling conventions, and it may not be safe for the debugger to call this subroutine. 
 
 
-## `DW_AT_containing_type` <!-- TODO: Implement this like `DW_AT_type` I think -->
+## DW\_AT\_common\_reference <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_common_reference` is described in DWARF 4, page 56:
+
+> "The entry for a subroutine that includes a Fortran common block has a child entry with the tag `DW_TAG_common_inclusion`.
+> The common inclusion entry has a `DW_AT_common_reference` attribute whose value is a reference to the debugging information entry for the common block being included (see Section 4.2)."
+
+
+## DW\_AT\_comp\_dir <!--- NOTE: Used in my debugger -->
+This attribute can always be found in dies with the tag `DW_TAG_compile_unit`, it contains the name of the compilation directory for this compile unit.
+
+This is partly how `DW_AT_comp_dir` is described in DWARF 4, page 46:
+
+> "A `DW_AT_comp_dir` attribute whose value is a null-terminated string containing the current working directory of the compilation command that produced this compilation unit in whatever form makes sense for the host system."
+
+
+## DW\_AT\_const\_value <!--- TODO: Implement solution for constant object if they exist in rust. -->
+The `DW_AT_const_value` attribute can used in three different ways, but I have only seen it in dies with the tag `DW_TAG_enumerator`.
+In that case the attributes holds value of that enumerator and thus can be used to determine which enumerator the variable is.
+This is done by comparing the value evaluated from the parent die with tag `DW_TAG_enumeration_type` and the values of the `DW_AT_const_value` attributes of all the `DW_TAG_enumerator` children dies.
+
+This is partly how `DW_AT_const_value` is described in DWARF 4, page 96:
+
+> "Each enumerator entry has a `DW_AT_name` attribute, whose value is a null-terminated string containing the name of the enumeration literal as it appears in the source program.
+> Each enumerator entry also has a `DW_AT_const_value` attribute, whose value is the actual numeric value of the enumerator as represented on the target system."
+
+
+## DW\_AT\_const\_expr <!--- TODO: Confirm  -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_const_expr` is described in DWARF 4, page 60:
+
+> "An inlined subroutine entry may have a `DW_AT_const_expr` attribute, which is a flag whose
+presence indicates that the subroutine has been evaluated as a compile-time constant.
+> Such an entry may also have a `DW_AT_const_value` attribute, whose value may be of any form that is appropriate for the representation of the subroutine's return value.
+> The value of this attribute is the actual return value of the subroutine, represented as it would be on the target architecture."
+
+This is partly how `DW_AT_const_expr` is described in DWARF 4, page 72:
+
+> "A `DW_AT_const_expr` attribute, which is a flag, if a variable entry represents a C++ object declared with the *constexpr* specifier.
+> This attributes indicates that the variable can be evaluated as a compile-time constant."
+
+
+## DW\_AT\_containing\_type <!-- TODO: Implement this like `DW_AT_type` I think -->
 This attributes seems to mean that a variable points to a structures attribute.
 It is found under the type tags, for example type tag `DW_TAG_structure_type`.
 This is how the type of the values in the **vtable** is presented in the dwarf file.
 
-This is how it is described in DWARF 4, page 100:
+This is partly how `DW_AT_containing_type` is described in DWARF 4, page 100:
 
 > "The pointer to member entry also has a `DW_AT_containing_type` attribute, whose value is a reference to a debugging information entry for the class or structure to whose members objects of this type may point."
 
