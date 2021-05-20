@@ -235,16 +235,109 @@ This is partly how `DW_AT_containing_type` is described in DWARF 4, page 100:
 > "The pointer to member entry also has a `DW_AT_containing_type` attribute, whose value is a reference to a debugging information entry for the class or structure to whose members objects of this type may point."
 
 
-## `DW_AT_count` TODO
-## `DW_AT_data_bit_offset` TODO
-## `DW_AT_data_location` TODO
-## `DW_AT_data_member_location` TODO
-## `DW_AT_decimal_scale` TODO
-## `DW_AT_decimal_sign` TODO
-## `DW_AT_decl_column` TODO
-## `DW_AT_decl_file` TODO
-## `DW_AT_decl_line` TODO
-## `DW_AT_declaration` TODO
+## DW\_AT\_count <!--- TODO: Check if rust used `DW_TAG_shared_type` NOTE: Is used in my debugger. -->
+This attribute can be found under the die with the tag `DW_TAG_subrange_type` and describes the number of elements in the subrange.
+In my debugger I use this to find out the number of elements in a array that needs to be evaluated if it is present.
+
+This is partly how `DW_AT_at_count` is described in DWARF 4, page 99:
+
+> "The subrange entry may have the attributes `DW_AT_lower_bound` and `DW_AT_upper_bound` to specify, respectively, the lower and upper bound values of the subrange.
+> The `DW_AT_upper_bound` attribute may be replaced by a `DW_AT_count` attribute, whose value describes the number of elements in the subrange rather than the value of the last element.
+> The value of each of these attributes is determined as described in Section 2.19."
+
+
+## DW\_AT\_data\_bit\_offset <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_data_bit_offset` is described in DWARF 4, page 75-76:
+
+> "If the value of an object of the given type does not fully occupy the storage described by a byte size attribute, the base type entry may also have a `DW_AT_bit_size` and a `DW_AT_data_bit_offset` attribute, both of whose values are integer constant values (see Section
+2.19).
+> The bit size attribute describes the actual size in bits used to represent values of the given type.
+> The data bit offset attribute is the offset in bits from the beginning of the containing storage to the beginning of the value.
+> Bits that are part of the offset are padding.
+> The data bit offset uses the bit numbering and direction conventions that are appropriate to the current language on the target system to locate the beginning of the storage and value.
+> If this attribute is omitted a default data bit offset of zero is assumed."
+
+
+## DW\_AT\_data\_location <!--- TODO: Confirm, NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_data_location` is described in DWARF 4, page 102:
+
+> "The `DW_AT_data_location` attribute may be used with any type that provides one or more levels of hidden indirection and/or run-time parameters in its representation.
+> Its value is a location description.
+> The result of evaluating this description yields the location of the data for an object.
+> When this attribute is omitted, the address of the data is the same as the address of the object."
+
+
+## DW\_AT\_data\_member\_location <!--- NOTE: I use this in my debugger -->
+The attribute `DW_AT_data_member_location` can be found in dies with the tag `DW_TAG_member`.
+It is used as an offset to the address of the data structure that the member die is a child to.
+Thus this attribute can be used to calculate the address of the member by adding its value the parents address.
+
+This is partly how `DW_AT_data_member_location` is described in DWARF 4, page 88:
+
+> "The member entry corresponding to a data member that is defined in a structure, union or class may have either a `DW_AT_data_member_location` attribute or a `DW_AT_data_bit_offset` attribute.
+> If the beginning of the data member is the same as the beginning of the containing
+entity then neither attribute is required."
+
+
+## DW\_AT\_decimal\_scale <!--- TODO: Confirm  -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_decimal_scale` is described in DWARF 4, page 78:
+
+> "The `DW_AT_decimal_scale` attribute is an integer constant value that represents the exponent of the base ten scale factor to be applied to an instance of the type.
+> A scale of zero puts the decimal point immediately to the right of the least significant digit.
+> Positive scale moves the decimal point to the right and implies that additional zero digits on the right are not stored in an instance of the type.
+> Negative scale moves the decimal point to the left; if the absolute value of the scale is larger than the digit count, this implies additional zero digits on the left are not stored in an instance of the type."
+
+
+## `DW_AT_decimal_sign` <!--- TODO: Confirm  -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_decimal_sign` is described in DWARF 4, page 78:
+
+> "A `DW_AT_decimal_sign` attribute is an integer constant that conveys the representation of the sign of the decimal type (see Figure 14).
+> Its integer constant value is interpreted to mean that the type has a leading overpunch, trailing overpunch, leading separate or trailing separate sign representation or, alternatively, no sign at all."
+
+
+## DW\_AT\_decl\_column <!--- NOTE: I use this in my debugger -->
+The attribute `DW_AT_decl_column` has the source file column number that this die is generated from.
+
+This is partly how `DW_AT_decl_column` is described in DWARF 4, page 36:
+
+> "The value of the `DW_AT_decl_column` attribute represents the source column number at which the first character of the identifier of the declared object appears.
+> The value 0 indicates that no column has been specified."
+
+
+## DW\_AT\_decl\_file <!--- NOTE: I use this in my debugger -->
+The attribute `DW_AT_decl_column` has the source file name that this die is generated from.
+
+This is partly how `DW_AT_decl_file` is described in DWARF 4, page 36:
+
+> "The value of the `DW_AT_decl_file` attribute corresponds to a file number from the line number information table for the compilation unit containing the debugging information entry and represents the source file in which the declaration appeared (see Section ).
+> The value 0 indicates that no source file has been specified."
+
+
+## DW\_AT\_decl\_line <!--- NOTE: I use this in my debugger -->
+The attribute `DW_AT_decl_column` has the source file line number that this die comes from and it can be found in any die.
+
+This is partly how `DW_AT_decl_line` is described in DWARF 4, page 36:
+
+> "The value of the `DW_AT_decl_line` attribute represents the source line number at which the first character of the identifier of the declared object appears.
+> The value 0 indicates that no source line has been specified."
+
+
+## DW\_AT\_declaration <!--- TODO: Implement check for this flag -->
+TODO: add description or use case.
+
+This is partly how `DW_AT_declaration` is described in DWARF 4, page 69:
+
+> "A `DW_AT_declaration` attribute, which is a flag that indicates whether this entry represents a non-defining declaration of an object."
+
+
 ## `DW_AT_default_value` TODO
 ## `DW_AT_description` TODO
 
