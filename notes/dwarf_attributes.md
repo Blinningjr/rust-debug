@@ -428,37 +428,118 @@ This is partly how `DW_AT_encoding` is described in DWARF 4, page 75:
 > The set of values and their meanings for the `DW_AT_encoding` attribute is given in Figure 13 and following text."
 
 
-## `DW_AT_endianity` TODO
+## DW\_AT\_endianity <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_endianity` is described in DWARF 4, page 75:
+
+> "A base type entry may have a `DW_AT_endianity` attribute as described in Section 4.1.
+> If omitted, the encoding assumes the representation that is the default for the target architecture."
 
 
-## `DW_AT_entry_pc` TODO
-## `DW_AT_enum_class` TODO
-## `DW_AT_explicit` TODO
-## `DW_AT_extension` TODO
+## DW\_AT\_entry\_pc <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_entry_pc` is described in DWARF 4, page 40:
+
+> "Any debugging information entry describing an entity that has a range of code addresses, which includes compilation units, module initialization, subroutines, ordinary blocks, try/catch blocks, and the like, may have a `DW_AT_entry_pc` attribute to indicate the first executable instruction within that range of addresses.
+> The value of the `DW_AT_entry_pc` attribute is a relocated address.
+> If no `DW_AT_entry_pc` attribute is present, then the entry address is assumed to be the same as the value of the `DW_AT_low_pc` attribute, if present; otherwise, the entry address is unknown."
 
 
-## `DW_AT_external` <!--- TODO: Use this to show visibility of functions and variables -->
+## DW\_AT\_enum\_class <!--- TODO: Confirm that it is not needed and update text -->
+I don't really understand what this attribute is for.
+
+This is partly how `DW_AT_enum_class` is described in DWARF 4, page 96:
+
+> "If an enumeration type has type safe semantics such that
+> 1. Enumerators are contained in the scope of the enumeration type, and/or
+> 2. Enumerators are not implicitly converted to another type
+> <br></br>
+> then the enumeration type entry may have a `DW_AT_enum_class` attribute, which is a flag.
+> In a language that offers only one kind of enumeration declaration, this attribute is not required."
+
+
+## DW\_AT\_explicit <!--- NOTE: Not needed for my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_explicit` is described in DWARF 4, page 92:
+
+> "If the member function entry describes an explicit member function, then that entry has a `DW_AT_explicit` attribute."
+
+
+## DW\_AT\_extension <!--- NOTE: Not needed for my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_extension` is described in DWARF 4, page 49:
+
+> "A namespace is represented by a debugging information entry with the tag `DW_TAG_namespace`.
+> A namespace extension is represented by a `DW_TAG_namespace` entry with a `DW_AT_extension` attribute referring to the previous extension, or if there is no previous extension, to the original `DW_TAG_namespace` entry.
+> A namespace extension entry does not need to duplicate information in a previous extension entry of the namespace nor need it duplicate information in the original namespace entry.
+> (Thus, for a namespace with a name, a `DW_AT_name` attribute need only be attached directly to the original `DW_TAG_namespace` entry.)"
+
+
+## DW\_AT\_external <!--- TODO: Use this to show visibility of functions and variables -->
 This attributes is to show if a function or variable is visible outside of its compilation unit.
 It can be found in dies with the tags `DW_TAG_subprogram` and `DW_TAG_variable`.
 
-This is how it is described for Subroutines in DWARF 4, page 53:
+This is partly how `DW_AT_external` is described in DWARF 4, page 53:
 
 > "If the name of the subroutine described by an entry with the tag `DW_TAG_subprogram` is visible outside of its containing compilation unit, that entry has a `DW_AT_external` attribute, which is a flag."
 
-This is how it is described for Variables in DWARF 4, page 70:
+This is partly how `DW_AT_external` is described in DWARF 4, page 70:
 
 > "If the variable entry represents a non-defining declaration, `DW_AT_specification` may be used to reference the defining declaration of the variable.
 > If no `DW_AT_specification` attribute is present, the defining declaration may be found as a global definition either in the current compilation unit or in another compilation unit with the `DW_AT_external` attribute."
 
 
-## `DW_AT_frame_base` TODO
-## `DW_AT_friend` TODO
-## `DW_AT_high_pc` TODO
-## `DW_AT_identifier_case` TODO
-## `DW_AT_import` TODO
+## DW\_AT\_frame\_base <!--- NOTE: Used in my debugger -->
+In Rust this attribute can always be found in the dies with the tag `DW_TAG_subprogram`.
+It is used when evaluating the value of variables that are in the subprogram.
+
+This is partly how `DW_AT_frame_base` is described in DWARF 4, page 56:
+
+> "A subroutine or entry point entry may also have a `DW_AT_frame_base` attribute, whose value is a location description that computes the “frame base” for the subroutine or entry point.
+> If the location description is a simple register location description, the given register contains the frame base address.
+> If the location description is a DWARF expression, the result of evaluating that expression is the frame base address.
+> Finally, for a location list, this interpretation applies to each location description contained in the list of location list entries."
 
 
-## `DW_AT_inline` <!--- TODO: Used this to show what functions got inlined -->
+## DW\_AT\_friend <!--- NOTE: Not applicable for my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_friend` is described in DWARF 4, page 87:
+
+> "A friend entry has a `DW_AT_friend` attribute, whose value is a reference to the debugging information entry describing the declaration of the friend."
+
+
+## DW\_AT\_high\_pc <!--- TODO: Use this to know end address of subprogram -->
+This attribute is used to find out what the highest pc value a subprogram, module or some other code block has.
+
+This is partly how `DW_AT_high_pc` is described in DWARF 4, page 37:
+
+> "A `DW_AT_low_pc` and `DW_AT_high_pc` pair of attributes for a single contiguous range of addresses, or"
+
+
+## DW\_AT\_identifier\_case <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_identifier_case` is described in DWARF 4, page 46:
+
+> "A `DW_AT_identifier_case` attribute whose integer constant value is a code describing the treatment of identifiers within this compilation unit.
+> The set of identifier case codes is given in Figure 9."
+
+
+## DW\_AT\_import 
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_import` is described in DWARF 4, page 47:
+
+> "The place where a normal or partial unit is imported is represented by a debugging information entry with the tag `DW_TAG_imported_unit`.
+> An imported unit entry contains a `DW_AT_import` attribute whose value is a reference to the normal or partial compilation unit whose declarations logically belong at the place of the imported unit entry."
+
+
+## DW\_AT\_inline <!--- TODO: Used this to show what functions got inlined -->
 This attribute can be used in to ways, the first is to declare an instance abstract, the other way so to describe if a function got inlined or not. 
 
 This is partly how **Abstract Instances** is described in DWARF 4, page 59:
