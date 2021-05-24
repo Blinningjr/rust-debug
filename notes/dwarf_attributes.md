@@ -338,17 +338,99 @@ This is partly how `DW_AT_declaration` is described in DWARF 4, page 69:
 > "A `DW_AT_declaration` attribute, which is a flag that indicates whether this entry represents a non-defining declaration of an object."
 
 
-## `DW_AT_default_value` TODO
-## `DW_AT_description` TODO
+## DW\_AT\_default\_value <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_default_value` is described in DWARF 4, page 70:
+
+> "A `DW_AT_default_value` attribute for a formal parameter entry.
+> The value of this attribute is a reference to the debugging information entry for a variable or subroutine, or the value may be a constant.
+> If the attribute form is of class reference, the default value of the parameter is the value of the referenced variable (which may be constant) or the value returned by the referenced subroutine; a reference value of 0 means that no default value has been specified.
+> If the value is of class constant, that constant is interpreted as a default value of the type of the formal parameter."
 
 
-## `DW_AT_digit_count` TODO
-## `DW_AT_discr` TODO
-## `DW_AT_discr_list` TODO
-## `DW_AT_discr_value` TODO
-## `DW_AT_elemental` TODO
-## `DW_AT_encoding` TODO
+## DW\_AT\_description <!--- NOTE: Not needed for my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_description` is described in DWARF 4, page 41:
+
+> "Generally, any debugging information entry that has, or may have, a `DW_AT_name` attribute, may also have a `DW_AT_description` attribute whose value is a null-terminated string providing a description of the entity."
+
+
+## DW\_AT\_digit\_count <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_digit_count` is described in DWARF 4, page 78:
+
+> "The `DW_AT_digit_count` attribute is an integer constant value that represents the number of digits in an instance of the type."
+
+
+## DW\_AT\_discr <!--- NOTE: Used in my debugger -->
+The attribute `DW_at_discr` can always be found in dies with the tag `DW_TAG_variant_part`.
+The value of this attribute is a reference to a type die, the type die can then be evaluated into a integer.
+This integer can be matched to one of the child dies `DW_AT_discr_value` attribute.
+The matching child is the variant of the variable.
+
+This is partly how `DW_AT_discr` is described in DWARF 4, page 94:
+
+> "If the variant part has a discriminant, the discriminant is represented by a separate debugging information entry which is a child of the variant part entry.
+> This entry has the form of a structure data member entry.
+> The variant part entry will have a `DW_AT_discr` attribute whose value is a reference to the member entry for the discriminant."
+
+
+## DW\_AT\_discr\_list <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_discr_list` is described in DWARF 4, page 94:
+
+> "Alternatively, the variant entry may contain a `DW_AT_discr_list` attribute, whose value represents a list of discriminant values.
+> This list is represented by any of the block forms and may contain a mixture of case labels and label ranges.
+> Each item on the list is prefixed with a discriminant value descriptor that determines whether the list item represents a single label or a label range.
+> A single case label is represented as an LEB128 number as defined above for the `DW_AT_discr_value` attribute.
+> A label range is represented by two LEB128 numbers, the low value of the range followed by the high value.
+> Both values follow the rules for signedness just described.
+> The discriminant value descriptor is an integer constant that may have one of the values given in Figure 17."
+
+
+## DW\_AT\_discr\_value <!--- NOTE: Used in my debugger -->
+This attribute can always be found in dies with tag `DW_TAG_variant` and those dies are always children of dies with the tag `DW_TAG_variant_part`.
+The value of this attribute is always a integer that is used to match to the variant evaluated in the parent die.
+If it matches then the child of this die describes the type of the current variant the variable is.
+
+This is partly how `DW_AT_discr_value` is described in DWARF 4, page 94:
+
+> "Each variant of a particular variant part is represented by a debugging information entry with the tag `DW_TAG_variant` and is a child of the variant part entry.
+> The value that selects a given variant may be represented in one of three ways.
+> The variant entry may have a `DW_AT_discr_value` attribute whose value represents a single case label.
+> The value of this attribute is encoded as an LEB128 number.
+> The number is signed if the tag type for the variant part containing this variant is a signed type.
+> The number is unsigned if the tag type is an unsigned type."
+
+
+## DW\_AT\_elemental <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_elemental` is described in DWARF 4, page 54:
+
+> "A subprogram entry may have a `DW_AT_elemental` attribute, which is a flag.
+> The attribute indicates whether the subroutine or entry point was declared with the “elemental” keyword or property."
+
+
+## DW\_AT\_encoding <!--- NOTE: Used in my debugger -->
+The attribute `DW_AT_encoding` can be found in dies with the tag `DW_TAG_base_type`.
+It describes how the value of the base type should be interpreted in combination with the `DW_AT_byte_size`.
+An example can be that the encoding says a integer is signed and the byte size is 4, then the base type value should be interpreted as a **i32** in rust.
+
+This is partly how `DW_AT_encoding` is described in DWARF 4, page 75:
+
+> "A base type entry has a `DW_AT_encoding` attribute describing how the base type is encoded and is to be interpreted.
+> The value of this attribute is an integer constant.
+> The set of values and their meanings for the `DW_AT_encoding` attribute is given in Figure 13 and following text."
+
+
 ## `DW_AT_endianity` TODO
+
+
 ## `DW_AT_entry_pc` TODO
 ## `DW_AT_enum_class` TODO
 ## `DW_AT_explicit` TODO
