@@ -593,7 +593,7 @@ This is partly how `DW_AT_location` is described in DWARF 4, page 37:
 > "Any debugging information entry describing a data object (which includes variables and parameters) or common block may have a `DW_AT_location` attribute, whose value is a location description (see Section 2.6)."
 
 
-## `DW_AT_low_pc` <!--- TODO: Use this to know the start address of subprogram -->
+## DW\_AT\_low\_pc <!--- TODO: Use this to know the start address of subprogram -->
 This attribute is used to find out what the lowest pc value a subprogram, module or some other code block has.
 
 This is partly how `DW_AT_low_pc` is described in DWARF 4, page 37:
@@ -602,69 +602,244 @@ This is partly how `DW_AT_low_pc` is described in DWARF 4, page 37:
 > • A `DW_AT_low_pc` and `DW_AT_high_pc` pair of attributes for a single contiguous range of addresses, or"
 
 
-## `DW_AT_lower_bound` TODO
-## `DW_AT_macro_info` TODO
-## `DW_AT_main_subprogram` TODO
-## `DW_AT_mutable` TODO
-## `DW_AT_name` TODO
-## `DW_AT_namelist_item` TODO
-## `DW_AT_object_pointer` TODO
-## `DW_AT_ordering` TODO
-## `DW_AT_picture_string` TODO
-## `DW_AT_priority` TODO
+## DW\_AT\_lower\_bound <!--- TODO: Use this when evaluating subrange dies and update text -->
+This is partly how `DW_AT_lower_bound` is described in DWARF 4, page 99:
+
+> "The subrange entry may have the attributes `DW_AT_lower_bound` and `DW_AT_upper_bound` to specify, respectively, the lower and upper bound values of the subrange.
+> The `DW_AT_upper_bound` attribute may be replaced by a `DW_AT_count` attribute, whose value describes the number of elements in the subrange rather than the value of the last element.
+> The value of each of these attributes is determined as described in Section 2.19."
 
 
-## `DW_AT_producer` <!--- TODO: Use this attribute in my debugger somehow. -->
+## DW\_AT\_macro\_info <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_macro_info` is described in DWARF 4, page 45:
+
+> "A `DW_AT_macro_info` attribute whose value is a section offset to the macro information for this compilation unit."
+
+
+## DW\_AT\_main\_subprogram <!--- TODO: Check if this can be useful. -->
+This attribute is a flag that indicates that the function this is present in is the starting point for the program.
+The attribute can be found in the dies with the tag `DW_TAG_subprogram`.
+
+This is partly how `DW_AT_main_subprogram` is described in DWARF 4, page 47:
+
+> "A `DW_AT_main_subprogram` attribute, which is a flag whose presence indicates that the compilation unit contains a subprogram that has been identified as the starting function of the program.
+> If more than one compilation unit contains this flag, any one of them may contain the starting function."
+
+
+## DW\_AT\_mutable <!--- Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_mutable` is described in DWARF 4, page 47:
+
+> "A data member entry may have a `DW_AT_mutable` attribute, which is a flag.
+> This attribute indicates whether the data member was declared with the mutable storage class specifier."
+
+
+## DW\_AT\_name <!--- NOTE: Used in my debugger -->
+The value of this attribute is the source name of the thing that the die is representing from the source code.
+Thus many of the dies have this attribute because most of the dies represents a named thing in the source code.
+
+This is partly how `DW_AT_name` is described in DWARF 4, page 36:
+
+> "Any debugging information entry representing a program entity that has been given a name may have a `DW_AT_name` attribute, whose value is a string representing the name as it appears in the source program.
+> A debugging information entry containing no name attribute, or containing a name attribute whose value consists of a name containing a single null byte, represents a program entity for which no name was given in the source."
+
+
+## DW\_AT\_namelist\_item <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_namelist_item` is described in DWARF 4, page 73:
+
+> "Each namelist item entry contains a `DW_AT_namelist_item` attribute whose value is a reference to the debugging information entry representing the declaration of the item whose name appears in the namelist."
+
+
+## DW\_AT\_object\_pointer <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_object_pointer` is described in DWARF 4, page 92:
+
+> "If the member function entry describes a non-static member function, then that entry has a `DW_AT_object_pointer` attribute whose value is a reference to the formal parameter entry that corresponds to the object for which the function is called.
+> The name attribute of that formal parameter is defined by the current language (for example, this for C++ or self for Objective C and some other languages).
+> That parameter also has a `DW_AT_artificial` attribute whose value is true. 
+
+
+## DW\_AT\_ordering <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_ordering` is described in DWARF 4, page 82:
+
+> "The array type entry describing a multidimensional array may have a `DW_AT_ordering` attribute whose integer constant value is interpreted to mean either row-major or column-major ordering of array elements.
+> The set of values and their meanings for the ordering attribute are listed in Figure 16.
+> If no ordering attribute is present, the default ordering for the source language (which is indicated by the `DW_AT_language` attribute of the enclosing compilation unit entry) is assumed."
+
+
+## DW\_AT\_picture\_string <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_picture_string` is described in DWARF 4, page 78:
+
+> "The `DW_ATE_edited` base type is used to represent an edited numeric or alphanumeric data type.
+> It is used in combination with an `DW_AT_picture_string` attribute whose value is a null-terminated string containing the target-dependent picture string associated with the type."
+
+
+## DW\_AT\_priority <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_priority` is described in DWARF 4, page 49:
+
+> "If the module has been assigned a priority, it may have a `DW_AT_priority` attribute.
+> The value of this attribute is a reference to another debugging information entry describing a variable with a constant value.
+> The value of this variable is the actual constant value of the module’s priority, represented as it would be on the target architecture."
+
+
+## DW\_AT\_producer <!--- TODO: Use this attribute in my debugger somehow. -->
 Describes which compiler that generated this DWARF compilation unit and which version of the compiler that was used.
 This attributes is only found in the dies with the tag `DW_TAG_compile_unit`.
 
-This is how it is described in DWARF 4, page 46:
+This is partly how `DW_AT_producer` is described in DWARF 4, page 46:
 
 > "A `DW_AT_producer` attribute whose value is a null-terminated string containing information about the compiler that produced the compilation unit.
 > The actual contents of the string will be specific to each producer, but should begin with the name of the compiler vendor or some other identifying character sequence that should avoid confusion with other producer values."
 
 
-## `DW_AT_prototyped` <!--- NOTE: Not applicable to my debugger -->
+## DW\_AT\_prototyped <!--- NOTE: Not applicable to my debugger -->
 This seams to be a thing in **C** functions and thus is not used in rust.
 
-This is how it is described in DWARF 4, page 54:
+This is partly how `DW_AT_prototyped` is described in DWARF 4, page 54:
 
 > "A subroutine entry declared with a function prototype style declaration may have a `DW_AT_prototyped` attribute, which is a flag."
 
-This is how it is described in DWARF 4, page 97:
+This is partly how `DW_AT_prototyped` is described in DWARF 4, page 97:
 
 > "A subroutine entry declared with a function prototype style declaration may have a `DW_AT_prototyped` attribute, which is a flag."
 
 
-## `DW_AT_pure` TODO
-## `DW_AT_ranges` TODO
+## DW\_AT\_pure <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_pure` is described in DWARF 4, page 55:
+
+> "A subprogram entry may have a `DW_AT_pure` attribute, which is a flag.
+> The attribute indicates whether the subroutine was declared with the “pure” keyword or property."
 
 
-## `DW_AT_recursive` TODO
-## `DW_AT_return_addr` TODO
-## `DW_AT_segment` TODO
-## `DW_AT_sibling` TODO
-## `DW_AT_small` TODO
-## `DW_AT_signature` TODO
-## `DW_AT_specification` TODO
-## `DW_AT_start_scope` TODO
-## `DW_AT_static_link` TODO
+## DW\_AT\_ranges <!--- TODO: Find use of this in my debugger -->
+This attributes holds the pc ranges for when this code block is executing and can thus be used to know if the program is currently executing the code of this function.
+
+This is partly how `DW_AT_pure` is described in DWARF 4, page 38:
+
+> "When the set of addresses of a debugging information entry cannot be described as a single contiguous range, the entry has a `DW_AT_ranges` attribute whose value is of class rangelistptr and indicates the beginning of a range list.
+> Similarly, a `DW_AT_start_scope` attribute may have a value of class rangelistptr for the same reason."
 
 
-## `DW_AT_stmt_list` <!--- NOTE: I use unit.line_program from gimli-rs instead -->
+## DW\_AT\_recursive <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_recursive` is described in DWARF 4, page 54:
+
+> "A subprogram entry may have a `DW_AT_recursive` attribute, which is a flag.
+> The attribute indicates whether the subroutine or entry point was declared with the “recursive” keyword or property."
+
+
+## DW\_AT\_return\_addr <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_return_addr` is described in DWARF 4, page 56:
+
+> "A subroutine or entry point entry may have a `DW_AT_return_addr` attribute, whose value is a location description.
+> The location calculated is the place where the return address for the subroutine or entry point is stored."
+
+
+## DW\_AT\_segment <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_segment` is described in DWARF 4, page 34:
+
+> "Any debugging information entry that contains a description of the location of an object or subroutine may have a `DW_AT_segment` attribute, whose value is a location description.
+> The description evaluates to the segment selector of the item being described.
+> If the entry containing the `DW_AT_segment` attribute has a `DW_AT_low_pc`, `DW_AT_high_pc`, `DW_AT_ranges` or `DW_AT_entry_pc` attribute, or a location description that evaluates to an address, then those address values represent the offset portion of the address within the segment specified by `DW_AT_segment`."
+
+
+## DW\_AT\_sibling <!--- TODO: Use to quickly go through siblings. -->
+This attributes is used for quickly accessing siblings of a die.
+Which is easier and faster then finding the parent and going through all of the parents children.
+
+This is partly how `DW_AT_sibling` is described in DWARF 4, page 16:
+
+> "In cases where a producer of debugging information feels that it will be important for consumers of that information to quickly scan chains of sibling entries, while ignoring the children of individual siblings, that producer may attach a `DW_AT_sibling` attribute to any debugging information entry.
+> The value of this attribute is a reference to the sibling entry of the entry to which the attribute is attached."
+
+
+## DW\_AT\_small <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_small` is described in DWARF 4, page 79:
+
+> "For a data type with a non-decimal and non-binary scale factor, the fixed binary type entry has a `DW_AT_small` attribute which references a `DW_TAG_constant` entry.
+> The scale factor value is interpreted in accordance with the value defined by the `DW_TAG_constant` entry.
+> The value represented is the product of the integer value in memory and the associated constant entry for the type."
+
+
+## DW\_AT\_signature <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_signature` is described in DWARF 4, page 85:
+
+> "If the complete declaration of a type has been placed in a separate type unit (see Section 3.1.3), an incomplete declaration of that type in the compilation unit may provide the unique 64-bit signature of the type using a `DW_AT_signature` attribute."
+
+
+## DW\_AT\_specification <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_specification` is described in DWARF 4, page 36:
+
+> "A debugging information entry that represents a declaration that completes another (earlier) nondefining declaration may have a `DW_AT_specification` attribute whose value is a reference to the debugging information entry representing the non-defining declaration.
+> A debugging information entry with a `DW_AT_specification` attribute does not need to duplicate information provided by the debugging information entry referenced by that specification attribute.
+> <br></br>
+> It is not the case that all attributes of the debugging information entry referenced by a `DW_AT_specification` attribute apply to the referring debugging information entry."
+
+
+## DW\_AT\_start\_scope <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_start_scope` is described in DWARF 4, page 71:
+
+> " A `DW_AT_start_scope` attribute if the scope of an object is smaller than (that is, is a subset of the addresses of) the scope most closely enclosing the object.
+> There are two cases:
+> <br></br>
+> a) If the scope of the object entry includes all of the containing scope except for a contiguous sequence of bytes at the beginning of that containing scope, then the scope of the object is specified using a value of class constant.
+> If the containing scope is contiguous, the value of this attribute is the offset in bytes of the beginning of the scope for the object from the low pc value of the debugging information entry that defines its scope.
+> If the containing scope is non-contiguous (see Section 2.17.3), the value of this
+attribute is the offset in bytes of the beginning of the scope for the object from the beginning of the first range list entry that is not a base selection entry or an end of list entry.
+> <br></br>
+> b) Otherwise, the scope of the object is specified using a value of class rangelistptr.
+> This value indicates the beginning of a range list (see Section 2.17.3)."
+
+
+## DW\_AT\_static\_link <!--- TODO: Confirm -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_static_link` is described in DWARF 4, page 57:
+
+> "If a subroutine or entry point is nested, it may have a `DW_AT_static_link` attribute, whose value is a location description that computes the frame base of the relevant instance of the subroutine that immediately encloses the subroutine or entry point."
+
+
+## DW\_AT\_stmt\_list <!--- NOTE: I use unit.line_program from gimli-rs instead -->
 This attribute is only found in dies with the tag `DW_TAG_compile_unit` and its value is a offset to the line number information.
 
-This is how it is described in DWARF 4, page 45:
+This is partly how `DW_AT_stmt_list` is described in DWARF 4, page 45:
 
 > "A `DW_AT_stmt_list` attribute whose value is a section offset to the line number information for this compilation unit.
 > This information is placed in a separate object file section from the debugging information entries themselves.
 > The value of the statement list attribute is the offset in the .debug\_line section of the first byte of the line number information for this compilation unit (see Section 6.2)."
 
 
-## `DW_AT_string_length` <!--- NOTE: Not applicable to my debugger -->
+## DW\_AT\_string\_length <!--- NOTE: Not applicable to my debugger -->
 Doesn't seem to be used by Rust.
 
-This is how it is described in DWARF 4, page 98:
+This is partly how `DW_AT_string_length` is described in DWARF 4, page 98:
 
 > "The string type entry may have a `DW_AT_string_length` attribute whose value is a location description yielding the location where the length of the string is stored in the program."
 
