@@ -844,16 +844,94 @@ This is partly how `DW_AT_string_length` is described in DWARF 4, page 98:
 > "The string type entry may have a `DW_AT_string_length` attribute whose value is a location description yielding the location where the length of the string is stored in the program."
 
 
-## `DW_AT_threads_scaled` TODO
-## `DW_AT_trampoline` TODO
-## `DW_AT_type` TODO
-## `DW_AT_upper_bound` TODO
-## `DW_AT_use_location` TODO
-## `DW_AT_use_UTF8` TODO
-## `DW_AT_variable_parameter` TODO
-## `DW_AT_virtuality` TODO
+## DW\_AT\_threads\_scaled <!--- TODO: Confirm -->
+Doesn't seem to be used by Rust.
+
+This is partly how `DW_AT_threads_scaled` is described in DWARF 4, page 99:
+
+> "The subrange entry may have a `DW_AT_threads_scaled` attribute, which is a flag.
+> If present, this attribute indicates whether this subrange represents a UPC array bound which is scaled by the runtime THREADS value (the number of UPC threads in this execution of the program)."
 
 
-## `DW_AT_visibility` TODO
-## `DW_AT_vtable_elem_location` TODO
+## DW\_AT\_trampoline <!--- TODO: Confirm -->
+Doesn't seem to be used by Rust.
+
+This is partly how `DW_AT_trampoline` is described in DWARF 4, page 64:
+
+> "A trampoline is represented by a debugging information entry with the tag `DW_TAG_subprogram` or `DW_TAG_inlined_subroutine` that has a `DW_AT_trampoline` attribute.
+> The value of that attribute indicates the target subroutine of the trampoline, that is, the subroutine to which the trampoline passes control.
+> (A trampoline entry may but need not also have a `DW_AT_artificial` attribute.)"
+
+
+## DW\_AT\_type <!--- NOTE: Used in my debugger -->
+The dies with a value like the ones with tag `DW_AT_variable` will also have a type that is represented by a tree of type dies.
+Thus most of those dies will have the attribute `DW_AT_type` which points to the root die of the type tree.
+The type tree is used to parse addresses and values into the variables true value.
+
+This is partly how `DW_AT_type` is described in DWARF 4, page 32:
+
+> "Any debugging information entry describing a declaration that has a type has a `DW_AT_type` attribute, whose value is a reference to another debugging information entry.
+> The entry referenced may describe a base type, that is, a type that is not defined in terms of other data types, or it may describe a user-defined type, such as an array, structure or enumeration.
+> Alternatively, the entry referenced may describe a type modifier, such as constant, packed, pointer, reference or volatile, which in turn will reference another entry describing a type or type modifier (using a `DW_AT_type` attribute of its own).
+> See Section for descriptions of the entries describing base types, user-defined types and type modifiers."
+
+
+## DW\_AT\_upper\_bound <!--- TODO: Confirm -->
+I have never encounter it when debugging Rust code, but I think that this attribute can be present when debugging Rust code.
+
+This is partly how `DW_AT_upper_bound` is described in DWARF 4, page 99:
+
+> "The subrange entry may have the attributes `DW_AT_lower_bound` and `DW_AT_upper_bound` to specify, respectively, the lower and upper bound values of the subrange.
+> The `DW_AT_upper_bound` attribute may be replaced by a `DW_AT_count` attribute, whose value describes the number of elements in the subrange rather than the value of the last element.
+> The value of each of these attributes is determined as described in Section 2.19."
+
+
+## DW\_AT\_use\_location <!--- TODO: Investigate -->
+I have never encounter it when debugging Rust code, but I think that this attribute can be present when debugging Rust code.
+
+This is partly how `DW_AT_use_location` is described in DWARF 4, page 100:
+
+> "The pointer to member entry has a `DW_AT_use_location` attribute whose value is a location description that computes the address of the member of the class to which the pointer to member entry points."
+
+
+## DW\_AT\_use\_UTF8 <!--- TODO: Investigate -->
+I have never encounter it when debugging Rust code, but I think that this attribute can be present when debugging Rust code.
+
+This is partly how `DW_AT_use_UTF8` is described in DWARF 4, page 47:
+
+> "A `DW_AT_use_UTF8` attribute, which is a flag whose presence indicates that all strings (such as the names of declared entities in the source program) are represented using the UTF-8 representation (see Section 7.5.4)."
+
+
+## DW\_AT\_variable\_parameter <!--- TODO: Confirm -->
+Doesn't seem to be used by Rust.
+
+This is partly how `DW_AT_variable_parameter` is described in DWARF 4, page 70:
+
+> "A `DW_AT_variable_parameter` attribute, which is a flag, if a formal parameter entry represents a parameter whose value in the calling function may be modified by the callee..
+> The absence of this attribute implies that the parameter’s value in the calling function cannot be modified by the callee."
+
+
+## DW\_AT\_virtuality <!--- NOTE: Not applicable to my debugger -->
+Doesn't seem to be used by Rust.
+
+This is partly how `DW_AT_virtuality` is described in DWARF 4, page 33:
+
+> "The virtuality of a declaration is represented by a `DW_AT_virtuality` attribute, whose value is a constant drawn from the set of codes listed in Figure 6."
+
+
+## DW\_AT\_visibility <!--- NOTE: Not applicable to my debugger -->
+Doesn't seem to be used by Rust.
+
+This is partly how `DW_AT_visibility` is described in DWARF 4, page 33:
+
+> "The visibility of a declaration is represented by a `DW_AT_visibility` attribute, whose value is a constant drawn from the set of codes listed in Figure 5. 
+
+
+## DW\_AT\_vtable\_elem\_location <!--- TODO: Confirm -->
+Doesn't seem to be used by Rust.
+
+This is partly how `DW_AT_vtable_elem_location` is described in DWARF 4, page 92:
+
+> "An entry for a virtual function also has a `DW_AT_vtable_elem_location` attribute whose value contains a location description yielding the address of the slot for the function within the virtual function table for the enclosing class.
+> The address of an object of the enclosing type is pushed onto the expression stack before the location description is evaluated."
 
