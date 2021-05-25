@@ -513,7 +513,7 @@ This is partly how `DW_AT_friend` is described in DWARF 4, page 87:
 > "A friend entry has a `DW_AT_friend` attribute, whose value is a reference to the debugging information entry describing the declaration of the friend."
 
 
-## DW\_AT\_high\_pc <!--- TODO: Use this to know end address of subprogram -->
+## DW\_AT\_high\_pc <!--- TODO: Use this to know the end address of subprogram -->
 This attribute is used to find out what the highest pc value a subprogram, module or some other code block has.
 
 This is partly how `DW_AT_high_pc` is described in DWARF 4, page 37:
@@ -530,7 +530,7 @@ This is partly how `DW_AT_identifier_case` is described in DWARF 4, page 46:
 > The set of identifier case codes is given in Figure 9."
 
 
-## DW\_AT\_import 
+## DW\_AT\_import <!--- TODO: Confirm -->
 This seems to not be used by Rust.
 
 This is partly how `DW_AT_import` is described in DWARF 4, page 47:
@@ -554,11 +554,54 @@ This is how **Inlined Subroutines** is described in DWARF 4, page 58:
 > The set of values for the `DW_AT_inline` attribute is given in Figure 11."
 
 
-## `DW_AT_is_optional` TODO
-## `DW_AT_language` TODO
-## `DW_AT_linkage_name` TODO
-## `DW_AT_location` TODO
-## `DW_AT_low_pc` TODO
+## DW\_AT\_is\_optional <!--- NOTE: Not applicable to my debugger -->
+This seems to not be used by Rust.
+
+This is partly how `DW_AT_is_optional` is described in DWARF 4, page 70:
+
+> "A `DW_AT_is_optional` attribute, which is a flag, if a parameter entry represents an optional parameter."
+
+
+## DW\_AT\_language <!--- TODO: Use to check that Rust is the source language for the compile unit. -->
+This can be used to see what source language the compilation unit was written in and thus this attribute can be found in dies with the tag `DW_TAG_compile_unit`.
+
+This is partly how `DW_AT_language` is described in DWARF 4, page 44:
+
+> "A `DW_AT_language` attribute whose constant value is an integer code indicating the source language of the compilation unit.
+> The set of language names and their meanings are given in Figure 8."
+
+
+## DW\_AT\_linkage\_name <!--- TODO: Find out what this can be used for -->
+This attribute is found in most dies that also have the attribute `DW_AT_name`.
+
+This is partly how `DW_AT_linkage_name` is described in DWARF 4, page 41:
+
+> "A debugging information entry may have a `DW_AT_linkage_name` attribute whose value is a null-terminated string describing the object file linkage name associated with the corresponding entity."
+
+
+## DW\_AT\_location <!--- NOTE: Used in my debugger. -->
+The attribute `DW_AT_location` is used to get the value of an variable, parameter and more.
+This is done by evaluating the location information into DWARF pieces, these pieces hold the location of the value or the value it self. 
+But it does not hold the type information thus the variable needs to be parsed using the pieces and the type information.
+
+This attribute is found in dies with the tag `DW_TAG_variable` for example and those dies usually also have a attribute called `DW_AT_type` which holds the type information.
+But When debugging optimized code the attribute `DW_AT_type` is not always in the same die and the reason for this is that the variable has been inlined.
+These dies will have a attribute `DW_AT_abstract_origin` instead which points to the original variable die that has the type attribute.
+
+This is partly how `DW_AT_location` is described in DWARF 4, page 37:
+
+> "Any debugging information entry describing a data object (which includes variables and parameters) or common block may have a `DW_AT_location` attribute, whose value is a location description (see Section 2.6)."
+
+
+## `DW_AT_low_pc` <!--- TODO: Use this to know the start address of subprogram -->
+This attribute is used to find out what the lowest pc value a subprogram, module or some other code block has.
+
+This is partly how `DW_AT_low_pc` is described in DWARF 4, page 37:
+
+> "• A `DW_AT_low_pc` attribute for a single address,
+> • A `DW_AT_low_pc` and `DW_AT_high_pc` pair of attributes for a single contiguous range of addresses, or"
+
+
 ## `DW_AT_lower_bound` TODO
 ## `DW_AT_macro_info` TODO
 ## `DW_AT_main_subprogram` TODO
