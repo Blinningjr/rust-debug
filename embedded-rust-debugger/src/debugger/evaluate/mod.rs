@@ -169,7 +169,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         }
     
         let pieces = eval.result();
-        //println!("{:#?}", pieces);
+        println!("{:#?}", pieces);
         Ok(pieces)
     }
 

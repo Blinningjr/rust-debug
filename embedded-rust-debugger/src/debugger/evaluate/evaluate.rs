@@ -383,30 +383,48 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         encoding:       DwAte
                         ) -> Option<ReturnResult<R>>
     {
+
+        //println!("\nAddress: {:#10x}", address);
+        //println!("data_offset: {}", data_offset);
+        //address += (data_offset/4) * 4;
+        address += data_offset;
+        //println!("Address: {:#10x}", address);
+
+        let mem_offset = address%4;
+        address -= mem_offset; 
+        //println!("Address: {:#10x}\n", address);
+ 
         let num_words = match byte_size {
             Some(val)   => (val + 4 - 1 )/4,
             None        => 1,
-        };
+        } as usize;
 
-        //println!("Address: {:#10x}", address);
-        //println!("data_offset: {}", data_offset);
-        address += (data_offset/4) * 4;
-        //println!("Address: {:#10x}", address);
-
-        address -= address%4; // TODO: Is this correct?
-
+        let num_words_to_read = num_words + ((mem_offset + 4 - 1 )/4) as usize;
 
         let mut data: Vec<u32> = Vec::new();
-        for i in 0..num_words as usize {
+        for i in 0..num_words_to_read {
             match self.addresses.get(&((address + (i as u64) * 4) as u32)) {
-                Some(val) => data.push(*val), // TODO: Mask the important bits?
+                Some(val) => data.push(*val),
                 None    => return Some(ReturnResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 4) as u32, num_words: 1 })),
             }
         }
 
+        if mem_offset == 0 {
+            return Some(ReturnResult::Value(
+                    super::value::EvaluatorValue::Value(
+                        eval_base_type(&data, encoding, byte_size.unwrap()))))
+        }
+
+        let mut shifted_data: Vec<u32> = Vec::new();
+        for i in 0..num_words {
+            let low_bytes = data[i] >> (mem_offset * 8);
+            let high_bytes = data[i + 1] << (mem_offset * 8);
+            shifted_data.push(high_bytes + low_bytes);
+        }
+
         Some(ReturnResult::Value(
                 super::value::EvaluatorValue::Value(
-                    eval_base_type(&data, encoding, byte_size.unwrap()))))
+                    eval_base_type(&shifted_data, encoding, byte_size.unwrap()))))
     }
 
 
@@ -1249,19 +1267,47 @@ pub fn eval_base_type(data:         &[u32],
     }
 
     let value = slize_as_u64(data);
-    match (encoding, byte_size) { 
-        (DwAte(7), 1) => BaseValue::U8(value as u8),       // (unsigned, 8)
-        (DwAte(7), 2) => BaseValue::U16(value as u16),     // (unsigned, 16)
-        (DwAte(7), 4) => BaseValue::U32(value as u32),     // (unsigned, 32)
-        (DwAte(7), 8) => BaseValue::U64(value),            // (unsigned, 64)
+    println!("\n\nencoding: {:?}, byte_size: {:?}", encoding, byte_size);
+    println!("data: {:?}", data);
+    println!("value: {:?}\n", value);
+    match (encoding, byte_size) {  // Source: DWARF 4 page 168-169 and 77
+        (DwAte(1), 4) => BaseValue::Address32(value as u32),    // DW_ATE_address = 1 // TODO: Different size addresses?
+        (DwAte(2), 1) => BaseValue::Bool((value as u8) == 1),   // DW_ATE_boolean = 2 // TODO: Use modulus?
         
-        (DwAte(5), 1) => BaseValue::I8(value as i8),       // (signed, 8)
-        (DwAte(5), 2) => BaseValue::I16(value as i16),     // (signed, 16)
-        (DwAte(5), 4) => BaseValue::I32(value as i32),     // (signed, 32)
-        (DwAte(5), 8) => BaseValue::I64(value as i64),     // (signed, 64)
+//        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing
 
-        (DwAte(2), 1) => BaseValue::Bool((value as u8) == 1), // Should be returned as bool?
-        (DwAte(1), 4) => BaseValue::Address32(value as u32),
+        (DwAte(4), 4) => BaseValue::F32(value as f32),   // DW_ATE_float = 4
+        (DwAte(4), 8) => {
+            println!("float data: {:#08x} {:#08x}", data[0], data[1]);
+            println!("float value: {:#08x}", value);
+
+            BaseValue::F64(f64::from_bits(value))
+        }, //BaseValue::U64(value),   // DW_ATE_float = 4
+
+        (DwAte(5), 1) => BaseValue::I8(value as i8),       // (DW_ATE_signed = 5, 8)
+        (DwAte(5), 2) => BaseValue::I16(value as i16),     // (DW_ATE_signed = 5, 16)
+        (DwAte(5), 4) => BaseValue::I32(value as i32),     // (DW_ATE_signed = 5, 32)
+        (DwAte(5), 8) => BaseValue::I64(value as i64),     // (DW_ATE_signed = 5, 64)
+        
+//        (DwAte(6), _) => ,     // DW_ATE_signed_char = 6 // TODO: Add type
+
+        (DwAte(7), 1) => BaseValue::U8(value as u8),       // (DW_ATE_unsigned = 7, 8)
+        (DwAte(7), 2) => BaseValue::U16(value as u16),     // (DW_ATE_unsigned = 7, 16)
+        (DwAte(7), 4) => BaseValue::U32(value as u32),     // (DW_ATE_unsigned = 7, 32)
+        (DwAte(7), 8) => BaseValue::U64(value),            // (DW_ATE_unsigned = 7, 64)
+        
+//        (DwAte(8), _) => ,     // DW_ATE_unsigned_char = 8 // TODO: Add type
+//        (DwAte(9), _) => ,     // DW_ATE_imaginary_float = 9 // NOTE: Seems like a C++ thing
+//        (DwAte(10), _) => ,     // DW_ATE_packed_decimal = 10 // TODO: Add type
+//        (DwAte(11), _) => ,     // DW_ATE_numeric_string = 11 // TODO: Add type
+//        (DwAte(12), _) => ,     // DW_ATE_edited = 12 // TODO: Add type
+//        (DwAte(13), _) => ,     // DW_ATE_signed_fixed = 13 // TODO: Add type
+//        (DwAte(14), _) => ,     // DW_ATE_unsigned_fixed = 14 // TODO: Add type
+//        (DwAte(15), _) => ,     // DW_ATE_decimal_float = 15 // TODO: Add type
+//        (DwAte(16), _) => ,     // DW_ATE_UTF = 16 // TODO: Add type
+//        (DwAte(128), _) => ,     // DW_ATE_lo_user = 128 // TODO: Add type
+//        (DwAte(255), _) => ,     // DW_ATE_hi_user = 255 // TODO: Add type
+
         _ => {
             println!("{:?}, {:?}", encoding, byte_size);
             unimplemented!()
@@ -1283,7 +1329,7 @@ pub fn slize_as_u64(data: &[u32]) -> u64
     if data.len() > 2 {
         panic!("To big value");
     }
-    return ((data[0] as u64)<< 32) + (data[1] as u64);
+    return ((data[1] as u64)<< 32) + (data[0] as u64);
 }
 
 
