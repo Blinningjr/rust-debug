@@ -1,32 +1,3 @@
-/*
- * TODO: Consider attributes:
- *
- *      Attributes for evaluating value:
- *          DW_AT_alignment                 (Think I have implemented it correctly)(TODO: Confirm
- *          that this is correct or improve the solution)
- *          DW_AT_const_value               (Implemented for `DW_TAG_enumerator`)(TODO: Implement
- *          for constant variables)
- *          DW_AT_count                     (Done)
- *          DW_AT_data_member_location      (Maybe)
- *          DW_AT_encoding                  (Done)(Uses encoding when it is given for all of the
- *          `eval_piece` cases)
- *          DW_AT_discr                     (Done)(Implemented for DW_TAG_variant_part)
- *          DW_AT_discr_value               (Done)(Implemented for DW_TAG_variant)
- *          DW_AT_discr_list                (Not Implemented) // NOTE: Missing discr value means
- *          that it is a default variant.
- *          DW_AT_enum_class                (Can ignore)(Flag for languages with multiple enum
- *          defenitions?)
- *          DW_AT_lower_bound
- *          DW_AT_upper_bound
- *
- *      
- *      Function call information:
- *          DW_AT_call_column
- *          DW_AT_call_file
- *          DW_AT_call_line
- */
-
-
 use super::{
     attributes,
     value::{
@@ -418,7 +389,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let mut shifted_data: Vec<u32> = Vec::new();
         for i in 0..num_words {
             let low_bytes = data[i] >> (mem_offset * 8);
-            let high_bytes = data[i + 1] << (mem_offset * 8);
+            let high_bytes = data[i + 1] << ((4 - mem_offset) * 8);
             shifted_data.push(high_bytes + low_bytes);
         }
 
@@ -1267,22 +1238,17 @@ pub fn eval_base_type(data:         &[u32],
     }
 
     let value = slize_as_u64(data);
-    println!("\n\nencoding: {:?}, byte_size: {:?}", encoding, byte_size);
-    println!("data: {:?}", data);
-    println!("value: {:?}\n", value);
+//    println!("\n\nencoding: {:?}, byte_size: {:?}", encoding, byte_size);
+//    println!("data: {:?}", data);
+//    println!("value: {:?}\n", value);
     match (encoding, byte_size) {  // Source: DWARF 4 page 168-169 and 77
         (DwAte(1), 4) => BaseValue::Address32(value as u32),    // DW_ATE_address = 1 // TODO: Different size addresses?
         (DwAte(2), 1) => BaseValue::Bool((value as u8) == 1),   // DW_ATE_boolean = 2 // TODO: Use modulus?
         
 //        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing
 
-        (DwAte(4), 4) => BaseValue::F32(value as f32),   // DW_ATE_float = 4
-        (DwAte(4), 8) => {
-            println!("float data: {:#08x} {:#08x}", data[0], data[1]);
-            println!("float value: {:#08x}", value);
-
-            BaseValue::F64(f64::from_bits(value))
-        }, //BaseValue::U64(value),   // DW_ATE_float = 4
+        (DwAte(4), 4) => BaseValue::F32(f32::from_bits(value as u32)),   // DW_ATE_float = 4
+        (DwAte(4), 8) => BaseValue::F64(f64::from_bits(value)), // DW_ATE_float = 4
 
         (DwAte(5), 1) => BaseValue::I8(value as i8),       // (DW_ATE_signed = 5, 8)
         (DwAte(5), 2) => BaseValue::I16(value as i16),     // (DW_ATE_signed = 5, 16)
