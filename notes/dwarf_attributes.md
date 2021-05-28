@@ -294,7 +294,7 @@ This is partly how `DW_AT_decimal_scale` is described in DWARF 4, page 78:
 > Negative scale moves the decimal point to the left; if the absolute value of the scale is larger than the digit count, this implies additional zero digits on the left are not stored in an instance of the type."
 
 
-## `DW_AT_decimal_sign` <!--- TODO: Confirm  -->
+## DW\_AT\_decimal\_sign <!--- TODO: Confirm  -->
 This seems to not be used by Rust.
 
 This is partly how `DW_AT_decimal_sign` is described in DWARF 4, page 78:
