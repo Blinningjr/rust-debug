@@ -147,7 +147,8 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
                     // Gimli doesn't allow us to distinguish if a rule is not
                     // present or actually set to Undefined in the call frame
                     // information.
-                    // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L254-L257
+                    // Source: https://github.com/gimli-rs/gimli/blob/00f4ee6a288d2e7f02b6841a5949d839e99d8359/src/read/cfi.rs#L2289-L2311
+                    // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L254-L257/
                     if i == sp_reg {
                         cfa
                     } else if i == link_reg {
