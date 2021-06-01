@@ -1,8 +1,16 @@
 mod debugger;
+mod newdebugger;
 mod debugger_cli;
 mod commands;
 mod server;
 mod request_command_handlers;
+
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc;
+use std::{thread, time};
+
+use rustyline::Editor;
+
 
 use debugger::{
     Debugger,
@@ -111,24 +119,72 @@ fn main() -> Result<()> {
 
 fn debug_mode(file_path: PathBuf) -> Result<()>
 {
-    let mut session = attach_probe()?;
+    let (cli_sender, debugger_reciver): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (debugger_sender, cli_reciver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+    let (debug_check_sender, status_check_reciver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+    let status_check_sender = cli_sender.clone();
 
-    let _pc = flash_target(&mut session, &file_path)?;
+    let debugger_th = thread::spawn(move || {
+            let mut session = attach_probe().unwrap();
 
-    let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path)?;
+            let _pc = flash_target(&mut session, &file_path).unwrap();
 
-//    let dwarf = owned_dwarf.borrow(|section| {
-//        gimli::EndianSlice::new(&section, gimli::LittleEndian)
-//    });
-//
-//    let debug_frame = gimli::EndianSlice::new(&owned_debug_frame, gimli::LittleEndian).into();
+            let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path).unwrap();
 
-    let debugger = Debugger::new(&owned_dwarf, &owned_debug_frame);
+            let debugger = Debugger::new(&owned_dwarf, &owned_debug_frame);
 
-    let mut cli = DebuggerCli::new(debugger, session)?;
-    cli.run()?;
+            let mut ndbug = newdebugger::NewDebugger::new(debugger, session).unwrap();
 
-    Ok(())
+            ndbug.run(debugger_sender, debugger_reciver, debug_check_sender).unwrap();
+        });
+
+    let status_check_th = thread::spawn(move || {
+            loop {
+                let timeout = time::Duration::from_millis(200);
+                let now = time::Instant::now();
+                
+                thread::sleep(timeout);
+
+                status_check_sender.send("__checkhitbreakpoint__".to_string()).unwrap();
+
+                if status_check_reciver.recv().unwrap() {
+                    return ();
+                } 
+            }
+        });
+
+    let mut rl = Editor::<()>::new();
+    
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let history_entry: &str = line.as_ref();
+                rl.add_history_entry(history_entry);
+        
+                cli_sender.send(line)?;
+                let exit_cli = cli_reciver.recv()?;
+                
+                if exit_cli {
+                    debugger_th.join().expect("oops! the child thread panicked");
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                use rustyline::error::ReadlineError;
+    
+                match e {
+                    // For end of file and ctrl-c, we just quit
+                    ReadlineError::Eof | ReadlineError::Interrupted => return Ok(()),
+                    actual_error => {
+                        // Show error message and quit
+                        println!("Error handling input: {:?}", actual_error);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
 }
 
 
