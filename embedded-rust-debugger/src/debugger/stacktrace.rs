@@ -209,7 +209,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
         //
         // We also have to subtract one, as we want the calling instruction for
         // a backtrace, not the next instruction to be executed.
-        self.code_location = self.registers[link_reg as usize].map(|pc| u64::from(pc & !1) - 12);
+        self.code_location = self.registers[link_reg as usize].map(|pc| u64::from(pc & !1) - 1);
         
         return Ok(Some(cf));
     }

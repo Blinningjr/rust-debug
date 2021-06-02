@@ -202,26 +202,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                registers: &Vec<(u16, u32)>,
                                ) -> Result<Vec<(Option<String>, EvaluatorValue<R>)>>
     {
-        let sp_reg: u16 =   probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0;
-
         let mut variables = vec!();
-        let mut n_frame_base = None;
-        let mut cfa = None;
-        for r in registers {
-            if r.0 == 7 {
-                n_frame_base = Some(u64::from(r.1)); 
-            } else if r.0 == sp_reg {
-                cfa = Some(r.1);
-            }
-        }
         let frame_base = self.check_frame_base(core, unit, pc, die, None, registers)?;
-
-        println!("fb: {:?}, nfb: {:?}, cfa: {:?}", frame_base, n_frame_base, cfa);
 
         let mut tree = unit.entries_tree(Some(die.offset()))?;
         let node = tree.root()?;
-
-        //println!("\n\nScope start\n\n");
 
         self.get_scope_variables_search(core, unit, pc, node, frame_base, &mut variables, registers)?;
         return Ok(variables);
