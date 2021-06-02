@@ -152,7 +152,8 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
                     if i == sp_reg {
                         cfa
                     } else if i == link_reg {
-                       self.registers[i as usize] 
+                       //self.registers[i as usize] 
+                       None
                     } else if i == pc_reg {
                         Some(code_location as u32)
                     } else {
@@ -162,6 +163,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
                 },
                 SameValue => self.registers[i as usize],
                 Offset(offset) => {
+                    println!("reg: {:?}, offset: {:?}", i, offset);
                     let address = (offset + match cfa {
                         Some(val) => i64::from(val),
                         None => return Err(anyhow!("Expected CFA to have a value")),

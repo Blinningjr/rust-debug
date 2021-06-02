@@ -91,7 +91,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate()?;
     
-        //println!("fb: {:?}", frame_base);
+        println!("fb: {:?}", frame_base);
         loop {
             //println!("{:#?}", result);
             match result {

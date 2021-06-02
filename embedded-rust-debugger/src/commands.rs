@@ -131,6 +131,12 @@ impl<R: Reader<Offset = usize>> Command<R> {
                 description:    "Print stack trace",
                 function:       |debugger, session, _cs, _args| stacktrace_command(debugger, session),
             },
+            Command {
+                name:           "stack",
+                short:          "sk",
+                description:    "Print current stack",
+                function:       |debugger, session, _cs, _args| stack_command(debugger, session),
+            },
         )
     }
 }
@@ -232,7 +238,7 @@ fn continue_fix(core: &mut probe_rs::Core, breakpoints: &Vec<u32>) -> Result<Cor
 
                     let mut code = [0u8; 2];
                     core.read_8(pc_val, &mut code)?;
-                    if code[1] == 190 && code[0] == 0 { // bkpt == 0xbe00 for coretex-m
+                    if code[1] == 190 && code[0] == 0 { // bkpt == 0xbe00 for coretex-m // TODO: is the code[0] == 0 needed?
                         // NOTE: Increment with 2 because bkpt is 2 byte instruction.
                         let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.        
                         core.write_core_reg(pc.into(), step_pc)?;
@@ -485,6 +491,40 @@ fn stacktrace_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
 { 
     let mut core = session.core(0)?;
     println!("result: {:#?}", debugger.get_current_stacktrace(&mut core)?);
+    Ok(false)
+}
+
+
+fn stack_command<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>,
+                                                 session: &mut probe_rs::Session
+                                                ) -> Result<bool>
+{ 
+    let mut core = session.core(0)?;
+    let status = core.status()?;
+    if status.is_halted() {
+        let sp_reg: u16 =   probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0;
+
+        let sf = core.read_core_reg(7)?; // reg 7 seams to be the base stack address.
+        let sp = core.read_core_reg(sp_reg)?;
+//        println!("sf: {:?}, sp: {:?}", sf, sp);
+        if sf < sp {
+            // The previous stack pointer is less then current.
+            // This happens when there is no stack.
+            println!("Stack is empty");
+            return Ok(false);
+        }
+        let length = (((sf - sp) + 4 - 1)/4) as usize;
+        let mut stack = vec![0u32; length];
+        core.read_32(sp, &mut stack);
+    
+        println!("Current stack value:");
+        for i in 0..stack.len() {
+            println!("\t{:#010x}: {:#010x}", sp as usize + i*4, stack[i]);
+        }
+    } else {
+        println!("Core must be halted, status: {:?}", status);
+    }
+
     Ok(false)
 }
 
