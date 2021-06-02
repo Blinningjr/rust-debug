@@ -91,7 +91,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         let mut eval    = expr.evaluation(unit.encoding());
         let mut result  = eval.evaluate()?;
     
-        println!("fb: {:?}", frame_base);
+        println!("fb: {:?}, pc: {:?}", frame_base, pc);
         loop {
             //println!("{:#?}", result);
             match result {
@@ -112,7 +112,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                                               &mut eval,
                                               &mut result,
                                               register,
-                                              base_type)?,
+                                              base_type,
+                                              registers)?,
 
                 RequiresFrameBase => 
                     result = eval.resume_with_frame_base(frame_base.unwrap())?, // TODO: Check and test if correct.
@@ -243,11 +244,20 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             eval:       &mut Evaluation<R>,
                             result:     &mut EvaluationResult<R>,
                             reg:        Register,
-                            base_type:  UnitOffset<usize>
+                            base_type:  UnitOffset<usize>,
+                            registers:     &Vec<(u16, u32)>,
                             ) -> Result<()>
                             where R: Reader<Offset = usize>
     {
-        let data    = core.read_core_reg(reg.0)?;
+        println!("req reg: {:?}", reg.0);
+        let mut data    = core.read_core_reg(reg.0)?;
+        for r in registers {
+            if r.0 == reg.0 {
+                data = r.1;
+                break;
+            }
+        }
+
         let value   = parse_base_type(unit, &[data], base_type);
         *result     = eval.resume_with_register(convert_to_gimli_value(value))?;    
 

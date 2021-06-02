@@ -360,16 +360,18 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         //address += (data_offset/4) * 4;
         address += data_offset;
         //println!("Address: {:#10x}", address);
-
+        
         let mem_offset = address%4;
+
+        println!("Address: {:#10x}, mem_offset: {:?}, byte_size: {:?}\n", address, mem_offset, byte_size);
+
         address -= mem_offset; 
-        //println!("Address: {:#10x}\n", address);
  
         let num_words = match byte_size {
             Some(val)   => (val + 4 - 1 )/4,
             None        => 1,
         } as usize;
-
+        
         let num_words_to_read = num_words + ((mem_offset + 4 - 1 )/4) as usize;
 
         let mut data: Vec<u32> = Vec::new();
@@ -485,6 +487,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Evaluate the value.
+        println!("bt name: {:?}", attributes::name_attribute(dwarf, die));
         match self.handle_eval_piece(byte_size,
                                      data_offset, // TODO
                                      encoding)?.unwrap()

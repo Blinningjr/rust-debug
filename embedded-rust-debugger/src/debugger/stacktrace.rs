@@ -144,11 +144,8 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
 
             registers[i as usize] = match reg_rule {
                 Undefined => {
-                    // Gimli doesn't allow us to distinguish if a rule is not
-                    // present or actually set to Undefined in the call frame
-                    // information.
+                    // If the column is empty then it defaults to undefined.
                     // Source: https://github.com/gimli-rs/gimli/blob/00f4ee6a288d2e7f02b6841a5949d839e99d8359/src/read/cfi.rs#L2289-L2311
-                    // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L254-L257/
                     if i == sp_reg {
                         cfa
                     } else if i == link_reg {
@@ -157,9 +154,11 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
                     } else if i == pc_reg {
                         Some(code_location as u32)
                     } else {
-                        self.registers[i as usize] 
-                        //None
+                        //self.registers[i as usize] 
+                        None
                     }
+
+                    
                 },
                 SameValue => self.registers[i as usize],
                 Offset(offset) => {
@@ -193,7 +192,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
         
         let cf = CallFrame {
             id:             self.frame_counter,
-            registers:      registers,
+            registers:      self.registers,
             code_location:  code_location,
             cfa:            cfa,
             start_address:  unwind_info.start_address(),
@@ -210,7 +209,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
         //
         // We also have to subtract one, as we want the calling instruction for
         // a backtrace, not the next instruction to be executed.
-        self.code_location = self.registers[link_reg as usize].map(|pc| u64::from(pc & !1) - 1);
+        self.code_location = self.registers[link_reg as usize].map(|pc| u64::from(pc & !1) - 12);
         
         return Ok(Some(cf));
     }
