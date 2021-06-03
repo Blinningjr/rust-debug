@@ -1,3 +1,5 @@
+mod newcommands;
+mod config;
 mod debugger;
 mod newdebugger;
 mod debugger_cli;
@@ -11,6 +13,10 @@ use std::{thread, time};
 
 use rustyline::Editor;
 
+use newcommands::{
+    NewCommand,
+    NewResponse,
+};
 
 use debugger::{
     Debugger,
@@ -82,7 +88,7 @@ impl FromStr for Mode {
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "example", about = "An example of StructOpt usage.")]
-struct Opt {
+pub struct Opt {
     /// Set Mode
     #[structopt(short = "m", long = "mode", default_value = "Debug")]
     mode: Mode,
@@ -111,9 +117,73 @@ fn main() -> Result<()> {
     let _ = TermLogger::init(log_level, cfg, TerminalMode::Mixed);
     
     match opt.mode {
-        Mode::Debug => debug_mode(opt.file_path.unwrap()),
+        Mode::Debug => new_debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
         Mode::DebugAdapter => server::start_server(opt.port),
     }
+}
+
+
+fn new_debug_mode(opt: Opt) -> Result<()> {
+    let (cli_sender, debugger_reciver): (Sender<NewCommand>, Receiver<NewCommand>) = mpsc::channel();
+    let (debugger_sender, cli_reciver): (Sender<NewResponse>, Receiver<NewResponse>) = mpsc::channel();
+
+    let debugger_th = thread::spawn(move || {
+            let mut debug_th = newdebugger::DebugThread::new(opt);
+            debug_th.run(debugger_sender, debugger_reciver).unwrap();
+        });
+    
+    let mut rl = Editor::<()>::new();
+   
+    let cmd_parser = newcommands::CommandParser::new();
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let history_entry: &str = line.as_ref();
+                rl.add_history_entry(history_entry);
+
+                if let Some(help_string) = cmd_parser.check_if_help(history_entry) {
+                    println!("{}", help_string);
+                    continue;
+                }
+    
+                let cmd = match cmd_parser.parse_command(line.as_ref()) {
+                    Ok(cmd) => cmd,
+                    Err(err) => {
+                        println!("Error: {:?}", err);
+                        continue;
+                    },
+                };
+
+                cli_sender.send(cmd)?;
+                let response = cli_reciver.recv()?;
+
+                match response {
+                    NewResponse::Exited => {
+                        debugger_th.join().expect("oops! the child thread panicked");
+                        return Ok(());
+                    },
+                    _  => println!("Response: {:?}", response),
+                };
+            }
+            Err(e) => {
+                use rustyline::error::ReadlineError;
+    
+                match e {
+                    // For end of file and ctrl-c, we just quit
+                    ReadlineError::Eof | ReadlineError::Interrupted => return Ok(()),
+                    actual_error => {
+                        // Show error message and quit
+                        println!("Error handling input: {:?}", actual_error);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+
+    Ok(())
 }
 
 

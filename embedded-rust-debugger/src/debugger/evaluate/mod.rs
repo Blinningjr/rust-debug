@@ -191,6 +191,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             match evaluator.evaluate(&self.dwarf) {
                 evaluate::EvaluatorResult::Complete => break,
                 evaluate::EvaluatorResult::RequireReg(reg) => { 
+                    println!("read reg: {:?}", reg);
                     let data = core.read_core_reg(reg)?;
                     evaluator.add_register(reg, data);
                 },

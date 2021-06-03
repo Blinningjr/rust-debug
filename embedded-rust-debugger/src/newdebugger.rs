@@ -1,9 +1,16 @@
+
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 
 use std::io::{self, Write};
 
 use super::{
+    config::Config,
+    newcommands::{
+        NewCommand,
+        ConfigCommand,
+        NewResponse,
+    },
     commands::{
         Command,
     },
@@ -26,6 +33,63 @@ use anyhow::{
 use rustyline::Editor;
 
 use capstone::arch::BuildsCapstone;
+
+
+
+pub struct DebugThread {
+    config: Config,
+}
+
+
+impl DebugThread {
+    pub fn new(opt: super::Opt) -> DebugThread {
+        DebugThread {
+            config: Config::new(opt),
+        }
+    }
+
+
+    pub fn run(&mut self,
+               sender: Sender<NewResponse>,
+               reciver: Receiver<NewCommand>
+              ) -> Result<()>
+    {
+        loop {
+            let response = match reciver.recv()? {            
+                NewCommand::Exit        => {
+                    sender.send(NewResponse::Confirm)?;
+                    return Ok(());
+                },
+                NewCommand::Config(cmd) => self.handle_command(cmd),
+                _                       => NewResponse::Error(self.config.missing_config()),
+            };
+
+            sender.send(response)?;
+        }
+    }
+
+    
+    fn handle_command(&mut self, command: ConfigCommand) -> NewResponse {
+        match command {
+            ConfigCommand::SetBinary           (pb)    => self.config.bin = Some(pb),
+            ConfigCommand::SetProbeNumber   (num)   => self.config.probe_num = num,
+            ConfigCommand::SetChip          (chip)  => self.config.chip = Some(chip),
+        };
+
+        NewResponse::Confirm
+    }
+
+
+    fn start_debugger(& self,
+                          sender: Sender<NewResponse>,
+                          reciver: Receiver<NewCommand>
+                          ) -> Result<bool>
+    {
+        Ok(false)
+    }
+
+}
+
 
 
 pub struct NewDebugger<'a, R: Reader<Offset = usize>> {
