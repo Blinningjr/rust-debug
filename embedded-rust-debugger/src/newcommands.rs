@@ -1,250 +1,323 @@
-use std::path::PathBuf;
-
 use anyhow::{
     Result,
     anyhow,
 };
 
+use serde_json::map::Map;
+use serde_json::value::Value;
+use serde_json::Number;
+use serde_json::{
+    json,
+    to_vec,
+};
 
-#[derive(Debug, Clone)]
-pub enum NewCommand {
-    Debug(DebugCommand),
-    Config(ConfigCommand),
-    Exit,
-}
+use debugserver_types::{
+    Response,
+    Request, 
 
-
-#[derive(Debug, Clone)]
-pub enum DebugCommand {
-    Status,
-    Print(String),
-    Run,
-    Step,
-    Halt,
-    Registers,
-    Reset,
-    Read { address: u32, byte_size: u32 },
-    SetBreakpoint(u32),
-    ClearBreakpoint(u32),
-    ClearAllBreakpoints,
-    NumberOfBreakpoints,
-    Code,
-    StackTrace,
-    Stack,
-}
-
-
-#[derive(Debug, Clone)]
-pub enum ConfigCommand {
-    SetBinary(PathBuf),
-    SetProbeNumber(u32),
-    SetChip(String),
-}
-
-
-
-#[derive(Debug, Clone)]
-pub enum NewResponse {
-    Exited,
-    Confirm,
-    Error(String),
-}
+    DisconnectArguments,
+    ContinueArguments,
+    NextArguments,
+    PauseArguments,
+    StackTraceArguments,
+};
 
 
 struct CommandInfo {
     pub name:           &'static str,
     pub description:    &'static str,
-    pub parser: fn(args: &[&str]) -> Result<NewCommand>,
+    pub parser: fn(args: &[&str]) -> Result<Request>,
 }
 
 
 pub struct CommandParser {
+    seq:        i64,
     commands:   Vec<CommandInfo>,
 }
 
 impl CommandParser {
     pub fn new() -> CommandParser {
         CommandParser {
+            seq: 0,
             commands: vec!(
+                //CommandInfo { // TODO: Is this the same as DAP Reset
+                //    name: "reset",
+                //    description: "Reset the program",
+                //    parser: |_args| {
+                //        Ok(NewCommand::Debug(DebugCommand::Reset))
+                //    },
+                //},
 
 
-                // General commands
+                // Dap commands
                 CommandInfo {
-                    name: "Exit",
+                    name: "exit",
                     description: "Exit debugger",
                     parser: |_args| {
-                        Ok(NewCommand::Exit)
-                    },
-                },
+                        let arguments = DisconnectArguments {
+                            restart: Some(false),
+                            terminate_debuggee: None,
+                        };
 
-
-                // Configuration Commands
-                CommandInfo {
-                    name: "set-binary",
-                    description: "Set the binary file to debug",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let path = PathBuf::from(args[0]);
-                            return Ok(NewCommand::Config(ConfigCommand::SetBinary(path)));
-                        }
-                        Err(anyhow!("Requires a path as a argument"))
+                        Ok(Request {
+                            seq: 0,
+                            type_: "request".to_owned(),
+                            command: "disconnect".to_owned(),
+                            arguments: Some(json!(arguments)),
+                        })
                     },
                 },
                 CommandInfo {
-                    name: "set-probe-number",
-                    description: "Set the probe number to use",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let number = args[0].parse::<u32>()?;
-                            return Ok(NewCommand::Config(ConfigCommand::SetProbeNumber(number)));
-                        }
-                        Err(anyhow!("Requires a number as a argument"))
-                    },
-                },
-                CommandInfo {
-                    name: "set-chip",
-                    description: "Set the chip to use",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let chip = args[0].to_string();
-                            return Ok(NewCommand::Config(ConfigCommand::SetChip(chip)));
-                        }
-                        Err(anyhow!("Requires a String as a argument"))
-                    },
-                },
-
-
-                // Debugger Commands
-                CommandInfo {
-                    name: "status",
-                    description: "Get the core status",
+                    name: "continue",
+                    description: "Continue the program",
                     parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Status))
+                        let arguments = ContinueArguments {
+                            thread_id: 0,
+                        };
+
+                        Ok(Request {
+                            seq: 0,
+                            type_: "request".to_owned(),
+                            command: "continue".to_owned(),
+                            arguments: Some(json!(arguments)),
+                        })
                     },
                 },
                 CommandInfo {
-                    name: "print",
-                    description: "Get the core status",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let variable_name = args[0].to_string();
-                            return Ok(NewCommand::Debug(DebugCommand::Print(variable_name)));
-                        }
-                        Err(anyhow!("Requires a String as a argument"))
-                    },
-                },
-                CommandInfo {
-                    name: "run",
-                    description: "Run/Continue the program",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Run))
-                    },
-                },
-                CommandInfo {
-                    name: "step",
+                    name: "next",
                     description: "Step one instruction",
                     parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Step))
+                        let arguments = NextArguments {
+                            thread_id: 0,
+                        };
+
+                        Ok(Request {
+                            seq: 0,
+                            type_: "request".to_owned(),
+                            command: "next".to_owned(),
+                            arguments: Some(json!(arguments)),
+                        })
                     },
                 },
                 CommandInfo {
-                    name: "halt",
+                    name: "pause",
                     description: "Halt the core",
                     parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Halt))
+                        let arguments = PauseArguments {
+                                thread_id: 0,
+                        };
+
+                        Ok(Request {
+                            seq: 0,
+                            type_: "request".to_owned(),
+                            command: "pause".to_owned(),
+                            arguments: Some(json!(arguments)),
+                        })
                     },
                 },
-                CommandInfo {
-                    name: "registers",
-                    description: "Print all the values of the registers",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Registers))
-                    },
-                },
-                CommandInfo {
-                    name: "reset",
-                    description: "Reset the program",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Reset))
-                    },
-                },
-                CommandInfo {
-                    name: "read",
-                    description: "Read memory at an address of a certain byte size(default: 4 bytes)",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let address = parse_u32_from_str(args[0])?;
-                            let byte_size = if args.len() > 1 {
-                                parse_u32_from_str(args[1])?
-                            } else {
-                                4
-                            };
-                            return Ok(NewCommand::Debug(DebugCommand::Read {
-                                address: address,
-                                byte_size: byte_size,
-                            }));
-                        }
-                        
-                        Err(anyhow!("Requires a number as a argument"))
-                    },
-                },
-                CommandInfo {
-                    name: "set-breakpoint",
-                    description: "Set a hardware breakpoint at an address",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let address = parse_u32_from_str(args[0])?;
-                            return Ok(NewCommand::Debug(DebugCommand::SetBreakpoint(address)));
-                        }
-                        Err(anyhow!("Requires a String as a argument"))
-                    },
-                },
-                CommandInfo {
-                    name: "clear-breakpoint",
-                    description: "Remobe a hardware breakpoint from an address",
-                    parser: |args| {
-                        if args.len() > 0 {
-                            let address = parse_u32_from_str(args[0])?;
-                            return Ok(NewCommand::Debug(DebugCommand::ClearBreakpoint(address)));
-                        }
-                        Err(anyhow!("Requires a String as a argument"))
-                    },
-                },
-                CommandInfo {
-                    name: "clear-all-breakpoints",
-                    description: "Removes all hardware breakpoints",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::ClearAllBreakpoints))
-                    },
-                },
-                CommandInfo {
-                    name: "number-of-breakpoints",
-                    description: "Prints the number of active and total hardware breakpoints",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::NumberOfBreakpoints))
-                    },
-                },
-                CommandInfo {
-                    name: "code",
-                    description: "Prints the assembly code in memory at the current program counter",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Code))
-                    },
-                },
+                //CommandInfo { // TODO
+                //    name: "read",
+                //    description: "Read memory at an address of a certain byte size(default: 4 bytes)",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            let mut map = Map::new();
+
+                //            let address = Number::from(parse_u32_from_str(args[0])?);
+                //            map.insert("address".to_owned(), Value::Number(address));
+
+                //            let byte_size = Number::from(if args.len() > 1 {
+                //                parse_u32_from_str(args[1])?
+                //            } else {
+                //                4
+                //            });
+                //            map.insert("byte_size".to_owned(), Value::Number(byte_size));
+
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "readMemory".to_owned(), // TODO:
+                //                arguments: Some(Value::Object(map)),
+                //            });
+                //        }
+                //        
+                //        Err(anyhow!("Requires a number as a argument"))
+                //    },
+                //},
                 CommandInfo {
                     name: "stack-trace",
                     description: "Prints the current stack trace",
                     parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::StackTrace))
+                        let arguments = StackTraceArguments {
+                            thread_id: 0,
+                            levels: None,
+                            start_frame: None,
+                            format: None,
+                        };
+                        Ok(Request {
+                            seq: 0,
+                            type_: "request".to_owned(),
+                            command: "stackTrace".to_owned(), // TODO:
+                            arguments: Some(json!(arguments)),
+                        })
                     },
                 },
-                CommandInfo {
-                    name: "stack",
-                    description: "Prints the current stack values",
-                    parser: |_args| {
-                        Ok(NewCommand::Debug(DebugCommand::Stack))
-                    },
-                },
+
+
+                // Non Dap commands
+                //CommandInfo {
+                //    name: "set-binary",
+                //    description: "Set the binary file to debug",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "setbinary".to_owned(),
+                //                arguments: Some(Value::String(args[0].to_string())),
+                //            });
+                //        }
+                //        Err(anyhow!("Requires a path as a argument"))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "set-probe-number",
+                //    description: "Set the probe number to use",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            let number = Number::from(args[0].parse::<u32>()?);
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "setprobenumber".to_owned(),
+                //                arguments: Some(Value::Number(number)),
+                //            });
+                //        }
+                //        Err(anyhow!("Requires a number as a argument"))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "set-chip",
+                //    description: "Set the chip to use",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "setchip".to_owned(),
+                //                arguments: Some(Value::String(args[0].to_string())),
+                //            });
+                //        }
+                //        Err(anyhow!("Requires a String as a argument"))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "status",
+                //    description: "Get the core status",
+                //    parser: |_args| {
+                //        return Ok(Request {
+                //            seq: 0,
+                //            type_: "request".to_owned(),
+                //            command: "status".to_owned(),
+                //            arguments: Some(Value::Bool(true)), // NOTE: True to indicate that this should be printed.
+                //        });
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "variable",
+                //    description: "Print a variables value",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "variable".to_owned(),
+                //                arguments: Some(Value::String(args[0].to_string())),
+                //            });
+                //        }
+                //        Err(anyhow!("Requires a String as a argument"))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "registers",
+                //    description: "Print all the values of the registers",
+                //    parser: |_args| {
+                //        Ok(Request {
+                //            seq: 0,
+                //            type_: "request".to_owned(),
+                //            command: "registers".to_owned(),
+                //            arguments: None,
+                //        })
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "set-breakpoint",
+                //    description: "Set a hardware breakpoint at an address",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            let address = Number::from(parse_u32_from_str(args[0])?);
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "setbreakpoint".to_owned(),
+                //                arguments: Some(Value::Number(address)),
+                //            });
+                //        }
+                //        Err(anyhow!("Requires a address as a argument"))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "clear-breakpoint",
+                //    description: "Remobe a hardware breakpoint from an address",
+                //    parser: |args| {
+                //        if args.len() > 0 {
+                //            let address = Number::from(parse_u32_from_str(args[0])?);
+                //            return Ok(Request {
+                //                seq: 0,
+                //                type_: "request".to_owned(),
+                //                command: "clearbreakpoint".to_owned(),
+                //                arguments: Some(Value::Number(address)),
+                //            });
+                //        }
+                //        
+                //        Err(anyhow!("Requires a String as a argument"))
+                //    },
+                //},
+                //CommandInfo { // TODO: setbreakpoint with zero arguments dose the same.
+                //    name: "clear-all-breakpoints",
+                //    description: "Removes all hardware breakpoints",
+                //    parser: |_args| {
+                //        Ok(Request {
+                //            seq: 0,
+                //            type_: "request".to_owned(),
+                //            command: "clearallbreakpoints".to_owned(),
+                //            arguments: None,
+                //        })
+                //    },
+                //},
+
+
+                // TODO
+                //CommandInfo {
+                //    name: "number-of-breakpoints",
+                //    description: "Prints the number of active and total hardware breakpoints",
+                //    parser: |_args| {
+                //        Ok(NewCommand::Debug(DebugCommand::NumberOfBreakpoints))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "code",
+                //    description: "Prints the assembly code in memory at the current program counter",
+                //    parser: |_args| {
+                //        Ok(NewCommand::Debug(DebugCommand::Code))
+                //    },
+                //},
+                //CommandInfo {
+                //    name: "stack",
+                //    description: "Prints the current stack values",
+                //    parser: |_args| {
+                //        Ok(NewCommand::Debug(DebugCommand::Stack))
+                //    },
+                //},
             ),
         }
     }
@@ -269,7 +342,7 @@ impl CommandParser {
     }
 
 
-    pub fn parse_command(&self, line: &str) -> Result<NewCommand> {
+    pub fn parse_command(&self, line: &str) -> Result<Request> {
         let mut command_parts = line.split_whitespace();
         if let Some(command) = command_parts.next() {
             

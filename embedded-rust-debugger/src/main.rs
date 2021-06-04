@@ -13,9 +13,10 @@ use std::{thread, time};
 
 use rustyline::Editor;
 
-use newcommands::{
-    NewCommand,
-    NewResponse,
+
+use debugserver_types::{
+    Response,
+    Request, 
 };
 
 use debugger::{
@@ -124,8 +125,8 @@ fn main() -> Result<()> {
 
 
 fn new_debug_mode(opt: Opt) -> Result<()> {
-    let (cli_sender, debugger_reciver): (Sender<NewCommand>, Receiver<NewCommand>) = mpsc::channel();
-    let (debugger_sender, cli_reciver): (Sender<NewResponse>, Receiver<NewResponse>) = mpsc::channel();
+    let (cli_sender, debugger_reciver): (Sender<Request>, Receiver<Request>) = mpsc::channel();
+    let (debugger_sender, cli_reciver): (Sender<Response>, Receiver<Response>) = mpsc::channel();
 
     let debugger_th = thread::spawn(move || {
             let mut debug_th = newdebugger::DebugThread::new(opt);
@@ -158,8 +159,8 @@ fn new_debug_mode(opt: Opt) -> Result<()> {
                 cli_sender.send(cmd)?;
                 let response = cli_reciver.recv()?;
 
-                match response {
-                    NewResponse::Exited => {
+                match response.command.as_str() {
+                    "disconnect" => {
                         debugger_th.join().expect("oops! the child thread panicked");
                         return Ok(());
                     },

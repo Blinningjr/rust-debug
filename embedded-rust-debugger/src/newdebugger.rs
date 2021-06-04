@@ -1,4 +1,9 @@
 
+use debugserver_types::{ 
+    Response,
+    Request,
+};
+
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
 
@@ -6,11 +11,6 @@ use std::io::{self, Write};
 
 use super::{
     config::Config,
-    newcommands::{
-        NewCommand,
-        ConfigCommand,
-        NewResponse,
-    },
     commands::{
         Command,
     },
@@ -38,6 +38,7 @@ use capstone::arch::BuildsCapstone;
 
 pub struct DebugThread {
     config: Config,
+    seq: i64,
 }
 
 
@@ -45,23 +46,46 @@ impl DebugThread {
     pub fn new(opt: super::Opt) -> DebugThread {
         DebugThread {
             config: Config::new(opt),
+            seq: 0,
         }
     }
 
 
     pub fn run(&mut self,
-               sender: Sender<NewResponse>,
-               reciver: Receiver<NewCommand>
+               sender: Sender<Response>,
+               reciver: Receiver<Request>
               ) -> Result<()>
     {
         loop {
-            let response = match reciver.recv()? {            
-                NewCommand::Exit        => {
-                    sender.send(NewResponse::Confirm)?;
+            let request = reciver.recv()?;
+            let response = match request.command.as_str() {            
+                "disconnect"        => {
+                    let response = Response {
+                        type_: "response".to_owned(),
+                        command: request.command.clone(),
+                        seq: self.seq,
+                        request_seq: request.seq,
+                        body: None,
+                        success: true,
+                        message: None,
+                    };
+                    self.seq += 1;
+                    sender.send(response)?;
                     return Ok(());
                 },
-                NewCommand::Config(cmd) => self.handle_command(cmd),
-                _                       => NewResponse::Error(self.config.missing_config()),
+                _                       => {
+                    let response = Response {
+                        type_: "response".to_owned(),
+                        command: request.command.clone(),
+                        seq: self.seq,
+                        request_seq: request.seq,
+                        body: None,
+                        success: false,
+                        message: Some("Unimplemented command".to_owned()),
+                    }; 
+                    self.seq += 1;
+                    response
+                },
             };
 
             sender.send(response)?;
@@ -69,24 +93,24 @@ impl DebugThread {
     }
 
     
-    fn handle_command(&mut self, command: ConfigCommand) -> NewResponse {
-        match command {
-            ConfigCommand::SetBinary           (pb)    => self.config.bin = Some(pb),
-            ConfigCommand::SetProbeNumber   (num)   => self.config.probe_num = num,
-            ConfigCommand::SetChip          (chip)  => self.config.chip = Some(chip),
-        };
-
-        NewResponse::Confirm
-    }
-
-
-    fn start_debugger(& self,
-                          sender: Sender<NewResponse>,
-                          reciver: Receiver<NewCommand>
-                          ) -> Result<bool>
-    {
-        Ok(false)
-    }
+//    fn handle_command(&mut self, command: ConfigCommand) -> NewResponse {
+//        match command {
+//            ConfigCommand::SetBinary           (pb)    => self.config.bin = Some(pb),
+//            ConfigCommand::SetProbeNumber   (num)   => self.config.probe_num = num,
+//            ConfigCommand::SetChip          (chip)  => self.config.chip = Some(chip),
+//        };
+//
+//        NewResponse::Confirm
+//    }
+//
+//
+//    fn start_debugger(& self,
+//                          sender: Sender<NewResponse>,
+//                          reciver: Receiver<NewCommand>
+//                          ) -> Result<bool>
+//    {
+//        Ok(false)
+//    }
 
 }
 
