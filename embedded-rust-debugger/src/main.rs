@@ -1,5 +1,5 @@
-mod newcommands;
-mod config;
+mod commands_temp;
+mod debug_handler;
 mod debugger;
 mod newdebugger;
 mod debugger_cli;
@@ -13,6 +13,11 @@ use std::{thread, time};
 
 use rustyline::Editor;
 
+
+use commands_temp::{
+    debug_request::DebugRequest,
+    debug_response::DebugResponse,
+};
 
 use debugserver_types::{
     Response,
@@ -125,17 +130,17 @@ fn main() -> Result<()> {
 
 
 fn new_debug_mode(opt: Opt) -> Result<()> {
-    let (cli_sender, debugger_reciver): (Sender<Request>, Receiver<Request>) = mpsc::channel();
-    let (debugger_sender, cli_reciver): (Sender<Response>, Receiver<Response>) = mpsc::channel();
+    let (cli_sender, debugger_reciver): (Sender<DebugRequest>, Receiver<DebugRequest>) = mpsc::channel();
+    let (debugger_sender, cli_reciver): (Sender<DebugResponse>, Receiver<DebugResponse>) = mpsc::channel();
 
     let debugger_th = thread::spawn(move || {
-            let mut debug_th = newdebugger::DebugThread::new(opt);
+            let mut debug_th = debug_handler::DebugHandler::new(opt);//newdebugger::DebugThread::new(opt);
             debug_th.run(debugger_sender, debugger_reciver).unwrap();
         });
     
     let mut rl = Editor::<()>::new();
    
-    let cmd_parser = newcommands::CommandParser::new();
+    let cmd_parser = commands_temp::commands::Commands::new();
     loop {
         let readline = rl.readline(">> ");
         match readline {
@@ -148,7 +153,7 @@ fn new_debug_mode(opt: Opt) -> Result<()> {
                     continue;
                 }
     
-                let cmd = match cmd_parser.parse_command(line.as_ref()) {
+                let request = match cmd_parser.parse_command(line.as_ref()) {
                     Ok(cmd) => cmd,
                     Err(err) => {
                         println!("Error: {:?}", err);
@@ -156,11 +161,11 @@ fn new_debug_mode(opt: Opt) -> Result<()> {
                     },
                 };
 
-                cli_sender.send(cmd)?;
+                cli_sender.send(request)?;
                 let response = cli_reciver.recv()?;
 
-                match response.command.as_str() {
-                    "disconnect" => {
+                match response {
+                    DebugResponse::Exit => {
                         debugger_th.join().expect("oops! the child thread panicked");
                         return Ok(());
                     },
@@ -196,7 +201,7 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
     let status_check_sender = cli_sender.clone();
 
     let debugger_th = thread::spawn(move || {
-            let mut session = attach_probe().unwrap();
+            let mut session = attach_probe("STM32F411RETx", 0).unwrap();
 
             let _pc = flash_target(&mut session, &file_path).unwrap();
 
@@ -259,16 +264,16 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 }
 
 
-fn attach_probe() -> Result<Session>
+fn attach_probe(chip: &str, probe_num: usize) -> Result<Session>
 {
     // Get a list of all available debug probes.
     let probes = Probe::list_all();
     
     // Use the first probe found.
-    let probe = probes[0].open().context("Failed to open probe")?; // TODO: User should choose.
+    let probe = probes[probe_num].open().context("Failed to open probe")?;
     
     // Attach to a chip.
-    let session = probe.attach_under_reset("STM32F411RETx").context("Failed to attach probe to target")?; // TODO: User should choose.
+    let session = probe.attach_under_reset(chip).context("Failed to attach probe to target")?; // TODO: User should choose.
  
     Ok(session)
 }

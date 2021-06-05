@@ -88,7 +88,7 @@ impl<R: Read, W: Write> Session<R, W> {
         self.dwarf = Some(dwarf_sections);
         debug!("> Read dwarf file");
 
-        match attach_probe() {
+        match attach_probe("STM32F411RETx", 0) {
             Ok(s) => {
                 info!("> probe attached");
                 self.sess = Some(s);
