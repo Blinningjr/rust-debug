@@ -22,6 +22,168 @@ impl Commands {
         Commands {
             commands: vec!(
                 CommandInfo {
+                    name: "stack",
+                    description: "Prints the current stack values",
+                    parser: |_args| {
+                        Ok(DebugRequest::Stack)
+                    },
+                },
+                CommandInfo {
+                    name: "code",
+                    description: "Prints the current code",
+                    parser: |_args| {
+                        Ok(DebugRequest::Code)
+                    },
+                },
+                CommandInfo {
+                    name: "clear-all-breakpoints",
+                    description: "Removes all hardware breakpoints",
+                    parser: |_args| {
+                        Ok(DebugRequest::ClearAllBreakpoints)
+                    },
+                },
+                CommandInfo {
+                    name: "clear-breakpoint",
+                    description: "Remove a hardware breakpoint",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let address = parse_u32_from_str(args[0])?;
+                            return Ok(DebugRequest::ClearBreakpoint {
+                                address: address,
+                            });
+                        }
+                        Err(anyhow!("Requires a string as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "set-breakpoint",
+                    description: "Set a hardware breakpoint",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let address = parse_u32_from_str(args[0])?;
+                            let path = match args.len() {
+                                2 => Some(args[1].to_string()),
+                                _ => None,
+                            };
+
+                            return Ok(DebugRequest::SetBreakpoint {
+                                address: address,
+                                source_file: path,
+                            });
+                        }
+                        Err(anyhow!("Requires a string as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "registers",
+                    description: "Print all register values",
+                    parser: |_args| {
+                        Ok(DebugRequest::Registers)
+                    },
+                },
+                CommandInfo {
+                    name: "variable",
+                    description: "Print the value of a variable",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let name = args[0].to_string();
+                            return Ok(DebugRequest::Variable {
+                                name: name,
+                            });
+                        }
+                        Err(anyhow!("Requires a string as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "set-chip",
+                    description: "Set chip model being used",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let chip = args[0].to_string();
+                            return Ok(DebugRequest::SetChip {
+                                chip: chip,
+                            });
+                        }
+                        Err(anyhow!("Requires a string as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "set-probe-number",
+                    description: "Set the probe number to use",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let number = parse_u32_from_str(args[0])? as usize;
+                            return Ok(DebugRequest::SetProbeNumber {
+                                number: number,
+                            });
+                        }
+                        Err(anyhow!("Requires a boolean as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "stack-trace",
+                    description: "Print stack trace",
+                    parser: |_args| {
+                        Ok(DebugRequest::StackTrace)
+                    },
+                },
+                CommandInfo {
+                    name: "read",
+                    description: "Read address in memory",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let address = parse_u32_from_str(args[0])?;
+                            let byte_size = match args.len() {
+                                2 => parse_u32_from_str(args[1])?,
+                                _ => 4,
+                            } as usize;
+                            return Ok(DebugRequest::Read {
+                                address: address,
+                                byte_size: byte_size,
+                            });
+                        }
+                        Err(anyhow!("Requires a boolean as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "reset",
+                    description: "Reset or reset and halt the core",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let reset_and_halt = parse_bool(args[0])?;
+                            return Ok(DebugRequest::Reset {
+                                reset_and_halt: reset_and_halt
+                            });
+                        }
+                        Err(anyhow!("Requires a boolean as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "flash",
+                    description: "Flash target with binary file",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            let reset_and_halt = parse_bool(args[0])?;
+                            return Ok(DebugRequest::Flash { reset_and_halt: reset_and_halt });
+                        }
+                        Err(anyhow!("Requires a bool as a argument"))
+                    },
+                },
+                CommandInfo {
+                    name: "step",
+                    description: "Step one assembly instruction",
+                    parser: |_args| {
+                        Ok(DebugRequest::Step)
+                    },
+                },
+                CommandInfo {
+                    name: "status",
+                    description: "Print the status of the core",
+                    parser: |_args| {
+                        Ok(DebugRequest::Status)
+                    },
+                },
+                CommandInfo {
                     name: "exit",
                     description: "Exit debugger",
                     parser: |_args| {
@@ -105,3 +267,13 @@ fn parse_u32_from_str(s: &str) -> Result<u32> {
         return Ok(u32::from_str_radix(s, 10)?); 
     };
 }
+
+
+fn parse_bool(s: &str) -> Result<bool> {
+    match s {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(anyhow!("Expected a boolean argument")),
+    }
+}
+
