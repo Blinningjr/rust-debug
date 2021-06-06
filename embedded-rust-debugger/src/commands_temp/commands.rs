@@ -1,4 +1,7 @@
-use super::debug_request::DebugRequest;
+use super::{
+    Command,
+    debug_request::DebugRequest,
+};
 
 use anyhow::{ Result, anyhow };
 
@@ -220,7 +223,7 @@ impl Commands {
     }
 
 
-    pub fn parse_command(&self, line: &str) -> Result<DebugRequest> {
+    pub fn parse_command(&self, line: &str) -> Result<Command> {
         let mut command_parts = line.split_whitespace();
         if let Some(command) = command_parts.next() {
             
@@ -229,7 +232,7 @@ impl Commands {
             if let Some(cmd) = cmd {
                 let remaining_args: Vec<&str> = command_parts.collect();
 
-                return (cmd.parser)(&remaining_args);
+                return Ok(Command::Request((cmd.parser)(&remaining_args)?));
             } else {
                 return Err(anyhow!("Unknown command '{}'\n\tEnter 'help' for a list of commands", command));
             }

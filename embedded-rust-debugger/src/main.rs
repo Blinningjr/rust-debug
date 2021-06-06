@@ -17,6 +17,7 @@ use rustyline::Editor;
 use commands_temp::{
     debug_request::DebugRequest,
     debug_response::DebugResponse,
+    Command,
 };
 
 use debugserver_types::{
@@ -130,19 +131,40 @@ fn main() -> Result<()> {
 
 
 fn new_debug_mode(opt: Opt) -> Result<()> {
-    let (cli_sender, debugger_reciver): (Sender<DebugRequest>, Receiver<DebugRequest>) = mpsc::channel();
-    let (debugger_sender, cli_reciver): (Sender<DebugResponse>, Receiver<DebugResponse>) = mpsc::channel();
+    let (sender_to_cli, cli_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+    let (sender_to_control_center, control_center_receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel();
+    let (sender_to_debugger, debug_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = mpsc::channel();
+
+    let debug_sender = sender_to_control_center.clone();
 
     let debugger_th = thread::spawn(move || {
-            let mut debug_th = debug_handler::DebugHandler::new(opt);//newdebugger::DebugThread::new(opt);
-            debug_th.run(debugger_sender, debugger_reciver).unwrap();
-        });
+        let mut debugger = debug_handler::DebugHandler::new(opt);
+        debugger.run(debug_sender, debug_receiver).unwrap();
+    });
+
+    let reader_th = thread::spawn(move || {
+        command_reader(sender_to_control_center, cli_receiver).unwrap();
+    });
     
-    let mut rl = Editor::<()>::new();
-   
+
+    control_center(sender_to_debugger, control_center_receiver, sender_to_cli)?;
+    debugger_th.join().expect("oops! the child thread panicked");
+    reader_th.join().expect("oops! the child thread panicked");
+
+    Ok(())
+}
+
+
+fn command_reader(sender: Sender<Command>,
+                  receiver: Receiver<bool>
+                  ) -> Result <()>
+{
+    let mut rl = Editor::<()>::new(); 
     let cmd_parser = commands_temp::commands::Commands::new();
+
     loop {
         let readline = rl.readline(">> ");
+
         match readline {
             Ok(line) => {
                 let history_entry: &str = line.as_ref();
@@ -161,16 +183,12 @@ fn new_debug_mode(opt: Opt) -> Result<()> {
                     },
                 };
 
-                cli_sender.send(request)?;
-                let response = cli_reciver.recv()?;
+                sender.send(request)?;
+                let exit = receiver.recv()?;
 
-                match response {
-                    DebugResponse::Exit => {
-                        debugger_th.join().expect("oops! the child thread panicked");
+                if exit {
                         return Ok(());
-                    },
-                    _  => println!("Response: {:?}", response),
-                };
+                }
             }
             Err(e) => {
                 use rustyline::error::ReadlineError;
@@ -189,15 +207,43 @@ fn new_debug_mode(opt: Opt) -> Result<()> {
     }
 
 
-    Ok(())
+}
+
+
+fn control_center(debug_sender: Sender<DebugRequest>,
+                  receiver: Receiver<Command>,
+                  cli_sender: Sender<bool>
+                  ) -> Result<()>
+{
+    loop {
+        let command = receiver.recv()?;
+        match command {
+            Command::Request(req) => {
+                debug_sender.send(req)?;
+            },
+            Command::Response(res) => {
+                println!("{:?}", res);
+                match res {
+                    DebugResponse::Exit => {
+                        cli_sender.send(true)?;
+                        return Ok(());
+                    },
+                    _ => {
+                        cli_sender.send(false)?;
+                    },
+                };
+            },
+            Command::Event(event) => println!("{:?}", event),
+        };
+    }
 }
 
 
 fn debug_mode(file_path: PathBuf) -> Result<()>
 {
-    let (cli_sender, debugger_reciver): (Sender<String>, Receiver<String>) = mpsc::channel();
-    let (debugger_sender, cli_reciver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
-    let (debug_check_sender, status_check_reciver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+    let (cli_sender, debugger_receiver): (Sender<String>, Receiver<String>) = mpsc::channel();
+    let (debugger_sender, cli_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
+    let (debug_check_sender, status_check_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
     let status_check_sender = cli_sender.clone();
 
     let debugger_th = thread::spawn(move || {
@@ -211,7 +257,7 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 
             let mut ndbug = newdebugger::NewDebugger::new(debugger, session).unwrap();
 
-            ndbug.run(debugger_sender, debugger_reciver, debug_check_sender).unwrap();
+            ndbug.run(debugger_sender, debugger_receiver, debug_check_sender).unwrap();
         });
 
     let status_check_th = thread::spawn(move || {
@@ -223,7 +269,7 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
 
                 status_check_sender.send("__checkhitbreakpoint__".to_string()).unwrap();
 
-                if status_check_reciver.recv().unwrap() {
+                if status_check_receiver.recv().unwrap() {
                     return ();
                 } 
             }
@@ -239,7 +285,7 @@ fn debug_mode(file_path: PathBuf) -> Result<()>
                 rl.add_history_entry(history_entry);
         
                 cli_sender.send(line)?;
-                let exit_cli = cli_reciver.recv()?;
+                let exit_cli = cli_receiver.recv()?;
                 
                 if exit_cli {
                     debugger_th.join().expect("oops! the child thread panicked");

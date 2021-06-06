@@ -6,7 +6,9 @@ use config::Config;
 use super::commands_temp::{
     debug_request::DebugRequest,
     debug_response::DebugResponse,
+    debug_event::DebugEvent,
     Command,
+
 };
 
 use super::Opt;
@@ -37,6 +39,7 @@ use gimli::Reader;
 use probe_rs::{
     MemoryInterface,
     CoreInformation,
+    CoreStatus,
 };
 
 use log::{
@@ -66,14 +69,14 @@ impl DebugHandler {
 
 
     pub fn run(&mut self,
-               mut sender: Sender<DebugResponse>,
+               mut sender: Sender<Command>,
                mut reciver: Receiver<DebugRequest>
               ) -> Result<()>
     {
         loop {
             let request = reciver.recv()?;
             let (exit, response) = self.handle_request(&mut sender, &mut reciver, request)?;
-            sender.send(response)?;
+            sender.send(Command::Response(response))?;
 
             if exit {
                 return Ok(());
@@ -83,7 +86,7 @@ impl DebugHandler {
 
 
     fn handle_request(&mut self,
-                      sender: &mut Sender<DebugResponse>,
+                      sender: &mut Sender<Command>,
                       reciver: &mut Receiver<DebugRequest>,
                       request: DebugRequest
                       ) -> Result<(bool, DebugResponse)>
@@ -114,7 +117,7 @@ impl DebugHandler {
     }
 }
 
-pub fn init(sender: &mut Sender<DebugResponse>,
+pub fn init(sender: &mut Sender<Command>,
             reciver: &mut Receiver<DebugRequest>,
             file_path: PathBuf,
             probe_number: usize,
@@ -160,14 +163,15 @@ struct DebugServer<'a, R: Reader<Offset = usize>> {
 impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
     pub fn run(&mut self,
-               sender: &mut Sender<DebugResponse>,
+               sender: &mut Sender<Command>,
                reciver: &mut Receiver<DebugRequest>,
                mut request: DebugRequest
                ) -> Result<DebugRequest>
     {
         match self.handle_request(request)? {
             Command::Request(req) => return Ok(req),
-            Command::Response(res) => sender.send(res)?,
+            Command::Response(res) => sender.send(Command::Response(res))?,
+            _ => unimplemented!(),
         };
 
         loop {
@@ -175,12 +179,13 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                 Ok(request) => {
                     match self.handle_request(request)? {
                         Command::Request(req) => return Ok(req),
-                        Command::Response(res) => sender.send(res)?,
+                        Command::Response(res) => sender.send(Command::Response(res))?,
+                        _ => unimplemented!(),
                     };
                 },
                 Err(err) => {
                     match err {
-                        TryRecvError::Empty => self.check_halted()?,
+                        TryRecvError::Empty => self.check_halted(sender)?,
                         TryRecvError::Disconnected => return Err(anyhow!("{:?}", err)),
                     };
                 },
@@ -189,20 +194,27 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     }
 
 
-    fn check_halted(&mut self) -> Result<()> {
+    fn check_halted(&mut self, sender: &mut Sender<Command>) -> Result<()> {
         let delta = Duration::from_millis(400);
         if self.running && self.check_time.elapsed() > delta {
-            let mut core = self.session.core(0)?;
-            let status = core.status()?;
-
-            if status.is_halted() {
-                self.running = false;
-
-                let pc = core.read_core_reg(core.registers().program_counter())?;
-                println!("Core halted at address {:#010x}", pc);
-            }
-
             self.check_time = Instant::now();
+            self.send_halt_event(sender)?;
+        }
+
+        Ok(())
+    }
+
+    fn send_halt_event(&mut self, sender: &mut Sender<Command>) -> Result<()> {
+        let mut core = self.session.core(0)?;
+        let status = core.status()?;
+
+        if let CoreStatus::Halted(reason) = status {
+            self.running = false;
+
+            let pc = core.read_core_reg(core.registers().program_counter())?;
+            println!("Core halted at address {:#010x}", pc);
+
+            sender.send(Command::Event(DebugEvent::Halted{ pc: pc, reason: reason }))?; 
         }
 
         Ok(())
