@@ -14,9 +14,10 @@ use super::Opt;
 use anyhow::{
     Result,
     Context,
+    anyhow,
 };
 
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Sender, Receiver, TryRecvError};
 
 use capstone::arch::BuildsCapstone;
 
@@ -44,7 +45,7 @@ use log::{
     warn,
 };
 
-use std::time::Duration;
+use std::time::{Instant, Duration};
 
 use probe_rs::flashing::{
     Format,
@@ -137,6 +138,8 @@ pub fn init(sender: &mut Sender<DebugResponse>,
         session: session,
         breakpoints: vec!(),
         file_path: file_path,
+        check_time: Instant::now(),
+        running: true,
     };
 
     debug.run(sender, reciver, request)
@@ -150,6 +153,8 @@ struct DebugServer<'a, R: Reader<Offset = usize>> {
     capstone:   capstone::Capstone,
     breakpoints: Vec<u32>,
     file_path:  PathBuf,
+    check_time: Instant, 
+    running: bool,
 }
 
 impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
@@ -158,14 +163,49 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                sender: &mut Sender<DebugResponse>,
                reciver: &mut Receiver<DebugRequest>,
                mut request: DebugRequest
-               ) -> Result<DebugRequest> {
+               ) -> Result<DebugRequest>
+    {
+        match self.handle_request(request)? {
+            Command::Request(req) => return Ok(req),
+            Command::Response(res) => sender.send(res)?,
+        };
+
         loop {
-            match self.handle_request(request)? {
-                Command::Request(req) => return Ok(req),
-                Command::Response(res) => sender.send(res)?,
+            match reciver.try_recv() {
+                Ok(request) => {
+                    match self.handle_request(request)? {
+                        Command::Request(req) => return Ok(req),
+                        Command::Response(res) => sender.send(res)?,
+                    };
+                },
+                Err(err) => {
+                    match err {
+                        TryRecvError::Empty => self.check_halted()?,
+                        TryRecvError::Disconnected => return Err(anyhow!("{:?}", err)),
+                    };
+                },
             };
-            request = reciver.recv()?;
         }
+    }
+
+
+    fn check_halted(&mut self) -> Result<()> {
+        let delta = Duration::from_millis(400);
+        if self.running && self.check_time.elapsed() > delta {
+            let mut core = self.session.core(0)?;
+            let status = core.status()?;
+
+            if status.is_halted() {
+                self.running = false;
+
+                let pc = core.read_core_reg(core.registers().program_counter())?;
+                println!("Core halted at address {:#010x}", pc);
+            }
+
+            self.check_time = Instant::now();
+        }
+
+        Ok(())
     }
 
 
@@ -409,6 +449,8 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             };
         }
 
+        self.running = true;
+
         Ok(Command::Response(DebugResponse::Reset {
             message: None,
         }))
@@ -448,6 +490,8 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                 },
             };
         }
+
+        self.running = true;
 
         Ok(Command::Response(DebugResponse::Flash {
             message: None,
@@ -534,7 +578,8 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
    
         if status.is_halted() {
             let _cpu_info = continue_fix(&mut core, &self.breakpoints)?;
-            core.run()?;    
+            core.run()?;
+            self.running = true;
         }
     
         info!("Core status: {:?}", core.status()?);
