@@ -70,6 +70,7 @@ pub fn start_server(port: u16) -> Result<(), anyhow::Error>
 
     loop {
         let (socket, addr) = listener.accept()?;
+        socket.set_nonblocking(true)?;
         info!("Accepted connection from {}", addr);
 
         let reader = BufReader::new(socket.try_clone()?);
@@ -120,7 +121,21 @@ pub struct Session<R: Read, W: Write> {
 impl<R: Read, W: Write> Session<R, W> {
     fn start_session(mut reader: BufReader<R>, mut writer: W) -> Result<()>
     {
-        let req = verify_init_msg(read_dap_msg(&mut reader)?)?;
+        let msg = {
+            let mut res = None;
+            loop {
+                match read_dap_msg(&mut reader) {
+                    Ok(val) => {
+                        res  = Some(val);
+                        break;
+                    },
+                    Err(_) => continue,
+                };
+            }
+            res.unwrap()
+        };
+
+        let req = verify_init_msg(msg)?;
     
         let capabilities = Capabilities {
             supports_configuration_done_request:    Some(true), // Supports config after init request
@@ -173,16 +188,23 @@ impl<R: Read, W: Write> Session<R, W> {
         session.run() 
     }
 
+
     fn run(&mut self) -> Result<()>
     {
         loop {
-            let msg = read_dap_msg(&mut self.reader)?;
+            let msg = match read_dap_msg(&mut self.reader) {
+                Ok(val) => val,
+                Err(err) => {
+                    if self.status {
+                        self.check_bkpt()?;
+                    }
+
+                    continue;
+                },
+            };
             trace!("< {:?}", msg);
             if self.handle_message(msg)? {
                 return Ok(());
-            }
-            if self.status {
-                self.check_bkpt()?;
             }
         }
     }
