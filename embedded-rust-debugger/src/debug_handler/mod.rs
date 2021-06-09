@@ -259,6 +259,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             DebugRequest::Status    => self.status_command(),
             DebugRequest::Continue  => self.continue_command(),
             DebugRequest::Step      => self.step_command(),
+            DebugRequest::SetBreakpoints { source_file, source_breakpoints } => self.set_breakpoints_command(source_file, source_breakpoints),
 
             _ => Ok(Command::Request(request)),
         }
@@ -446,8 +447,11 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     fn stack_trace_command(&mut self) -> Result<Command>
     { 
         let mut core = self.session.core(0)?;
-        println!("result: {:#?}", self.debugger.get_current_stacktrace(&mut core)?);
-        Ok(Command::Response(DebugResponse::StackTrace))
+        let stack_trace = self.debugger.get_current_stacktrace(&mut core)?;
+        println!("result: {:#?}", stack_trace);
+        Ok(Command::Response(DebugResponse::StackTrace {
+            stack_trace: stack_trace,
+        }))
     }
 
 
@@ -625,6 +629,62 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         info!("Core status: {:?}", core.status()?);
     
         Ok(Command::Response(DebugResponse::Continue))
+    }
+
+
+    fn set_breakpoints_command(&mut self,
+                               source_file: String,
+                               source_breakpoints: Vec<SourceBreakpoint>
+                               ) -> Result<Command>
+    {
+        // Clear all existing breakpoints
+        let mut core = self.session.core(0)?;
+        for (addr, bkpt) in self.breakpoints.iter() {
+            core.clear_hw_breakpoint(*addr)?;
+        }
+        self.breakpoints = HashMap::new();
+
+        let mut breakpoints= vec!();
+        for bkpt in source_breakpoints {
+            let breakpoint = match self.debugger.find_location(&source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
+                Some(address) => {
+                    let breakpoint = Breakpoint {
+                        id: Some(address as i64),
+                        verified: true,
+                        message: None,
+                        source: None,
+                        line: Some(bkpt.line),
+                        column: bkpt.column,
+                        end_line: None,
+                        end_column: None,
+                    };
+
+                    // Set breakpoint
+                    self.breakpoints.insert(address as u32, breakpoint.clone());
+                    core.set_hw_breakpoint(address as u32)?;
+
+                    breakpoint
+                },
+                None => {
+                    Breakpoint {
+                        id: None,
+                        verified: false,
+                        message: None,
+                        source: None,
+                        line: Some(bkpt.line),
+                        column: bkpt.column,
+                        end_line: None,
+                        end_column: None,
+                    }
+                },
+            };
+
+            breakpoints.push(breakpoint);
+        }
+
+        Ok(Command::Response(DebugResponse::SetBreakpoints {
+            breakpoints: breakpoints,
+        }))
     }
 }
 

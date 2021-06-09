@@ -242,33 +242,33 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             "stackTrace"                => self.handle_stack_trace_dap_request(&request),
             "disconnect"                => self.handle_disconnect_dap_request(&request),
             "continue"                  => self.handle_continue_dap_request(&request),
-            //"scopes"                    => self.scopes_command_request(&req),
-            //"source"                    => unimplemented!(), // TODO
-            //"variables"                 => self.variables_command_request(&req),
+            "scopes"                    => self.handle_scopes_dap_request(&request),
+            "source"                    => unimplemented!(), // TODO
+            "variables"                 => self.handle_variables_dap_request(&request),
             "next"                      => self.handle_next_dap_request(&request),
             "stepOut"                   => unimplemented!(), // TODO
             _ => panic!("command: {}", request.command),
         };
     
-        //match result {
-        //    Ok(v)       => return Ok(v),
-        //    Err(err)    => {
-        //        warn!("{}", err.to_string());
-        //        let response = Response {
-        //            body:           None,
-        //            command:        request.command.clone(),
-        //            message:        Some(err.to_string()),
-        //            request_seq:    request.seq,
-        //            seq:            request.seq,
-        //            success:        false,
-        //            type_:          "response".to_string(),
-        //        };
-        //        
-        //        self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?; 
+        match result {
+            Ok(v)       => return Ok(v),
+            Err(err)    => {
+                warn!("{}", err.to_string());
+                let response = Response {
+                    body:           None,
+                    command:        request.command.clone(),
+                    message:        Some(err.to_string()),
+                    request_seq:    request.seq,
+                    seq:            self.seq,
+                    success:        false,
+                    type_:          "response".to_string(),
+                };
+                
+                self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?; 
 
-        //        return Ok(false);
-        //    },
-        //};
+                return Ok(false);
+            },
+        };
 
         Ok(false)
     }
@@ -407,9 +407,49 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
 
     fn handle_stack_trace_dap_request(&mut self, request: &Request) -> Result<bool> {
-        let mut stack_frames = vec!();
+        // Get stack trace
+        self.sender.send(DebugRequest::StackTrace)?;
+        let stack_frames = match self.receiver.recv()? {
+            Command::Response(DebugResponse::StackTrace { stack_trace }) => {
+                let mut stack_frames = vec!();
+                for s in stack_trace {
 
-        // TODO: Get stack frames
+                    // Create Source object
+                    let source = debugserver_types::Source {
+                        name: s.source.file.clone(),
+                        path: match &s.source.directory { // TODO: Make path os independent?
+                            Some(dir) => match &s.source.file {
+                                Some(file) => Some(format!("{}/{}", dir, file)),
+                                None => None,
+                            },
+                            None => None,
+                        },
+                        source_reference: None,
+                        presentation_hint: None,
+                        origin: None,
+                        sources: None,
+                        adapter_data: None,
+                        checksums: None,
+                    };
+
+                    // Crate and add StackFrame object
+                    stack_frames.push(debugserver_types::StackFrame {
+                        id: s.call_frame.id as i64,
+                        name: s.name,
+                        source: Some(source),
+                        line: s.source.line.unwrap() as i64,
+                        column: match s.source.column {Some(v) => v as i64, None => 0,},
+                        end_column: None,
+                        end_line: None,
+                        module_id: None,
+                        presentation_hint: Some("normal".to_owned()),
+                    });
+                }
+
+                stack_frames
+            },
+            _ => unreachable!(),
+        };
 
         let total_frames = stack_frames.len() as i64;
         let body = StackTraceResponseBody {
@@ -427,6 +467,126 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             type_:          "response".to_string(),
         };
         
+        self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
+
+        Ok(false)
+    }
+
+
+    fn handle_scopes_dap_request(&mut self, request: &Request) -> Result<bool> {
+        let args: debugserver_types::ScopesArguments = get_arguments(&request)?;
+        debug!("args: {:?}", args);
+
+        // Get stack trace
+        self.sender.send(DebugRequest::StackTrace)?;
+
+        // Parse scopes
+        let scopes = match self.receiver.recv()? {
+            Command::Response(DebugResponse::StackTrace { stack_trace }) => {
+                let mut scopes = vec!();
+
+                if let Some(s) = stack_trace.iter().find(|sf| sf.call_frame.id as i64 == args.frame_id) {
+                    let source = debugserver_types::Source { // TODO: Make path os independent?
+                        name: s.source.file.clone(),
+                        path: match &s.source.directory {
+                            Some(dir) => match &s.source.file {
+                                Some(file) => Some(format!("{}/{}", dir, file)),
+                                None => None,
+                            },
+                            None => None,
+                        },
+                        source_reference: None,
+                        presentation_hint: None,
+                        origin: None,
+                        sources: None,
+                        adapter_data: None,
+                        checksums: None,
+                    };
+                    scopes.push(debugserver_types::Scope {
+                        column: s.source.column.map(|v| v as i64),
+                        end_column: None,
+                        end_line: None,
+                        expensive: false,
+                        indexed_variables: None,
+                        line: s.source.line.map(|v| v as i64),
+                        name: s.name.clone(),
+                        named_variables: None,
+                        source: Some(source),
+                        variables_reference: s.call_frame.id as i64,
+                    });
+                }
+
+                scopes
+            },
+            _ => unreachable!(),
+        };
+
+        let body = debugserver_types::ScopesResponseBody {
+            scopes: scopes,
+        };
+
+        let response = Response {
+            body:           Some(json!(body)),
+            command:        request.command.clone(),
+            message:        None,
+            request_seq:    request.seq,
+            seq:            self.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+
+        self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
+
+        Ok(false)
+    }
+
+
+    fn handle_variables_dap_request(&mut self, request: &Request) -> Result<bool> {
+        let args: debugserver_types::VariablesArguments = get_arguments(&request)?;
+        debug!("args: {:?}", args);
+
+        // Get stack trace
+        self.sender.send(DebugRequest::StackTrace)?;
+
+        // Parse variables
+        let variables = match self.receiver.recv()? {
+            Command::Response(DebugResponse::StackTrace { stack_trace }) => {
+                let mut variables = vec!();
+
+                if let Some(s) = stack_trace.iter().find(|sf| sf.call_frame.id as i64 == args.variables_reference) {
+                    for var in &s.variables {
+                        variables.push(debugserver_types::Variable {
+                            evaluate_name: None, //Option<String>,
+                            indexed_variables: None,
+                            name: match &var.0 {Some(name) => name.clone(), None => "<unknown>".to_string(),},
+                            named_variables: None,
+                            presentation_hint: None,
+                            type_: None,
+                            value: var.1.clone(),
+                            variables_reference: 0, // i64,
+                        });
+                    }
+                }
+
+                variables
+            },
+            _ => unreachable!(),
+        };
+
+        let body = debugserver_types::VariablesResponseBody {
+            variables: variables,
+        };
+
+        let response = Response {
+            body:           Some(json!(body)),
+            command:        request.command.clone(),
+            message:        None,
+            request_seq:    request.seq,
+            seq:            self.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+
         self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
 
         Ok(false)
@@ -503,34 +663,45 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
     fn handle_set_breakpoints_dap_request(&mut self, request: &Request) -> Result<bool> {
         let args: SetBreakpointsArguments = get_arguments(request)?;
-        debug!("args: {:?}", args);
-        panic!("test");
+        debug!("args: {:#?}", args);
 
-        let breakpoints = match args.breakpoints {
+        let source_breakpoints = match args.breakpoints {
             Some(bkpts) => bkpts,
             None        => vec!(),
-        };        
+        };
 
-        //let new_breakpoints = breakpoints.clone();
-//      //  let new_breakpoints = self.update_breakpoints(breakpoints, args.source.path)?;
-       
-        //let body = SetBreakpointsResponseBody {
-        //    breakpoints: new_breakpoints,
-        //};
+        let breakpoints: Vec<Breakpoint> = match args.source.path {
+            Some(path) => {
+                self.sender.send(DebugRequest::SetBreakpoints {
+                    source_file: path,
+                    source_breakpoints: source_breakpoints,
+                })?;
 
-        //let response = Response {
-        //    body:           Some(json!(body)),
-        //    command:        request.command.clone(),
-        //    message:        None,
-        //    request_seq:    request.seq,
-        //    seq:            self.seq,
-        //    success:        true,
-        //    type_:          "response".to_string(),
-        //};
+                match self.receiver.recv()? {
+                    Command::Response(DebugResponse::SetBreakpoints { breakpoints }) => breakpoints,
+                    _ => unreachable!(),
+                }
+            },
+            None    => vec!(),
+        };
+ 
+        let body = SetBreakpointsResponseBody {
+            breakpoints: breakpoints,
+        };
 
-        //self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
+        let response = Response {
+            body:           Some(json!(body)),
+            command:        request.command.clone(),
+            message:        None,
+            request_seq:    request.seq,
+            seq:            self.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
 
-        //Ok(false)
+        self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
+
+        Ok(false)
     }
 }
 
