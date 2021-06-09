@@ -323,14 +323,46 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::SetBinary {
             path: path,
         })?;
-        let _ack = self.receiver.recv()?;
+
+        // Get DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::SetBinary) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
 
         
         // Set chip
         self.sender.send(DebugRequest::SetChip {
             chip: args.chip.clone(),
         })?;
-        let _ack = self.receiver.recv()?;
+
+        // Get DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::SetChip) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
 
 
         let response = Response {
@@ -391,8 +423,25 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
 
     fn handle_pause_dap_request(&mut self, request: &Request) -> Result<bool> {
+        // Send halt DebugRequest
         self.sender.send(DebugRequest::Halt)?;
-        let _ack = self.receiver.recv()?;
+
+        // Get halt DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::Halt { pc }) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
 
         let response = Response {
             body:           None,
@@ -412,47 +461,58 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
     fn handle_stack_trace_dap_request(&mut self, request: &Request) -> Result<bool> {
         // Get stack trace
         self.sender.send(DebugRequest::StackTrace)?;
-        let stack_frames = match self.receiver.recv()? {
-            Command::Response(DebugResponse::StackTrace { stack_trace }) => {
-                let mut stack_frames = vec!();
-                for s in stack_trace {
 
-                    // Create Source object
-                    let source = debugserver_types::Source {
-                        name: s.source.file.clone(),
-                        path: match &s.source.directory { // TODO: Make path os independent?
-                            Some(dir) => match &s.source.file {
-                                Some(file) => Some(format!("{}/{}", dir, file)),
-                                None => None,
-                            },
-                            None => None,
-                        },
-                        source_reference: None,
-                        presentation_hint: None,
-                        origin: None,
-                        sources: None,
-                        adapter_data: None,
-                        checksums: None,
-                    };
-
-                    // Crate and add StackFrame object
-                    stack_frames.push(debugserver_types::StackFrame {
-                        id: s.call_frame.id as i64,
-                        name: s.name,
-                        source: Some(source),
-                        line: s.source.line.unwrap() as i64,
-                        column: match s.source.column {Some(v) => v as i64, None => 0,},
-                        end_column: None,
-                        end_line: None,
-                        module_id: None,
-                        presentation_hint: Some("normal".to_owned()),
-                    });
-                }
-
-                stack_frames
-            },
-            _ => unreachable!(),
+        // Get stack trace DebugResponse
+        let stack_trace = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::StackTrace { stack_trace }) => {
+                        ack = Some(stack_trace);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
         };
+
+        let mut stack_frames = vec!();
+        for s in stack_trace {
+
+            // Create Source object
+            let source = debugserver_types::Source {
+                name: s.source.file.clone(),
+                path: match &s.source.directory { // TODO: Make path os independent?
+                    Some(dir) => match &s.source.file {
+                        Some(file) => Some(format!("{}/{}", dir, file)),
+                        None => None,
+                    },
+                    None => None,
+                },
+                source_reference: None,
+                presentation_hint: None,
+                origin: None,
+                sources: None,
+                adapter_data: None,
+                checksums: None,
+            };
+
+            // Crate and add StackFrame object
+            stack_frames.push(debugserver_types::StackFrame {
+                id: s.call_frame.id as i64,
+                name: s.name,
+                source: Some(source),
+                line: s.source.line.unwrap() as i64,
+                column: match s.source.column {Some(v) => v as i64, None => 0,},
+                end_column: None,
+                end_line: None,
+                module_id: None,
+                presentation_hint: Some("normal".to_owned()),
+            });
+        }
 
         let total_frames = stack_frames.len() as i64;
         let body = StackTraceResponseBody {
@@ -483,46 +543,56 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         // Get stack trace
         self.sender.send(DebugRequest::StackTrace)?;
 
-        // Parse scopes
-        let scopes = match self.receiver.recv()? {
-            Command::Response(DebugResponse::StackTrace { stack_trace }) => {
-                let mut scopes = vec!();
-
-                if let Some(s) = stack_trace.iter().find(|sf| sf.call_frame.id as i64 == args.frame_id) {
-                    let source = debugserver_types::Source { // TODO: Make path os independent?
-                        name: s.source.file.clone(),
-                        path: match &s.source.directory {
-                            Some(dir) => match &s.source.file {
-                                Some(file) => Some(format!("{}/{}", dir, file)),
-                                None => None,
-                            },
-                            None => None,
-                        },
-                        source_reference: None,
-                        presentation_hint: None,
-                        origin: None,
-                        sources: None,
-                        adapter_data: None,
-                        checksums: None,
-                    };
-                    scopes.push(debugserver_types::Scope {
-                        column: s.source.column.map(|v| v as i64),
-                        end_column: None,
-                        end_line: None,
-                        expensive: false,
-                        indexed_variables: None,
-                        line: s.source.line.map(|v| v as i64),
-                        name: s.name.clone(),
-                        named_variables: None,
-                        source: Some(source),
-                        variables_reference: s.call_frame.id as i64,
-                    });
-                }
-
-                scopes
-            },
-            _ => unreachable!(),
+        // Get stack trace DebugResponse
+        let stack_trace = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::StackTrace { stack_trace }) => {
+                        ack = Some(stack_trace);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
         };
+
+        // Parse scopes
+        let mut scopes = vec!();
+
+        if let Some(s) = stack_trace.iter().find(|sf| sf.call_frame.id as i64 == args.frame_id) {
+            let source = debugserver_types::Source { // TODO: Make path os independent?
+                name: s.source.file.clone(),
+                path: match &s.source.directory {
+                    Some(dir) => match &s.source.file {
+                        Some(file) => Some(format!("{}/{}", dir, file)),
+                        None => None,
+                    },
+                    None => None,
+                },
+                source_reference: None,
+                presentation_hint: None,
+                origin: None,
+                sources: None,
+                adapter_data: None,
+                checksums: None,
+            };
+            scopes.push(debugserver_types::Scope {
+                column: s.source.column.map(|v| v as i64),
+                end_column: None,
+                end_line: None,
+                expensive: false,
+                indexed_variables: None,
+                line: s.source.line.map(|v| v as i64),
+                name: s.name.clone(),
+                named_variables: None,
+                source: Some(source),
+                variables_reference: s.call_frame.id as i64,
+            });
+        }
 
         let body = debugserver_types::ScopesResponseBody {
             scopes: scopes,
@@ -551,30 +621,40 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         // Get stack trace
         self.sender.send(DebugRequest::StackTrace)?;
 
-        // Parse variables
-        let variables = match self.receiver.recv()? {
-            Command::Response(DebugResponse::StackTrace { stack_trace }) => {
-                let mut variables = vec!();
-
-                if let Some(s) = stack_trace.iter().find(|sf| sf.call_frame.id as i64 == args.variables_reference) {
-                    for var in &s.variables {
-                        variables.push(debugserver_types::Variable {
-                            evaluate_name: None, //Option<String>,
-                            indexed_variables: None,
-                            name: match &var.0 {Some(name) => name.clone(), None => "<unknown>".to_string(),},
-                            named_variables: None,
-                            presentation_hint: None,
-                            type_: None,
-                            value: var.1.clone(),
-                            variables_reference: 0, // i64,
-                        });
-                    }
-                }
-
-                variables
-            },
-            _ => unreachable!(),
+        // Get stack trace DebugResponse
+        let stack_trace = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::StackTrace { stack_trace }) => {
+                        ack = Some(stack_trace);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
         };
+
+        // Parse variables
+        let mut variables = vec!();
+
+        if let Some(s) = stack_trace.iter().find(|sf| sf.call_frame.id as i64 == args.variables_reference) {
+            for var in &s.variables {
+                variables.push(debugserver_types::Variable {
+                    evaluate_name: None, //Option<String>,
+                    indexed_variables: None,
+                    name: match &var.0 {Some(name) => name.clone(), None => "<unknown>".to_string(),},
+                    named_variables: None,
+                    presentation_hint: None,
+                    type_: None,
+                    value: var.1.clone(),
+                    variables_reference: 0, // i64,
+                });
+            }
+        }
 
         let body = debugserver_types::VariablesResponseBody {
             variables: variables,
@@ -597,8 +677,25 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
 
     fn handle_continue_dap_request(&mut self, request: &Request) -> Result<bool> {
+        // Send continue DebugRequest
         self.sender.send(DebugRequest::Continue);
-        let _ack = self.receiver.recv()?;
+
+        // Get Continue DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::Continue) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
 
         let body = ContinueResponseBody {
             all_threads_continued: Some(true),
@@ -625,8 +722,25 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         debug!("args: {:?}", args);
         // TODO: Stop the debuggee, if conditions are meet
 
+        // Send Exit DebugRequest
         self.sender.send(DebugRequest::Exit)?;
-        let _ack = self.receiver.recv()?;
+
+        // Get Exit DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::Exit) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
 
         let response = Response {
             body:           None,
@@ -645,8 +759,25 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
 
     fn handle_next_dap_request(&mut self, request: &Request) -> Result<bool> {
+        // Send Step DebugRequest
         self.sender.send(DebugRequest::Step);
-        let _ack = self.receiver.recv()?;
+
+        // Get Step DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::Step) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
         
         let response = Response {
             body:           None,
@@ -675,15 +806,30 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
         let breakpoints: Vec<Breakpoint> = match args.source.path {
             Some(path) => {
+                // Send SetBreakpoints DebugRequest
                 self.sender.send(DebugRequest::SetBreakpoints {
                     source_file: path,
                     source_breakpoints: source_breakpoints,
                 })?;
 
-                match self.receiver.recv()? {
-                    Command::Response(DebugResponse::SetBreakpoints { breakpoints }) => breakpoints,
-                    _ => unreachable!(),
-                }
+                // Get SetBreakpoints DebugResponse
+                let breakpoints = {
+                    let mut ack = None;
+                    loop {
+                        let command = self.receiver.recv()?;
+                        match command {
+                            Command::Response(DebugResponse::SetBreakpoints { breakpoints }) => {
+                                ack = Some(breakpoints);
+                                break;
+                            },
+                            Command::Event(event) => self.handle_event_command(event)?,
+                            _ => unreachable!(),
+                        };
+                    }
+                    ack.unwrap()
+                };
+
+                breakpoints
             },
             None    => vec!(),
         };
