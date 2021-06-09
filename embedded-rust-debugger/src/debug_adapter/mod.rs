@@ -6,8 +6,11 @@ use std::net::{
 };
 
 
-use std::sync::mpsc::{Sender, Receiver};
-use std::sync::mpsc;
+use crossbeam_channel::{ 
+    unbounded,
+    Sender,
+    Receiver,
+};
 use std::{thread, time};
 
 
@@ -101,8 +104,8 @@ pub fn start_tcp_server(port: u16) -> Result<()> {
 
 fn start_debugger_and_adapter<R: Read, W: Write>(reader: BufReader<R>, writer: W) -> Result<()> {
 
-    let (debugger_sender, debug_adapter_receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel();
-    let (debug_adapter_sender, debugger_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = mpsc::channel();
+    let (debugger_sender, debug_adapter_receiver): (Sender<Command>, Receiver<Command>) = unbounded();
+    let (debug_adapter_sender, debugger_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = unbounded();
 
     let debugger_th = thread::spawn(move || {
         let mut debugger = DebugHandler::new(None);

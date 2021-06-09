@@ -3,8 +3,12 @@ mod debug_handler;
 mod debug_adapter;
 mod debugger;
 
-use std::sync::mpsc::{Sender, Receiver};
-use std::sync::mpsc;
+use crossbeam_channel::{ 
+    unbounded,
+    Sender,
+    Receiver,
+};
+
 use std::{thread, time};
 
 use rustyline::Editor;
@@ -125,9 +129,9 @@ fn main() -> Result<()> {
 
 
 fn debug_mode(opt: Opt) -> Result<()> {
-    let (sender_to_cli, cli_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
-    let (sender_to_control_center, control_center_receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel();
-    let (sender_to_debugger, debug_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = mpsc::channel();
+    let (sender_to_cli, cli_receiver): (Sender<bool>, Receiver<bool>) = unbounded();
+    let (sender_to_control_center, control_center_receiver): (Sender<Command>, Receiver<Command>) = unbounded();
+    let (sender_to_debugger, debug_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = unbounded();
 
     let debug_sender = sender_to_control_center.clone();
 

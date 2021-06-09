@@ -18,7 +18,12 @@ use anyhow::{
     anyhow,
 };
 
-use std::sync::mpsc::{Sender, Receiver, TryRecvError};
+use crossbeam_channel::{ 
+    unbounded,
+    Sender,
+    Receiver,
+    TryRecvError,
+};
 
 use capstone::arch::BuildsCapstone;
 

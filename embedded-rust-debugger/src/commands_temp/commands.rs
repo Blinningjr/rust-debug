@@ -152,24 +152,26 @@ impl Commands {
                     name: "reset",
                     description: "Reset or reset and halt the core",
                     parser: |args| {
+                        let mut reset_and_halt = false;
                         if args.len() > 0 {
-                            let reset_and_halt = parse_bool(args[0])?;
-                            return Ok(DebugRequest::Reset {
-                                reset_and_halt: reset_and_halt
-                            });
+                            reset_and_halt = parse_bool(args[0])?;
                         }
-                        Err(anyhow!("Requires a boolean as a argument"))
+
+                        Ok(DebugRequest::Reset {
+                            reset_and_halt: reset_and_halt
+                        })
                     },
                 },
                 CommandInfo {
                     name: "flash",
                     description: "Flash target with binary file",
                     parser: |args| {
+                        let mut reset_and_halt = false;
                         if args.len() > 0 {
-                            let reset_and_halt = parse_bool(args[0])?;
-                            return Ok(DebugRequest::Flash { reset_and_halt: reset_and_halt });
+                            reset_and_halt = parse_bool(args[0])?;
                         }
-                        Err(anyhow!("Requires a bool as a argument"))
+
+                        Ok(DebugRequest::Flash { reset_and_halt: reset_and_halt })
                     },
                 },
                 CommandInfo {
