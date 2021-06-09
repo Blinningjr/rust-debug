@@ -1,5 +1,6 @@
 mod commands_temp;
 mod debug_handler;
+mod debug_adapter;
 mod debugger;
 mod newdebugger;
 mod debugger_cli;
@@ -125,7 +126,7 @@ fn main() -> Result<()> {
     
     match opt.mode {
         Mode::Debug => new_debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
-        Mode::DebugAdapter => server::start_server(opt.port),
+        Mode::DebugAdapter => debug_adapter::start_tcp_server(opt.port),//server::start_server(opt.port),
     }
 }
 
@@ -138,7 +139,7 @@ fn new_debug_mode(opt: Opt) -> Result<()> {
     let debug_sender = sender_to_control_center.clone();
 
     let debugger_th = thread::spawn(move || {
-        let mut debugger = debug_handler::DebugHandler::new(opt);
+        let mut debugger = debug_handler::DebugHandler::new(Some(opt));
         debugger.run(debug_sender, debug_receiver).unwrap();
     });
 

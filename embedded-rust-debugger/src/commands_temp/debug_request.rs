@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use debugserver_types::SourceBreakpoint;
 
 #[derive(Debug, Clone)]
 pub enum DebugRequest {
@@ -18,9 +19,11 @@ pub enum DebugRequest {
     Variable { name: String },
     Registers,
     SetBreakpoint { address: u32, source_file: Option<String>},
+    SetBreakpoints { source_file: String, source_breakpoints: Vec<SourceBreakpoint> },
     ClearBreakpoint { address: u32 },
     ClearAllBreakpoints,
     Code,
     Stack,
 }
+
 

@@ -1,6 +1,5 @@
 mod config;
 
-
 use config::Config;
 
 use super::commands_temp::{
@@ -40,6 +39,7 @@ use probe_rs::{
     MemoryInterface,
     CoreInformation,
     CoreStatus,
+    HaltReason,
 };
 
 use log::{
@@ -56,12 +56,21 @@ use probe_rs::flashing::{
 };
 
 
+use debugserver_types::{
+    Breakpoint,
+    SourceBreakpoint,
+};
+
+use std::collections::HashMap;
+
+
+
 pub struct DebugHandler {
     config: Config,
 }
 
 impl DebugHandler {
-    pub fn new(opt: Opt) -> DebugHandler {
+    pub fn new(opt: Option<Opt>) -> DebugHandler {
         DebugHandler {
             config: Config::new(opt),
         }
@@ -139,7 +148,7 @@ pub fn init(sender: &mut Sender<Command>,
         capstone: cs,
         debugger: debugger,
         session: session,
-        breakpoints: vec!(),
+        breakpoints: HashMap::new(),
         file_path: file_path,
         check_time: Instant::now(),
         running: true,
@@ -154,7 +163,7 @@ struct DebugServer<'a, R: Reader<Offset = usize>> {
     debugger:   Debugger<'a, R>,
     session:    probe_rs::Session,
     capstone:   capstone::Capstone,
-    breakpoints: Vec<u32>,
+    breakpoints: HashMap<u32, Breakpoint>,
     file_path:  PathBuf,
     check_time: Instant, 
     running: bool,
@@ -214,7 +223,17 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             let pc = core.read_core_reg(core.registers().program_counter())?;
             println!("Core halted at address {:#010x}", pc);
 
-            sender.send(Command::Event(DebugEvent::Halted{ pc: pc, reason: reason }))?; 
+            let mut hit_breakpoint_ids = vec!();
+            match self.breakpoints.get(&pc) {
+                Some(bkpt) => hit_breakpoint_ids.push(bkpt.id.unwrap() as u32),
+                None => (),
+            };
+        
+            sender.send(Command::Event(DebugEvent::Halted{
+                pc: pc,
+                reason: reason,
+                hit_breakpoint_ids: Some(hit_breakpoint_ids)
+            }))?; 
         }
 
         Ok(())
@@ -314,10 +333,10 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     fn clear_all_breakpoints_command(&mut self) -> Result<Command>
     {
         let mut core = self.session.core(0)?;
-        for bkpt in &self.debugger.breakpoints {
-            core.clear_hw_breakpoint(*bkpt)?;
+        for (addr, bkpt) in self.breakpoints.iter() {
+            core.clear_hw_breakpoint(*addr)?;
         }
-        self.debugger.breakpoints = vec!();
+        self.breakpoints = HashMap::new();
     
         info!("All breakpoints cleard");
         println!("All breakpoints cleared");
@@ -331,19 +350,16 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                                 ) -> Result<Command>
     {
         let mut core = self.session.core(0)?;
-    
-        for i in 0..self.debugger.breakpoints.len() {
-            if address == self.debugger.breakpoints[i] {
-                core.clear_hw_breakpoint(address)?;
-                self.debugger.breakpoints.remove(i);
-    
+
+        match self.breakpoints.remove(&address) {
+            Some(bkpt) => {
+                core.clear_hw_breakpoint(address)?; 
                 info!("Breakpoint cleared from: 0x{:08x}", address);
                 println!("Breakpoint cleared from: 0x{:08x}", address);
-                break;
-            }
-        }
-    
-    
+            },
+            None => (),
+        };
+
         Ok(Command::Response(DebugResponse::ClearBreakpoint))
     }
 
@@ -356,12 +372,23 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             None => address,
         };
 
-        let num_bkpt = self.debugger.breakpoints.len() as u32;
+        let num_bkpt = self.breakpoints.len() as u32;
         let tot_bkpt = core.get_available_breakpoint_units()?;
 
         if num_bkpt < tot_bkpt {
             core.set_hw_breakpoint(address)?;
-            self.debugger.breakpoints.push(address);
+
+            let breakpoint = Breakpoint {
+                id: Some(address as i64),
+                verified: true,
+                message: None,
+                source: None,   // TODO
+                line: None,     // TODO
+                column: None,   // TODO
+                end_line: None,
+                end_column: None,
+            };
+            let _bkpt = self.breakpoints.insert(address, breakpoint);
     
             info!("Breakpoint set at: 0x{:08x}", address);
             println!("Breakpoint set at: 0x{:08x}", address);
@@ -570,16 +597,17 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let status = core.status()?;
     
         if status.is_halted() {
-            let cpu_info = continue_fix(&mut core, &self.breakpoints)?;
-            info!("Stept to pc = 0x{:08x}", cpu_info.pc);
+            let pc = continue_fix(&mut core, &self.breakpoints)?;
+            self.running = true;
+            info!("Stept to pc = 0x{:08x}", pc);
     
-            println!("Core stopped at address 0x{:08x}", cpu_info.pc);
+            println!("Core stopped at address 0x{:08x}", pc);
 
-            return Ok(Command::Response(DebugResponse::Step { pc: Some(cpu_info.pc) }));
+            return Ok(Command::Response(DebugResponse::Step));
         }
         
         
-        Ok(Command::Response(DebugResponse::Step { pc: None }))
+        Ok(Command::Response(DebugResponse::Step))// TODO: Send Error
     }
 
 
@@ -589,7 +617,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let status = core.status()?;
    
         if status.is_halted() {
-            let _cpu_info = continue_fix(&mut core, &self.breakpoints)?;
+            let _pc = continue_fix(&mut core, &self.breakpoints)?;
             core.run()?;
             self.running = true;
         }
@@ -601,7 +629,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 }
 
 
-fn continue_fix(core: &mut probe_rs::Core, breakpoints: &Vec<u32>) -> Result<CoreInformation, probe_rs::Error>
+fn continue_fix(core: &mut probe_rs::Core, breakpoints: &HashMap<u32, Breakpoint>) -> Result<u32, probe_rs::Error>
 {
     match core.status()? {
         probe_rs::CoreStatus::Halted(r)  => {
@@ -617,20 +645,17 @@ fn continue_fix(core: &mut probe_rs::Core, breakpoints: &Vec<u32>) -> Result<Cor
                         let step_pc = pc_val + 0x2; // TODO: Fix for other CPU types.        
                         core.write_core_reg(pc.into(), step_pc)?;
 
-                        return core.step();
+                        return Ok(step_pc);
                     } else {
-                        for bkpt in breakpoints {
-                            if pc_val == *bkpt {
+                        match breakpoints.get(&pc_val) {
+                            Some(bkpt) => {
                                 core.clear_hw_breakpoint(pc_val)?;
-
-                                let res = core.step();
-
+                                let pc = core.step()?.pc;
                                 core.set_hw_breakpoint(pc_val)?;
-
-                                return res;
-                            }
-                        }
-                        return core.step();
+                                return Ok(pc);
+                            },
+                            None => (),
+                        };
                     }
                 },
                 _ => (),
@@ -639,6 +664,6 @@ fn continue_fix(core: &mut probe_rs::Core, breakpoints: &Vec<u32>) -> Result<Cor
         _ => (),
     };
 
-    core.step()
+    Ok(core.step()?.pc)
 }
 

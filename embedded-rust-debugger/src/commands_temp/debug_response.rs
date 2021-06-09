@@ -3,7 +3,7 @@ pub enum DebugResponse {
     Status,
     Exit,
     Continue,
-    Step { pc: Option<u32> },
+    Step,
     Halt { pc: u32 },
     SetBinary,
     Flash { message: Option<String> },

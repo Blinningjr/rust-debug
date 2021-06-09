@@ -7,9 +7,13 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(opt: super::Opt) -> Config {
+    pub fn new(opt: Option<super::Opt>) -> Config {
+        let binary = match opt {
+            Some(val) => val.file_path,
+            None => None,
+        };
         Config {
-            binary: opt.file_path,
+            binary: binary,
             chip: Some("STM32F411RETx".to_owned()), // TODO:
             probe_num: 0,
         }

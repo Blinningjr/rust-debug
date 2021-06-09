@@ -93,12 +93,12 @@ pub struct BreakpointInfo {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct StoppedEventBody {
-    pub all_threads_stopped: Option<bool>,
-    pub description: Option<String>,
-    pub preserve_focus_hint: Option<bool>,
     pub reason: String,
-    pub text: Option<String>,
+    pub description: Option<String>,
     pub thread_id: Option<i64>,
+    pub preserve_focus_hint: Option<bool>,
+    pub text: Option<String>,
+    pub all_threads_stopped: Option<bool>,
     pub hit_breakpoint_ids: Option<Vec<u32>>,
 }
 
