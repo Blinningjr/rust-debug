@@ -118,13 +118,13 @@ fn main() -> Result<()> {
     let _ = TermLogger::init(log_level, cfg, TerminalMode::Mixed);
     
     match opt.mode {
-        Mode::Debug => new_debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
+        Mode::Debug => debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
         Mode::DebugAdapter => debug_adapter::start_tcp_server(opt.port),//server::start_server(opt.port),
     }
 }
 
 
-fn new_debug_mode(opt: Opt) -> Result<()> {
+fn debug_mode(opt: Opt) -> Result<()> {
     let (sender_to_cli, cli_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
     let (sender_to_control_center, control_center_receiver): (Sender<Command>, Receiver<Command>) = mpsc::channel();
     let (sender_to_debugger, debug_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = mpsc::channel();

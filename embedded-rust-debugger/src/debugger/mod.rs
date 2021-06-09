@@ -1,9 +1,5 @@
 pub mod utils;
-pub mod print_dwarf;
 pub mod evaluate;
-pub mod types;
-//pub mod type_value;
-pub mod attributes;
 pub mod stacktrace;
 
 
@@ -11,7 +7,6 @@ use utils::{
     die_in_range,
     in_range,
 };
-use crate::debugger::types::DebuggerType;
 
 
 use evaluate::value::{
@@ -492,34 +487,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }
         }
         return false;
-    }
-
-
-    fn get_var_type(&mut self,
-                      unit:     &Unit<R>,
-                      pc:       u32,
-                    die: &DebuggingInformationEntry<R>
-                    ) -> Option<DebuggerType>
-    {
-        if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
-            return match self.parse_type_attr(unit, pc, tattr) {
-                Ok(t) => Some(t),
-                Err(_) => None,
-            };
-        } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-            match die_offset {
-                UnitRef(offset) => {
-                    if let Ok(ndie) = unit.entry(offset) {
-                        return self.get_var_type(unit, pc, &ndie);
-                    }
-                },
-                _ => {
-                    println!("{:?}", die_offset);
-                    unimplemented!();
-                },
-            };
-        }
-        return None;
     }
 
 
