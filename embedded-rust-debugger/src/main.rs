@@ -2,11 +2,6 @@ mod commands_temp;
 mod debug_handler;
 mod debug_adapter;
 mod debugger;
-mod newdebugger;
-mod debugger_cli;
-mod commands;
-mod server;
-mod request_command_handlers;
 
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::mpsc;
@@ -64,8 +59,6 @@ use std::rc::Rc;
 
 use std::path::PathBuf;
 use structopt::StructOpt;
-
-use debugger_cli::DebuggerCli;
 
 use anyhow::{Context, Result};
 
@@ -240,75 +233,6 @@ fn control_center(debug_sender: Sender<DebugRequest>,
 }
 
 
-fn debug_mode(file_path: PathBuf) -> Result<()>
-{
-    let (cli_sender, debugger_receiver): (Sender<String>, Receiver<String>) = mpsc::channel();
-    let (debugger_sender, cli_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
-    let (debug_check_sender, status_check_receiver): (Sender<bool>, Receiver<bool>) = mpsc::channel();
-    let status_check_sender = cli_sender.clone();
-
-    let debugger_th = thread::spawn(move || {
-            let mut session = attach_probe("STM32F411RETx", 0).unwrap();
-
-            let _pc = flash_target(&mut session, &file_path).unwrap();
-
-            let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path).unwrap();
-
-            let debugger = Debugger::new(&owned_dwarf, &owned_debug_frame);
-
-            let mut ndbug = newdebugger::NewDebugger::new(debugger, session).unwrap();
-
-            ndbug.run(debugger_sender, debugger_receiver, debug_check_sender).unwrap();
-        });
-
-    let status_check_th = thread::spawn(move || {
-            loop {
-                let timeout = time::Duration::from_millis(200);
-                let now = time::Instant::now();
-                
-                thread::sleep(timeout);
-
-                status_check_sender.send("__checkhitbreakpoint__".to_string()).unwrap();
-
-                if status_check_receiver.recv().unwrap() {
-                    return ();
-                } 
-            }
-        });
-
-    let mut rl = Editor::<()>::new();
-    
-    loop {
-        let readline = rl.readline(">> ");
-        match readline {
-            Ok(line) => {
-                let history_entry: &str = line.as_ref();
-                rl.add_history_entry(history_entry);
-        
-                cli_sender.send(line)?;
-                let exit_cli = cli_receiver.recv()?;
-                
-                if exit_cli {
-                    debugger_th.join().expect("oops! the child thread panicked");
-                    return Ok(());
-                }
-            }
-            Err(e) => {
-                use rustyline::error::ReadlineError;
-    
-                match e {
-                    // For end of file and ctrl-c, we just quit
-                    ReadlineError::Eof | ReadlineError::Interrupted => return Ok(()),
-                    actual_error => {
-                        // Show error message and quit
-                        println!("Error handling input: {:?}", actual_error);
-                        return Ok(());
-                    }
-                }
-            }
-        }
-    }
-}
 
 
 fn attach_probe(chip: &str, probe_num: usize) -> Result<Session>
