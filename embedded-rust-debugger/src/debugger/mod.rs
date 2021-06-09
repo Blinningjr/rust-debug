@@ -293,16 +293,18 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                         let header = lp.header();
                         match header.file(v) {
                             Some(file_entry)    => {
-                                let directory = match file_entry.directory(header) {
+                                let (file, directory) = match file_entry.directory(header) {
                                     Some(dir_av) => {
-                                        let dir_raw = self.dwarf.attr_string(&unit, dir_av)?;
-                                        Some(dir_raw.to_string()?.to_string()) 
+                                        let dir_raw = self.dwarf.attr_string(&unit, dir_av)?.to_string()?.to_string();
+                                        let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string();
+                                        let file = file_raw.trim_start_matches(&dir_raw).to_string();
+
+                                        (file, Some(dir_raw)) 
                                     },
-                                    None => None,
+                                    None => (self.dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string(), None),
                                 };
 
-                                let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
-                                (Some(file_raw.to_string()?.to_string()), directory)
+                                (Some(file), directory)
                             },
                             None        => (None, None),
                         }
