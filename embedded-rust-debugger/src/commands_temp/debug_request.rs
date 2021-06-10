@@ -4,6 +4,7 @@ use debugserver_types::SourceBreakpoint;
 
 #[derive(Debug, Clone)]
 pub enum DebugRequest {
+    Attach { reset: bool, reset_and_halt: bool },
     Status,
     Exit,
     Continue,

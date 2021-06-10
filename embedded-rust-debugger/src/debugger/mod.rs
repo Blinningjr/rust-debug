@@ -342,7 +342,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
         let mut depth = 0;
         let mut res = None; 
-        let mut die = None;
+        let mut dies = vec!();
 
         assert!(cursor.next_dfs().unwrap().is_some());
         while let Some((delta_depth, current)) = cursor.next_dfs()? {
@@ -360,14 +360,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             Some(val) => {
                                 if val > depth {
                                     res = Some(depth);
-                                    die = Some(current.clone());
+                                    dies = vec!(current.clone());
                                 } else if val == depth {
-                                    panic!("multiple");
+                                    dies.push(current.clone());
                                 }
                             },
                             None => {
                                 res = Some(depth);
-                                die = Some(current.clone());
+                                dies.push(current.clone());
                             },
                         };
                     }
@@ -376,14 +376,14 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             }; 
         }
 
-        match die {
-            Some(d) => {
-                return Ok((unit.header.offset(), d.offset()));
-            },
-            None => {
-                return Err(anyhow!("Could not find function for address {}", address));
-            },
-        };
+        use crate::debugger::evaluate::attributes::name_attribute;
+        for d in &dies {
+            println!("die name: {:?}", name_attribute(self.dwarf, d));
+        }
+        if dies.len() != 1 {
+            panic!("panic here");
+        }
+        return Ok((unit.header.offset(), dies[0].offset()));
     }
 
 

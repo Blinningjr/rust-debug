@@ -109,7 +109,11 @@ fn start_debugger_and_adapter<R: Read, W: Write>(reader: BufReader<R>, writer: W
 
     let debugger_th = thread::spawn(move || {
         let mut debugger = DebugHandler::new(None);
-        debugger.run(debugger_sender, debugger_receiver).unwrap();
+        match debugger.run(debugger_sender, debugger_receiver) {
+            Ok(_) => (),
+            Err(err) => warn!("DebugThread stoped because of error: {:?}", err),
+        };
+        info!("DebugThread stoped");
     });
 
 
@@ -117,7 +121,11 @@ fn start_debugger_and_adapter<R: Read, W: Write>(reader: BufReader<R>, writer: W
                                    writer,
                                    debug_adapter_sender,
                                    debug_adapter_receiver);
-    da.run()?;
+    match da.run() {
+        Ok(_) => (),
+        Err(err) => warn!("DebugAdapterThread stoped because of error: {:?}", err),
+    };
+    info!("DebugAdapterThread stoped");
     debugger_th.join().expect("oops! the child thread panicked");
 
     Ok(())
@@ -256,7 +264,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         match result {
             Ok(v)       => return Ok(v),
             Err(err)    => {
-                warn!("{}", err.to_string());
+                warn!("Error when handeling DAP message: {}", err.to_string());
                 let response = Response {
                     body:           None,
                     command:        request.command.clone(),
@@ -354,6 +362,30 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
                 let command = self.receiver.recv()?;
                 match command {
                     Command::Response(DebugResponse::SetChip) => {
+                        ack = Some(command);
+                        break;
+                    },
+                    Command::Event(event) => self.handle_event_command(event)?,
+                    _ => unreachable!(),
+                };
+            }
+            ack.unwrap()
+        };
+
+
+        // Attach to chip
+        self.sender.send(DebugRequest::Attach {
+            reset: match args.reset { Some(val) => val, None => false,},
+            reset_and_halt: match args.halt_after_reset { Some(val) => val, None => false,},
+        })?;
+
+        // Get Attach DebugResponse
+        let _ack = {
+            let mut ack = None;
+            loop {
+                let command = self.receiver.recv()?;
+                match command {
+                    Command::Response(DebugResponse::Attach) => {
                         ack = Some(command);
                         break;
                     },
@@ -851,6 +883,29 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
 
         Ok(false)
+    }
+
+
+    fn retrieve_response(&mut self, expected: DebugResponse) -> Result<DebugResponse> {
+        // Get DebugResponse
+        let mut ack = None;
+        loop {
+            let command = self.receiver.recv()?;
+            match command {
+                Command::Response(response) => {
+                    if matches!(&response, expected) {
+                        ack = Some(response);
+                        break;
+                    } else if let DebugResponse::Error { message, request } = response {
+                        return Err(anyhow!("{}", message));
+                    }
+                    unreachable!();
+                },
+                Command::Event(event) => self.handle_event_command(event)?,
+                _ => unreachable!(),
+            };
+        }
+        Ok(ack.unwrap())
     }
 }
 

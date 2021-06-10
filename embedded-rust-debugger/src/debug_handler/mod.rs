@@ -89,7 +89,13 @@ impl DebugHandler {
     {
         loop {
             let request = reciver.recv()?;
-            let (exit, response) = self.handle_request(&mut sender, &mut reciver, request)?;
+            let (exit, response) = match self.handle_request(&mut sender, &mut reciver, request) {
+                Ok(val) => val,
+                Err(err) => {
+                    sender.send(Command::Response(DebugResponse::Error { message: format!("{:?}", err), request: None}))?;
+                    continue;
+                },
+            };
             sender.send(Command::Response(response))?;
 
             if exit {
@@ -120,13 +126,21 @@ impl DebugHandler {
                 Ok((false, DebugResponse::SetChip))
             },
             _ => {
+                if self.config.is_missing_config() {
+                    return Ok((false, DebugResponse::Error {
+                        message: self.config.missing_config_message(),
+                        request: Some(request),
+                    }));
+                }
+
                 let new_request = init(sender,
                                        reciver,
                                        self.config.binary.clone().unwrap(),
                                        self.config.probe_num,
                                        self.config.chip.clone().unwrap(),
                                        request)?;
-                self.handle_request(sender, reciver, new_request) },
+                self.handle_request(sender, reciver, new_request)
+            },
         }
     }
 }
@@ -192,7 +206,15 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             match reciver.try_recv() {
                 Ok(request) => {
                     match self.handle_request(request)? {
-                        Command::Request(req) => return Ok(req),
+                        Command::Request(req) => {
+                            let mut core = self.session.core(0)?;
+                            for (addr, _bkpt) in self.breakpoints.iter() {
+                                core.clear_hw_breakpoint(*addr)?;
+                            }
+                            self.breakpoints = HashMap::new();
+
+                            return Ok(req);
+                        },
                         Command::Response(res) => sender.send(Command::Response(res))?,
                         _ => unimplemented!(),
                     };
@@ -200,7 +222,14 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                 Err(err) => {
                     match err {
                         TryRecvError::Empty => self.check_halted(sender)?,
-                        TryRecvError::Disconnected => return Err(anyhow!("{:?}", err)),
+                        TryRecvError::Disconnected => {
+                            let mut core = self.session.core(0)?;
+                            for (addr, _bkpt) in self.breakpoints.iter() {
+                                core.clear_hw_breakpoint(*addr)?;
+                            }
+                            self.breakpoints = HashMap::new();
+                            return Err(anyhow!("{:?}", err));
+                        },
                     };
                 },
             };
@@ -250,6 +279,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                       ) -> Result<Command>
     {
         match request {
+            DebugRequest::Attach { reset, reset_and_halt } => self.attach_command(reset, reset_and_halt),
             DebugRequest::Stack => self.stack_command(),
             DebugRequest::Code => self.code_command(),
             DebugRequest::ClearBreakpoint { address } => self.clear_breakpoint_command(address),
@@ -270,6 +300,18 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         }
     }
 
+    fn attach_command(&mut self, reset: bool, reset_and_halt: bool) -> Result<Command>
+    {
+        if reset_and_halt {
+            let mut core = self.session.core(0)?;
+            core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?; 
+        } else if reset {
+            let mut core = self.session.core(0)?;
+            core.reset().context("Failed to reset the core")?;
+        }
+
+        Ok(Command::Response(DebugResponse::Attach))
+    }
 
     fn stack_command(&mut self) -> Result<Command>
     { 

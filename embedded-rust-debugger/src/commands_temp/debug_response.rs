@@ -1,9 +1,11 @@
 use debugserver_types::Breakpoint;
+use super::debug_request::DebugRequest;
 use super::super::debugger::stacktrace::StackFrame;
 
 
 #[derive(Debug, Clone)]
 pub enum DebugResponse {
+    Attach,
     Status,
     Exit,
     Continue,
@@ -24,5 +26,6 @@ pub enum DebugResponse {
     ClearAllBreakpoints,
     Code,
     Stack,
+    Error { message: String, request: Option<DebugRequest> },
 }
 
