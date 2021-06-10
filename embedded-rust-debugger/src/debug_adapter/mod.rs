@@ -333,21 +333,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         })?;
 
         // Get DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::SetBinary) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::SetBinary)?;
 
         
         // Set chip
@@ -356,21 +342,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         })?;
 
         // Get DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::SetChip) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::SetChip)?;
 
 
         // Attach to chip
@@ -380,21 +352,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         })?;
 
         // Get Attach DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::Attach) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::Attach)?;
 
 
         let response = Response {
@@ -459,21 +417,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::Halt)?;
 
         // Get halt DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::Halt { pc }) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::Halt { pc: 0 })?;
 
         let response = Response {
             body:           None,
@@ -495,20 +439,10 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::StackTrace)?;
 
         // Get stack trace DebugResponse
-        let stack_trace = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::StackTrace { stack_trace }) => {
-                        ack = Some(stack_trace);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
+        let ack = self.retrieve_response(DebugResponse::StackTrace { stack_trace: vec!() })?;
+        let stack_trace = match ack {
+            DebugResponse::StackTrace { stack_trace } => stack_trace,
+            _ => unreachable!(),
         };
 
         let mut stack_frames = vec!();
@@ -576,20 +510,10 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::StackTrace)?;
 
         // Get stack trace DebugResponse
-        let stack_trace = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::StackTrace { stack_trace }) => {
-                        ack = Some(stack_trace);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
+        let ack = self.retrieve_response(DebugResponse::StackTrace { stack_trace: vec!() })?;
+        let stack_trace = match ack {
+            DebugResponse::StackTrace { stack_trace } => stack_trace,
+            _ => unreachable!(),
         };
 
         // Parse scopes
@@ -654,20 +578,10 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::StackTrace)?;
 
         // Get stack trace DebugResponse
-        let stack_trace = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::StackTrace { stack_trace }) => {
-                        ack = Some(stack_trace);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
+        let ack = self.retrieve_response(DebugResponse::StackTrace { stack_trace: vec!() })?;
+        let stack_trace = match ack {
+            DebugResponse::StackTrace { stack_trace } => stack_trace,
+            _ => unreachable!(),
         };
 
         // Parse variables
@@ -713,21 +627,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::Continue);
 
         // Get Continue DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::Continue) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::Continue)?;
 
         let body = ContinueResponseBody {
             all_threads_continued: Some(true),
@@ -758,21 +658,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::Exit)?;
 
         // Get Exit DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::Exit) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::Exit)?;
 
         let response = Response {
             body:           None,
@@ -795,21 +681,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         self.sender.send(DebugRequest::Step);
 
         // Get Step DebugResponse
-        let _ack = {
-            let mut ack = None;
-            loop {
-                let command = self.receiver.recv()?;
-                match command {
-                    Command::Response(DebugResponse::Step) => {
-                        ack = Some(command);
-                        break;
-                    },
-                    Command::Event(event) => self.handle_event_command(event)?,
-                    _ => unreachable!(),
-                };
-            }
-            ack.unwrap()
-        };
+        let _ack = self.retrieve_response(DebugResponse::Step)?;
         
         let response = Response {
             body:           None,
@@ -845,22 +717,11 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
                 })?;
 
                 // Get SetBreakpoints DebugResponse
-                let breakpoints = {
-                    let mut ack = None;
-                    loop {
-                        let command = self.receiver.recv()?;
-                        match command {
-                            Command::Response(DebugResponse::SetBreakpoints { breakpoints }) => {
-                                ack = Some(breakpoints);
-                                break;
-                            },
-                            Command::Event(event) => self.handle_event_command(event)?,
-                            _ => unreachable!(),
-                        };
-                    }
-                    ack.unwrap()
+                let ack = self.retrieve_response(DebugResponse::SetBreakpoints { breakpoints: vec!() })?;
+                let breakpoints = match ack {
+                    DebugResponse::SetBreakpoints { breakpoints } => breakpoints,
+                    _ => unreachable!(),
                 };
-
                 breakpoints
             },
             None    => vec!(),
