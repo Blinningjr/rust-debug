@@ -25,6 +25,7 @@ pub enum DebugRequest {
     ClearAllBreakpoints,
     Code,
     Stack,
+    SetCWD { cwd: String },
 }
 
 

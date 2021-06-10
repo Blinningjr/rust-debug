@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 pub struct Config {
-    pub binary:        Option<PathBuf>,
+    pub binary:     Option<PathBuf>,
     pub chip:       Option<String>,
+    pub cwd:        Option<String>,
     pub probe_num:  usize,
 }
 
@@ -15,12 +16,13 @@ impl Config {
         Config {
             binary: binary,
             chip: Some("STM32F411RETx".to_owned()), // TODO:
+            cwd: None,
             probe_num: 0,
         }
     }
 
     pub fn is_missing_config(&self) -> bool {
-        self.binary.is_none() || self.chip.is_none()
+        self.binary.is_none() || self.chip.is_none() || self.cwd.is_none()
     }
 
     pub fn missing_config_message(&self) -> String {
@@ -34,6 +36,9 @@ impl Config {
         }
         if self.chip.is_none() {
             error = format!("{}\n\t{}", error, "chip");
+        }
+        if self.cwd.is_none() {
+            error = format!("{}\n\t{}", error, "cwd");
         }
 
         error

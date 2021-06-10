@@ -345,6 +345,20 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         let _ack = self.retrieve_response()?;
 
 
+        match args.cwd {
+            Some(cwd) => {
+                // Set cwd
+                self.sender.send(DebugRequest::SetCWD {
+                    cwd: cwd,
+                })?;
+
+                // Get DebugResponse
+                let _ack = self.retrieve_response()?;
+            },
+            None => (),
+        };
+
+
         // Attach to chip
         self.sender.send(DebugRequest::Attach {
             reset: match args.reset { Some(val) => val, None => false,},

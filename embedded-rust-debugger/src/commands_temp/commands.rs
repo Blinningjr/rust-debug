@@ -25,6 +25,18 @@ impl Commands {
         Commands {
             commands: vec!(
                 CommandInfo {
+                    name: "set-work-directory",
+                    description: "Set the current work directory",
+                    parser: |args| {
+                        if args.len() > 0 {
+                            return Ok(DebugRequest::SetCWD {
+                                cwd: args[0].to_string(),
+                            });
+                        }
+                        Err(anyhow!("Requires a string as a argument"))
+                    },
+                },
+                CommandInfo {
                     name: "stack",
                     description: "Prints the current stack values",
                     parser: |_args| {

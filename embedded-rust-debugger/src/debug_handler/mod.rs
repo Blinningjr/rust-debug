@@ -125,6 +125,10 @@ impl DebugHandler {
                 self.config.chip = Some(chip);
                 Ok((false, DebugResponse::SetChip))
             },
+            DebugRequest::SetCWD { cwd } => {
+                self.config.cwd = Some(cwd);
+                Ok((false, DebugResponse::SetCWD))
+            },
             _ => {
                 if self.config.is_missing_config() {
                     return Ok((false, DebugResponse::Error {
@@ -138,6 +142,7 @@ impl DebugHandler {
                                        self.config.binary.clone().unwrap(),
                                        self.config.probe_num,
                                        self.config.chip.clone().unwrap(),
+                                       self.config.cwd.clone().unwrap(),
                                        request)?;
                 self.handle_request(sender, reciver, new_request)
             },
@@ -150,6 +155,7 @@ pub fn init(sender: &mut Sender<Command>,
             file_path: PathBuf,
             probe_number: usize,
             chip:   String,
+            cwd:    String,
             request:    DebugRequest
             ) -> Result<DebugRequest> {
     let cs = capstone::Capstone::new() // TODO: Set the capstone base on the arch of the chip.
@@ -169,6 +175,7 @@ pub fn init(sender: &mut Sender<Command>,
         session: session,
         breakpoints: HashMap::new(),
         file_path: file_path,
+        cwd:        cwd,
         check_time: Instant::now(),
         running: true,
     };
@@ -184,6 +191,7 @@ struct DebugServer<'a, R: Reader<Offset = usize>> {
     capstone:   capstone::Capstone,
     breakpoints: HashMap<u32, Breakpoint>,
     file_path:  PathBuf,
+    cwd:        String,
     check_time: Instant, 
     running: bool,
 }
@@ -416,7 +424,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         address = match source_file {
-            Some(path) => self.debugger.find_location(&path, address as u64, None)?.expect("Could not file location form  source file line number") as u32,
+            Some(path) => self.debugger.find_location(&self.cwd, &path, address as u64, None)?.expect("Could not file location form  source file line number") as u32,
             None => address,
         };
 
@@ -494,7 +502,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     fn stack_trace_command(&mut self) -> Result<Command>
     { 
         let mut core = self.session.core(0)?;
-        let stack_trace = self.debugger.get_current_stacktrace(&mut core)?;
+        let stack_trace = self.debugger.get_current_stacktrace(&mut core, &self.cwd)?;
         println!("result: {:#?}", stack_trace);
         Ok(Command::Response(DebugResponse::StackTrace {
             stack_trace: stack_trace,
@@ -680,7 +688,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
 
     fn set_breakpoints_command(&mut self,
-                               source_file: String,
+                               mut source_file: String,
                                source_breakpoints: Vec<SourceBreakpoint>
                                ) -> Result<Command>
     {
@@ -693,7 +701,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
         let mut breakpoints= vec!();
         for bkpt in source_breakpoints {
-            let breakpoint = match self.debugger.find_location(&source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
+            let breakpoint = match self.debugger.find_location(&self.cwd, &source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
                 Some(address) => {
                     let mut breakpoint = Breakpoint {
                         id: Some(address as i64),

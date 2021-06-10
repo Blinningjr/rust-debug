@@ -27,5 +27,6 @@ pub enum DebugResponse {
     Code,
     Stack,
     Error { message: String, request: Option<DebugRequest> },
+    SetCWD,
 }
 

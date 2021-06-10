@@ -60,12 +60,12 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    pub fn get_current_stacktrace(&mut self, core: &mut probe_rs::Core) -> Result<Vec<stacktrace::StackFrame>>
+    pub fn get_current_stacktrace(&mut self, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<stacktrace::StackFrame>>
     {
         let call_stacktrace = stacktrace::create_call_stacktrace(self, core)?;
         let mut stacktrace = vec!();
         for cst in &call_stacktrace {
-            stacktrace.push(self.create_stackframe(core, cst)?);
+            stacktrace.push(self.create_stackframe(core, cst, cwd)?);
         }
         Ok(stacktrace)
     }
@@ -74,6 +74,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     // Good source: DWARF section 6.2
     // TODO: Create a function that correcly gets the directory and file_name;
     pub fn find_location(&mut self,
+                         cwd: &str,
                          path: &str,
                          line: u64,
                          column: Option<u64>
@@ -99,7 +100,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                     };
                     
                     let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
-                    let file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+                    let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+
+                    if !file_path.starts_with("/") { // TODO: Find a better solution
+                        file_path = format!("{}/{}", cwd, file_path); 
+                    }
 
                     if path == &file_path {
                         let mut rows = line_program.clone().rows();
@@ -119,7 +124,10 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             };
                             
                             let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
-                            let file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+                            let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+                            if !file_path.starts_with("/") { // TODO: Find a better solution
+                                file_path = format!("{}/{}", cwd, file_path); 
+                            }
 
                             if path == &file_path {
                                 if let Some(l) = row.line() {
@@ -158,7 +166,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     pub fn create_stackframe(&mut self,
                              core:    &mut probe_rs::Core,
-                             call_frame: &stacktrace::CallFrame
+                             call_frame: &stacktrace::CallFrame,
+                             cwd: &str,
                              ) -> Result<stacktrace::StackFrame>
     {
         let (section_offset, unit_offset) = self.find_function_die(call_frame.code_location as u32)?;
@@ -184,7 +193,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         Ok(stacktrace::StackFrame{
             call_frame: call_frame.clone(),
             name: name,
-            source: self.get_die_source_reference(&unit, &die)?,
+            source: self.get_die_source_reference(&unit, &die, cwd)?,
             variables: variables,
         })
     }
@@ -283,7 +292,8 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     // TODO: Create a function that correcly gets the directory and file_name;
     pub fn get_die_source_reference(&mut self,
                                 unit:   &Unit<R>,
-                                die:    &DebuggingInformationEntry<'_, '_, R>
+                                die:    &DebuggingInformationEntry<'_, '_, R>,
+                                cwd:    &str
                                 ) -> Result<stacktrace::SourceReference>
     {
         let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
@@ -295,9 +305,13 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                             Some(file_entry)    => {
                                 let (file, directory) = match file_entry.directory(header) {
                                     Some(dir_av) => {
-                                        let dir_raw = self.dwarf.attr_string(&unit, dir_av)?.to_string()?.to_string();
+                                        let mut dir_raw = self.dwarf.attr_string(&unit, dir_av)?.to_string()?.to_string();
                                         let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string();
                                         let file = file_raw.trim_start_matches(&dir_raw).to_string();
+
+                                        if !dir_raw.starts_with("/") {
+                                            dir_raw = format!("{}/{}", cwd, dir_raw);
+                                        }
 
                                         (file, Some(dir_raw)) 
                                     },
