@@ -30,7 +30,7 @@ pub fn in_range(pc:     u32,
                 range:  &Range
                 ) -> bool
 { 
-    range.begin <= pc as u64 && range.end >= pc as u64 
+    range.begin <= pc as u64 && range.end > pc as u64 
 }
 
 

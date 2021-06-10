@@ -158,10 +158,10 @@ pub fn init(sender: &mut Sender<Command>,
         .build()
         .expect("Failed to create Capstone object");
  
-    let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path).unwrap();
+    let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path)?;
     let debugger = Debugger::new(&owned_dwarf, &owned_debug_frame);
 
-    let session = attach_probe(&chip, probe_number).unwrap();
+    let session = attach_probe(&chip, probe_number)?;
     
     let mut debug = DebugServer {
         capstone: cs,
