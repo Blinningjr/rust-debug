@@ -695,7 +695,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         for bkpt in source_breakpoints {
             let breakpoint = match self.debugger.find_location(&source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
                 Some(address) => {
-                    let breakpoint = Breakpoint {
+                    let mut breakpoint = Breakpoint {
                         id: Some(address as i64),
                         verified: true,
                         message: None,
@@ -707,8 +707,12 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                     };
 
                     // Set breakpoint
-                    self.breakpoints.insert(address as u32, breakpoint.clone());
-                    core.set_hw_breakpoint(address as u32)?;
+                    if self.breakpoints.len() < core.get_available_breakpoint_units()? as usize {
+                        self.breakpoints.insert(address as u32, breakpoint.clone());
+                        core.set_hw_breakpoint(address as u32)?;
+                    } else {
+                        breakpoint.verified = false;
+                    }
 
                     breakpoint
                 },

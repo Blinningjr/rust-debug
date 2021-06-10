@@ -22,6 +22,8 @@ use anyhow::{
     Result,
 };
 
+use log::trace;
+
 use probe_rs::MemoryInterface;
 
 
@@ -123,7 +125,10 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
 
         let code_location = match self.code_location {
             Some(val)   => val,
-            None        => return Ok(None),
+            None        => {
+                trace!("Stoped unwinding stack because: Reached end of stack");
+                return Ok(None);
+            },
         };
 
         let unwind_info = match self.debugger.debug_frame.unwind_info_for_address(
@@ -133,7 +138,10 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
             gimli::DebugFrame::cie_from_offset,
         ) {
             Ok(val) => val,
-            Err(_)  => return Ok(None),
+            Err(err)  => {
+                trace!("Stoped unwinding stack because: {:?}", err);
+                return Ok(None);
+            },
         };
 
         let cfa = self.eval_cfa(&unwind_info)?;
