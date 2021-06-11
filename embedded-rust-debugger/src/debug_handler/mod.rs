@@ -2,7 +2,7 @@ mod config;
 
 use config::Config;
 
-use super::commands_temp::{
+use super::commands::{
     debug_request::DebugRequest,
     debug_response::DebugResponse,
     debug_event::DebugEvent,

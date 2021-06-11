@@ -69,7 +69,7 @@ use super::{
     debug_handler::{
         DebugHandler,
     },
-    commands_temp::{
+    commands::{
         Command,
         debug_response::DebugResponse,
         debug_request::DebugRequest,

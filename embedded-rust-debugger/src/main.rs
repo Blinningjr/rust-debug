@@ -1,4 +1,4 @@
-mod commands_temp;
+mod commands;
 mod debug_handler;
 mod debug_adapter;
 mod debugger;
@@ -14,9 +14,10 @@ use std::{thread, time};
 use rustyline::Editor;
 
 
-use commands_temp::{
+use commands::{
     debug_request::DebugRequest,
     debug_response::DebugResponse,
+    commands::Commands,
     Command,
 };
 
@@ -158,7 +159,7 @@ fn command_reader(sender: Sender<Command>,
                   ) -> Result <()>
 {
     let mut rl = Editor::<()>::new(); 
-    let cmd_parser = commands_temp::commands::Commands::new();
+    let cmd_parser = Commands::new();
 
     loop {
         let readline = rl.readline(">> ");
