@@ -215,8 +215,8 @@ impl Cli {
             DebugResponse::SetBreakpoints { breakpoints } => self.handle_set_breakpoints_response(breakpoints),
             DebugResponse::ClearBreakpoint => self.handle_clear_breakpoint_response(),
             DebugResponse::ClearAllBreakpoints => self.handle_clear_all_breakpoints_response(),
-            DebugResponse::Code => self.handle_code_response(),
-            DebugResponse::Stack => self.handle_stack_response(),
+            DebugResponse::Code { pc, instructions } => self.handle_code_response(pc, instructions),
+            DebugResponse::Stack { stack_pointer, stack } => self.handle_stack_response(stack_pointer, stack),
             DebugResponse::Error { message, request } => self.handle_error_response(message),
             DebugResponse::SetCWD => self.handle_set_cwd_response(),
             _ => (),
@@ -278,11 +278,26 @@ impl Cli {
     }
 
 
-    fn handle_read_response(&self, address: u32, value: Vec<u8>) {
-        println!("address: {}", address);
-        for val in value {
-            print!(" {:02x}", val);
+    fn handle_read_response(&self, address: u32, value: Vec<u8>) { // TODO
+        let mut value_string = "".to_owned();
+
+        let address_string = format!("0x{:08x}:", address);
+        let mut spacer = "".to_string();
+        for _ in 0..address_string.len() {
+            spacer.push(' ');
         }
+
+        let mut i = 0;
+        for val in value { // TODO: print in right order.
+            if i == 4 {
+                value_string = format!("{}\n\t{} {:02x}", value_string, spacer, val);
+                i = 0;
+            } else {
+                value_string = format!("{} {:02x}", value_string, val);
+            }
+            i += 1;
+        }
+        println!("\t{}{}", address_string, value_string);
     }
 
 
@@ -354,17 +369,17 @@ impl Cli {
 
 
     fn handle_set_breakpoint_response(&self) {
-        unimplemented!();
+        println!("Breakpoint set");
     }
 
 
     fn handle_set_breakpoints_response(&self, breakpoints: Vec<Breakpoint>) {
-        unimplemented!();
+        unreachable!();
     }
 
 
     fn handle_clear_breakpoint_response(&self) {
-        unimplemented!();
+        println!("Breakpoint cleared");
     }
 
 
@@ -373,13 +388,23 @@ impl Cli {
     }
 
 
-    fn handle_code_response(&self) {
-        unimplemented!();
+    fn handle_code_response(&self, pc: u32, instructions: Vec<(u32, String)>) {
+        println!("Assembly Code");
+        for (address, asm) in instructions {
+            let mut spacer = "  ";
+            if address == pc {
+                spacer = "> ";
+            }
+            println!("{}{}", spacer, asm);
+        }
     }
 
 
-    fn handle_stack_response(&self) {
-        unimplemented!();
+    fn handle_stack_response(&self, stack_pointer: u32, stack: Vec<u32>) {
+        println!("Current stack value:");
+        for i in 0..stack.len() {
+            println!("\t{:#010x}: {:#010x}", stack_pointer as usize + i*4, stack[i]);
+        }
     }
 
 

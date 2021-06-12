@@ -25,8 +25,8 @@ pub enum DebugResponse {
     SetBreakpoints { breakpoints: Vec<Breakpoint> },
     ClearBreakpoint,
     ClearAllBreakpoints,
-    Code,
-    Stack,
+    Code { pc: u32, instructions: Vec<(u32, String)> },
+    Stack { stack_pointer: u32, stack: Vec<u32> },
     Error { message: String, request: Option<DebugRequest> },
     SetCWD,
 }

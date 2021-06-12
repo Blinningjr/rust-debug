@@ -215,10 +215,9 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                 Ok(request) => {
                     match self.handle_request(request)? {
                         Command::Request(req) => {
+                            
                             let mut core = self.session.core(0)?;
-                            for (addr, _bkpt) in self.breakpoints.iter() {
-                                core.clear_hw_breakpoint(*addr)?;
-                            }
+                            core.clear_all_hw_breakpoints()?;
                             self.breakpoints = HashMap::new();
 
                             return Ok(req);
@@ -231,11 +230,11 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                     match err {
                         TryRecvError::Empty => self.check_halted(sender)?,
                         TryRecvError::Disconnected => {
+
                             let mut core = self.session.core(0)?;
-                            for (addr, _bkpt) in self.breakpoints.iter() {
-                                core.clear_hw_breakpoint(*addr)?;
-                            }
+                            core.clear_all_hw_breakpoints()?;
                             self.breakpoints = HashMap::new();
+
                             return Err(anyhow!("{:?}", err));
                         },
                     };
@@ -263,7 +262,6 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             self.running = false;
 
             let pc = core.read_core_reg(core.registers().program_counter())?;
-//            println!("Core halted at address {:#010x}", pc);
 
             let mut hit_breakpoint_ids = vec!();
             match self.breakpoints.get(&pc) {
@@ -290,6 +288,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             DebugRequest::Attach { reset, reset_and_halt } => self.attach_command(reset, reset_and_halt),
             DebugRequest::Stack => self.stack_command(),
             DebugRequest::Code => self.code_command(),
+            DebugRequest::ClearAllBreakpoints => self.clear_all_breakpoints_command(),
             DebugRequest::ClearBreakpoint { address } => self.clear_breakpoint_command(address),
             DebugRequest::SetBreakpoint { address, source_file } => self.set_breakpoint_command(address, source_file),
             DebugRequest::Registers => self.registers_command(),
@@ -325,31 +324,34 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     { 
         let mut core = self.session.core(0)?;
         let status = core.status()?;
+
         if status.is_halted() {
             let sp_reg: u16 = probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0;
-    
+ 
             let sf = core.read_core_reg(7)?; // reg 7 seams to be the base stack address.
             let sp = core.read_core_reg(sp_reg)?;
-    //        println!("sf: {:?}, sp: {:?}", sf, sp);
+
             if sf < sp {
                 // The previous stack pointer is less then current.
                 // This happens when there is no stack.
-                println!("Stack is empty");
-                return Ok(Command::Response(DebugResponse::Code));
+                return Ok(Command::Response(DebugResponse::Stack {
+                    stack_pointer: sp,
+                    stack: vec!(),
+                }));
             }
+
             let length = (((sf - sp) + 4 - 1)/4) as usize;
             let mut stack = vec![0u32; length];
             core.read_32(sp, &mut stack);
         
-            println!("Current stack value:");
-            for i in 0..stack.len() {
-                println!("\t{:#010x}: {:#010x}", sp as usize + i*4, stack[i]);
-            }
+            return Ok(Command::Response(DebugResponse::Stack {
+                stack_pointer: sp,
+                stack: stack,
+            }));
         } else {
-            println!("Core must be halted, status: {:?}", status);
+            return Err(anyhow!("Core must be halted"));
         }
-    
-        Ok(Command::Response(DebugResponse::Stack))
+ 
     }
 
 
@@ -369,33 +371,29 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             let insns = self.capstone.disasm_all(&code, pc_val as u64)
                 .expect("Failed to disassemble");
 
+            let mut instructions = vec!();
             for i in insns.iter() {
-                let mut spacer = "  ";
-                if i.address() == pc_val as u64 {
-                    spacer = "> ";
-                }
-                println!("{}{}", spacer, i);
+                instructions.push((i.address() as u32, i.to_string()));
             }
 
+            return Ok(Command::Response(DebugResponse::Code {
+                pc: pc_val, 
+                instructions: instructions,
+            }));
         } else {
             warn!("Core is not halted, status: {:?}", status);
-            println!("Core is not halted, status: {:?}", status);
+            return Err(anyhow!("Core must be halted"));
         }
-
-        Ok(Command::Response(DebugResponse::Code))
     }
 
 
     fn clear_all_breakpoints_command(&mut self) -> Result<Command>
     {
         let mut core = self.session.core(0)?;
-        for (addr, bkpt) in self.breakpoints.iter() {
-            core.clear_hw_breakpoint(*addr)?;
-        }
+        core.clear_all_hw_breakpoints()?;
         self.breakpoints = HashMap::new();
     
-        info!("All breakpoints cleard");
-        println!("All breakpoints cleared");
+        info!("All breakpoints cleared");
     
         Ok(Command::Response(DebugResponse::ClearAllBreakpoints))
     }
@@ -411,12 +409,13 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             Some(bkpt) => {
                 core.clear_hw_breakpoint(address)?; 
                 info!("Breakpoint cleared from: 0x{:08x}", address);
-                println!("Breakpoint cleared from: 0x{:08x}", address);
+                Ok(Command::Response(DebugResponse::ClearBreakpoint))
             },
-            None => (),
-        };
-
-        Ok(Command::Response(DebugResponse::ClearBreakpoint))
+            None => {
+                core.clear_hw_breakpoint(address)?; 
+                Err(anyhow!("Can't remove hardware breakpoint at {}", address))
+            },
+        }
     }
 
 
@@ -447,12 +446,11 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             let _bkpt = self.breakpoints.insert(address, breakpoint);
     
             info!("Breakpoint set at: 0x{:08x}", address);
-            println!("Breakpoint set at: 0x{:08x}", address);
+            return Ok(Command::Response(DebugResponse::SetBreakpoint));
+
         } else {
-            println!("All hw breakpoints are already set");
-        }
- 
-        Ok(Command::Response(DebugResponse::SetBreakpoint))
+            return Err(anyhow!("All hardware breakpoints are already set"));
+        } 
     }
 
 
@@ -466,7 +464,6 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             let value = core.read_core_reg(register)?;
    
             registers.push((format!("{}", register.name()), value));
-//            println!("{}:\t{:#010x}", register.name(), value)
         }
     
         Ok(Command::Response(DebugResponse::Registers {
@@ -509,7 +506,6 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     { 
         let mut core = self.session.core(0)?;
         let stack_trace = self.debugger.get_current_stacktrace(&mut core, &self.cwd)?;
-        //println!("result: {:#?}", stack_trace);
         Ok(Command::Response(DebugResponse::StackTrace {
             stack_trace: stack_trace,
         }))
@@ -610,31 +606,11 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     
         let message = if status.is_halted() {
             warn!("Core is already halted, status: {:?}", status);
-            //println!("Core is already halted, status: {:?}", status);
-            //core.read_core_reg(core.registers().program_counter())?;
             Some("Core is already halted".to_owned())
 
         } else {
             let cpu_info = core.halt(Duration::from_millis(100))?;
             info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
-    
-            //let mut code = [0u8; 16 * 2];
-    
-            //core.read_8(cpu_info.pc, &mut code)?;
-    
-    
-            //let insns = self.capstone.disasm_all(&code, cpu_info.pc as u64)
-            //    .expect("Failed to disassemble");
-            //
-            //for i in insns.iter() {
-            //    let mut spacer = "  ";
-            //    if i.address() == cpu_info.pc as u64 {
-            //        spacer = "> ";
-            //    }
-            //    println!("{}{}", spacer, i);
-            //}
-        
-            //cpu_info.pc
             None
         };
         
@@ -669,9 +645,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         if status.is_halted() {
             let pc = continue_fix(&mut core, &self.breakpoints)?;
             self.running = true;
-            //info!("Stept to pc = 0x{:08x}", pc);
-    
-            //println!("Core stopped at address 0x{:08x}", pc);
+            info!("Stopped at pc = 0x{:08x}", pc);
 
             return Ok(Command::Response(DebugResponse::Step));
         }
@@ -708,9 +682,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         // Clear all existing breakpoints
         let mut core = self.session.core(0)?;
-        for (addr, bkpt) in self.breakpoints.iter() {
-            core.clear_hw_breakpoint(*addr)?;
-        }
+        core.clear_all_hw_breakpoints()?;
         self.breakpoints = HashMap::new();
 
         let mut breakpoints= vec!();
