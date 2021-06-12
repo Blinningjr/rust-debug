@@ -4,31 +4,8 @@ mod debug_handler;
 mod cli;
 mod debug_adapter;
 
-use crossbeam_channel::{ 
-    unbounded,
-    Sender,
-    Receiver,
-};
-
-use std::{thread, time};
-
-use rustyline::Editor;
-
-
-use commands::{
-    debug_request::DebugRequest,
-    debug_response::DebugResponse,
-    commands::Commands,
-    Command,
-};
-
-use debugserver_types::{
-    Response,
-    Request, 
-};
 
 use debugger::{
-    Debugger,
     utils::{
         in_ranges
     },
@@ -41,12 +18,6 @@ use probe_rs::{
     Probe,
     Session,
 };
-
-use probe_rs::flashing::{
-    Format,
-    download_file,
-};
-
 
 use object::{Object, ObjectSection};
 
@@ -144,19 +115,6 @@ fn attach_probe(chip: &str, probe_num: usize) -> Result<Session>
     let session = probe.attach_under_reset(chip).context("Failed to attach probe to target")?; // TODO: User should choose.
  
     Ok(session)
-}
-
-
-fn flash_target(session: &mut Session,
-                file_path: &PathBuf
-                ) -> Result<u32>
-{
-    download_file(session, file_path, Format::Elf).context("Failed to flash target")?;
-
-    let mut core = session.core(0)?;
-    let pc = core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?.pc;
- 
-    Ok(pc)
 }
 
 

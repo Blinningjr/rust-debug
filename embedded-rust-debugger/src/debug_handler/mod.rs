@@ -19,7 +19,6 @@ use anyhow::{
 };
 
 use crossbeam_channel::{ 
-    unbounded,
     Sender,
     Receiver,
     TryRecvError,
@@ -42,14 +41,11 @@ use gimli::Reader;
 
 use probe_rs::{
     MemoryInterface,
-    CoreInformation,
     CoreStatus,
-    HaltReason,
 };
 
 use log::{
     info,
-    debug,
     warn,
 };
 
@@ -201,7 +197,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     pub fn run(&mut self,
                sender: &mut Sender<Command>,
                reciver: &mut Receiver<DebugRequest>,
-               mut request: DebugRequest
+               request: DebugRequest
                ) -> Result<DebugRequest>
     {
         match self.handle_request(request)? {
@@ -342,7 +338,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
             let length = (((sf - sp) + 4 - 1)/4) as usize;
             let mut stack = vec![0u32; length];
-            core.read_32(sp, &mut stack);
+            core.read_32(sp, &mut stack)?;
         
             return Ok(Command::Response(DebugResponse::Stack {
                 stack_pointer: sp,
@@ -406,7 +402,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let mut core = self.session.core(0)?;
 
         match self.breakpoints.remove(&address) {
-            Some(bkpt) => {
+            Some(_bkpt) => {
                 core.clear_hw_breakpoint(address)?; 
                 info!("Breakpoint cleared from: 0x{:08x}", address);
                 Ok(Command::Response(DebugResponse::ClearBreakpoint))
@@ -676,7 +672,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
 
     fn set_breakpoints_command(&mut self,
-                               mut source_file: String,
+                               source_file: String,
                                source_breakpoints: Vec<SourceBreakpoint>
                                ) -> Result<Command>
     {
@@ -753,7 +749,7 @@ fn continue_fix(core: &mut probe_rs::Core, breakpoints: &HashMap<u32, Breakpoint
                         return Ok(step_pc);
                     } else {
                         match breakpoints.get(&pc_val) {
-                            Some(bkpt) => {
+                            Some(_bkpt) => {
                                 core.clear_hw_breakpoint(pc_val)?;
                                 let pc = core.step()?.pc;
                                 core.set_hw_breakpoint(pc_val)?;

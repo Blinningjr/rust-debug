@@ -1,31 +1,15 @@
-use std::path::PathBuf;
-
 use crossbeam_channel::{ 
     unbounded,
     Sender,
     Receiver,
 };
-use std::{thread, time};
 
+use std::thread;
 
 use anyhow::{
-    anyhow,
     Result,
 };
 
-use log::{
-    debug,
-    info,
-    trace,
-    warn,
-};
-
-use std::io::{
-    BufRead,
-    BufReader,
-    Read,
-    Write,
-};
 
 use super::{
     debug_handler::{
@@ -182,7 +166,7 @@ impl Cli {
 
     fn handle_event(&mut self, event: DebugEvent) {
         match event {
-            DebugEvent::Halted { pc, reason, hit_breakpoint_ids } => self.handle_halted_event(pc, reason),
+            DebugEvent::Halted { pc, reason, hit_breakpoint_ids: _ } => self.handle_halted_event(pc, reason),
         };
     }
     
@@ -217,9 +201,8 @@ impl Cli {
             DebugResponse::ClearAllBreakpoints => self.handle_clear_all_breakpoints_response(),
             DebugResponse::Code { pc, instructions } => self.handle_code_response(pc, instructions),
             DebugResponse::Stack { stack_pointer, stack } => self.handle_stack_response(stack_pointer, stack),
-            DebugResponse::Error { message, request } => self.handle_error_response(message),
+            DebugResponse::Error { message, request: _ } => self.handle_error_response(message),
             DebugResponse::SetCWD => self.handle_set_cwd_response(),
-            _ => (),
         };
         
         Ok(false)
@@ -373,7 +356,7 @@ impl Cli {
     }
 
 
-    fn handle_set_breakpoints_response(&self, breakpoints: Vec<Breakpoint>) {
+    fn handle_set_breakpoints_response(&self, _breakpoints: Vec<Breakpoint>) {
         unreachable!();
     }
 

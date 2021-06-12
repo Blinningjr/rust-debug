@@ -11,7 +11,7 @@ use crossbeam_channel::{
     Sender,
     Receiver,
 };
-use std::{thread, time};
+use std::thread;
 
 
 use anyhow::{
@@ -34,19 +34,15 @@ use debugserver_types::{
     Capabilities,
     InitializedEvent,
     Event,
-    SourceBreakpoint,
     Breakpoint,
     
     ThreadsResponseBody,
     Thread,
-    StoppedEvent,
     StackTraceResponseBody,
     ContinueResponseBody,
     DisconnectArguments,
     SetBreakpointsArguments,
     SetBreakpointsResponseBody,
-
-    StackFrame,
 };
 
 use std::io::{
@@ -218,7 +214,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             // Check for DAP messages
             let message = match read_dap_msg(&mut self.reader) {
                 Ok(val) => val,
-                Err(err) => continue,
+                Err(_err) => continue,
             };
 
             let exit = self.handle_dap_message(message)?;
@@ -262,7 +258,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         };
     
         match result {
-            Ok(v)       => return Ok(v),
+            Ok(v)       => Ok(v),
             Err(err)    => {
                 warn!("Error when handeling DAP message: {}", err.to_string());
                 let response = Response {
@@ -277,18 +273,16 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
                 
                 self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?; 
 
-                return Ok(false);
+                Ok(false)
             },
-        };
-
-        Ok(false)
+        }
     }
 
 
     fn handle_event_command(&mut self, event: DebugEvent) -> Result<()> {
 
         match event {
-            DebugEvent::Halted { pc, reason, hit_breakpoint_ids } => {
+            DebugEvent::Halted { pc: _, reason, hit_breakpoint_ids } => {
                 let (reason_str, description) = match reason {
                     HaltReason::Breakpoint => ("breakpoint".to_owned(), Some("Target stopped due to breakpoint.".to_owned())),
                     _ => (format!("{:?}", reason), None),
@@ -313,9 +307,8 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
                                     self.seq)?;
 
             },
-            _ => unimplemented!(),
         };
-        
+ 
         Ok(())
     }
 
@@ -638,7 +631,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
     fn handle_continue_dap_request(&mut self, request: &Request) -> Result<bool> {
         // Send continue DebugRequest
-        self.sender.send(DebugRequest::Continue);
+        self.sender.send(DebugRequest::Continue)?;
 
         // Get Continue DebugResponse
         let _ack = self.retrieve_response()?;
@@ -692,7 +685,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
     fn handle_next_dap_request(&mut self, request: &Request) -> Result<bool> {
         // Send Step DebugRequest
-        self.sender.send(DebugRequest::Step);
+        self.sender.send(DebugRequest::Step)?;
 
         // Get Step DebugResponse
         let _ack = self.retrieve_response()?;
@@ -767,7 +760,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             let command = self.receiver.recv()?;
             match command {
                 Command::Response(response) => {
-                    if let DebugResponse::Error { message, request } = response {
+                    if let DebugResponse::Error { message, request: _ } = response {
                         return Err(anyhow!("{}", message));
                     }
                     return Ok(response);

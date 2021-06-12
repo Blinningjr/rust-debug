@@ -27,7 +27,7 @@ impl Commands {
                 CommandInfo {
                     name: "attach",
                     description: "Set the current work directory",
-                    parser: |args| {
+                    parser: |_args| {
                         Ok(DebugRequest::Attach {// TODO: Parse arguments
                             reset: false,
                             reset_and_halt: false,
