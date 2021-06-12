@@ -263,7 +263,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             self.running = false;
 
             let pc = core.read_core_reg(core.registers().program_counter())?;
-            println!("Core halted at address {:#010x}", pc);
+//            println!("Core halted at address {:#010x}", pc);
 
             let mut hit_breakpoint_ids = vec!();
             match self.breakpoints.get(&pc) {
@@ -460,14 +460,18 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let register_file = core.registers();
-    
+   
+        let mut registers = vec!();
         for register in register_file.registers() {
             let value = core.read_core_reg(register)?;
-    
-            println!("{}:\t{:#010x}", register.name(), value)
+   
+            registers.push((format!("{}", register.name()), value));
+//            println!("{}:\t{:#010x}", register.name(), value)
         }
     
-        Ok(Command::Response(DebugResponse::Registers))
+        Ok(Command::Response(DebugResponse::Registers {
+            registers: registers,
+        }))
     }
 
 
@@ -477,25 +481,27 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
-    
-        if status.is_halted() {
-            let pc  = core.read_core_reg(core.registers().program_counter())?;
-    
-            let unit = get_current_unit(&self.debugger.dwarf, pc)?;
-            //println!("{:?}", unit.name.unwrap().to_string());
-            
-            let value = self.debugger.find_variable(&mut core, &unit, pc, name);
-            
-            match value {
-                Ok(val)     => println!("{} = {}", name, val),
-                Err(_err)   => println!("Could not find {}", name),
-            };
-        } else {
-            println!("CPU must be halted to run this command");
-            println!("Status: {:?}", &status);
-        }
-    
-        Ok(Command::Response(DebugResponse::Variable))
+   
+        let (value, message) = match status.is_halted() {
+            true => {
+                let pc  = core.read_core_reg(core.registers().program_counter())?; 
+                let unit = get_current_unit(&self.debugger.dwarf, pc)?; 
+
+                let value = self.debugger.find_variable(&mut core, &unit, pc, name);
+
+                match value {
+                    Ok(val)     => (Some(format!("{}", val)), None),
+                    Err(_err)   => (None, Some(format!("Could not find {}", name))),
+                }
+            },
+            false => (None, Some("Core must be halted".to_owned())),
+        };
+ 
+        Ok(Command::Response(DebugResponse::Variable {
+            name: name.to_string(),
+            value: value,
+            message: message,
+        }))
     }
 
 
@@ -503,7 +509,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     { 
         let mut core = self.session.core(0)?;
         let stack_trace = self.debugger.get_current_stacktrace(&mut core, &self.cwd)?;
-        println!("result: {:#?}", stack_trace);
+        //println!("result: {:#?}", stack_trace);
         Ok(Command::Response(DebugResponse::StackTrace {
             stack_trace: stack_trace,
         }))
@@ -602,35 +608,39 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
     
-        let pc = if status.is_halted() {
+        let message = if status.is_halted() {
             warn!("Core is already halted, status: {:?}", status);
-            println!("Core is already halted, status: {:?}", status);
-            core.read_core_reg(core.registers().program_counter())?
+            //println!("Core is already halted, status: {:?}", status);
+            //core.read_core_reg(core.registers().program_counter())?;
+            Some("Core is already halted".to_owned())
 
         } else {
             let cpu_info = core.halt(Duration::from_millis(100))?;
             info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
     
-            let mut code = [0u8; 16 * 2];
+            //let mut code = [0u8; 16 * 2];
     
-            core.read_8(cpu_info.pc, &mut code)?;
+            //core.read_8(cpu_info.pc, &mut code)?;
     
     
-            let insns = self.capstone.disasm_all(&code, cpu_info.pc as u64)
-                .expect("Failed to disassemble");
-            
-            for i in insns.iter() {
-                let mut spacer = "  ";
-                if i.address() == cpu_info.pc as u64 {
-                    spacer = "> ";
-                }
-                println!("{}{}", spacer, i);
-            }
+            //let insns = self.capstone.disasm_all(&code, cpu_info.pc as u64)
+            //    .expect("Failed to disassemble");
+            //
+            //for i in insns.iter() {
+            //    let mut spacer = "  ";
+            //    if i.address() == cpu_info.pc as u64 {
+            //        spacer = "> ";
+            //    }
+            //    println!("{}{}", spacer, i);
+            //}
         
-            cpu_info.pc
+            //cpu_info.pc
+            None
         };
         
-        Ok(Command::Response(DebugResponse::Halt { pc: pc }))
+        Ok(Command::Response(DebugResponse::Halt {
+            message: message,
+        }))
     }
 
 
@@ -638,15 +648,16 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
-    
-        println!("Status: {:?}", &status);
+        let mut pc = None;
     
         if status.is_halted() {
-            let pc = core.read_core_reg(core.registers().program_counter())?;
-            println!("Core halted at address {:#010x}", pc);
+            pc = Some(core.read_core_reg(core.registers().program_counter())?);
         }
     
-        Ok(Command::Response(DebugResponse::Status))
+        Ok(Command::Response(DebugResponse::Status {
+            status: status,
+            pc: pc,
+        }))
     }
 
 
@@ -658,15 +669,18 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         if status.is_halted() {
             let pc = continue_fix(&mut core, &self.breakpoints)?;
             self.running = true;
-            info!("Stept to pc = 0x{:08x}", pc);
+            //info!("Stept to pc = 0x{:08x}", pc);
     
-            println!("Core stopped at address 0x{:08x}", pc);
+            //println!("Core stopped at address 0x{:08x}", pc);
 
             return Ok(Command::Response(DebugResponse::Step));
         }
         
         
-        Ok(Command::Response(DebugResponse::Step))// TODO: Send Error
+        Ok(Command::Response(DebugResponse::Error {
+            message: "Can only step when core is halted".to_owned(),
+            request: None,
+        }))
     }
 
 
@@ -674,15 +688,15 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
-   
+
         if status.is_halted() {
             let _pc = continue_fix(&mut core, &self.breakpoints)?;
             core.run()?;
             self.running = true;
         }
-    
+
         info!("Core status: {:?}", core.status()?);
-    
+
         Ok(Command::Response(DebugResponse::Continue))
     }
 

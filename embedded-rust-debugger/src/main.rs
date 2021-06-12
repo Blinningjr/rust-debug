@@ -1,7 +1,8 @@
 mod commands;
-mod debug_handler;
-mod debug_adapter;
 mod debugger;
+mod debug_handler;
+mod cli;
+mod debug_adapter;
 
 use crossbeam_channel::{ 
     unbounded,
@@ -123,117 +124,8 @@ fn main() -> Result<()> {
     let _ = TermLogger::init(log_level, cfg, TerminalMode::Mixed);
     
     match opt.mode {
-        Mode::Debug => debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
+        Mode::Debug => cli::debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
         Mode::DebugAdapter => debug_adapter::start_tcp_server(opt.port),//server::start_server(opt.port),
-    }
-}
-
-
-fn debug_mode(opt: Opt) -> Result<()> {
-    let (sender_to_cli, cli_receiver): (Sender<bool>, Receiver<bool>) = unbounded();
-    let (sender_to_control_center, control_center_receiver): (Sender<Command>, Receiver<Command>) = unbounded();
-    let (sender_to_debugger, debug_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = unbounded();
-
-    let debug_sender = sender_to_control_center.clone();
-
-    let debugger_th = thread::spawn(move || {
-        let mut debugger = debug_handler::DebugHandler::new(Some(opt));
-        debugger.run(debug_sender, debug_receiver).unwrap();
-    });
-
-    let reader_th = thread::spawn(move || {
-        command_reader(sender_to_control_center, cli_receiver).unwrap();
-    });
-    
-
-    control_center(sender_to_debugger, control_center_receiver, sender_to_cli)?;
-    debugger_th.join().expect("oops! the child thread panicked");
-    reader_th.join().expect("oops! the child thread panicked");
-
-    Ok(())
-}
-
-
-fn command_reader(sender: Sender<Command>,
-                  receiver: Receiver<bool>
-                  ) -> Result <()>
-{
-    let mut rl = Editor::<()>::new(); 
-    let cmd_parser = Commands::new();
-
-    loop {
-        let readline = rl.readline(">> ");
-
-        match readline {
-            Ok(line) => {
-                let history_entry: &str = line.as_ref();
-                rl.add_history_entry(history_entry);
-
-                if let Some(help_string) = cmd_parser.check_if_help(history_entry) {
-                    println!("{}", help_string);
-                    continue;
-                }
-    
-                let request = match cmd_parser.parse_command(line.as_ref()) {
-                    Ok(cmd) => cmd,
-                    Err(err) => {
-                        println!("Error: {:?}", err);
-                        continue;
-                    },
-                };
-
-                sender.send(request)?;
-                let exit = receiver.recv()?;
-
-                if exit {
-                        return Ok(());
-                }
-            }
-            Err(e) => {
-                use rustyline::error::ReadlineError;
-    
-                match e {
-                    // For end of file and ctrl-c, we just quit
-                    ReadlineError::Eof | ReadlineError::Interrupted => return Ok(()),
-                    actual_error => {
-                        // Show error message and quit
-                        println!("Error handling input: {:?}", actual_error);
-                        return Ok(());
-                    }
-                }
-            }
-        }
-    }
-
-
-}
-
-
-fn control_center(debug_sender: Sender<DebugRequest>,
-                  receiver: Receiver<Command>,
-                  cli_sender: Sender<bool>
-                  ) -> Result<()>
-{
-    loop {
-        let command = receiver.recv()?;
-        match command {
-            Command::Request(req) => {
-                debug_sender.send(req)?;
-            },
-            Command::Response(res) => {
-                println!("{:?}", res);
-                match res {
-                    DebugResponse::Exit => {
-                        cli_sender.send(true)?;
-                        return Ok(());
-                    },
-                    _ => {
-                        cli_sender.send(false)?;
-                    },
-                };
-            },
-            Command::Event(event) => println!("{:?}", event),
-        };
     }
 }
 

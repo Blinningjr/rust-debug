@@ -25,6 +25,16 @@ impl Commands {
         Commands {
             commands: vec!(
                 CommandInfo {
+                    name: "attach",
+                    description: "Set the current work directory",
+                    parser: |args| {
+                        Ok(DebugRequest::Attach {// TODO: Parse arguments
+                            reset: false,
+                            reset_and_halt: false,
+                        })
+                    },
+                },
+                CommandInfo {
                     name: "set-work-directory",
                     description: "Set the current work directory",
                     parser: |args| {

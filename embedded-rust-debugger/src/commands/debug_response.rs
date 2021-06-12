@@ -1,16 +1,17 @@
 use debugserver_types::Breakpoint;
 use super::debug_request::DebugRequest;
 use super::super::debugger::stacktrace::StackFrame;
+use probe_rs::CoreStatus;
 
 
 #[derive(Debug, Clone)]
 pub enum DebugResponse {
     Attach,
-    Status,
+    Status { status: CoreStatus, pc: Option<u32>},
     Exit,
     Continue,
     Step,
-    Halt { pc: u32 },
+    Halt { message: Option<String> },
     SetBinary,
     Flash { message: Option<String> },
     Reset { message: Option<String> },
@@ -18,8 +19,8 @@ pub enum DebugResponse {
     StackTrace { stack_trace: Vec<StackFrame> },
     SetProbeNumber,
     SetChip,
-    Variable,
-    Registers,
+    Variable { name: String, value: Option<String>, message: Option<String>},
+    Registers { registers: Vec<(String, u32)> },
     SetBreakpoint,
     SetBreakpoints { breakpoints: Vec<Breakpoint> },
     ClearBreakpoint,

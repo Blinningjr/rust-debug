@@ -1,0 +1,395 @@
+use std::path::PathBuf;
+
+use crossbeam_channel::{ 
+    unbounded,
+    Sender,
+    Receiver,
+};
+use std::{thread, time};
+
+
+use anyhow::{
+    anyhow,
+    Result,
+};
+
+use log::{
+    debug,
+    info,
+    trace,
+    warn,
+};
+
+use std::io::{
+    BufRead,
+    BufReader,
+    Read,
+    Write,
+};
+
+use super::{
+    debug_handler::{
+        DebugHandler,
+    },
+    commands::{
+        Command,
+        debug_response::DebugResponse,
+        debug_request::DebugRequest,
+        debug_event::DebugEvent,
+        commands::Commands,
+    },
+};
+
+use probe_rs::{
+    CoreStatus,
+    HaltReason,
+};
+
+use rustyline::Editor;
+
+use crate::debugger::stacktrace::StackFrame;
+
+use debugserver_types::Breakpoint;
+
+
+
+pub fn debug_mode(opt: super::Opt) -> Result<()> {
+    let (sender_to_reader, reader_receiver): (Sender<bool>, Receiver<bool>) = unbounded();
+    let (sender_to_cli, cli_receiver): (Sender<Command>, Receiver<Command>) = unbounded();
+    let (sender_to_debugger, debug_receiver): (Sender<DebugRequest>, Receiver<DebugRequest>) = unbounded();
+
+    let debug_sender = sender_to_cli.clone();
+
+    let debugger_th = thread::spawn(move || {
+        let mut debugger = DebugHandler::new(Some(opt));
+        debugger.run(debug_sender, debug_receiver).unwrap();
+    });
+
+    let reader_th = thread::spawn(move || {
+        command_reader(sender_to_cli, reader_receiver).unwrap();
+    });
+    
+
+    let mut cli = Cli::new(sender_to_debugger, cli_receiver, sender_to_reader);
+    cli.run()?;
+
+    debugger_th.join().expect("oops! the child thread panicked");
+    reader_th.join().expect("oops! the child thread panicked");
+
+    Ok(())
+}
+
+
+fn command_reader(sender: Sender<Command>,
+                  receiver: Receiver<bool>
+                  ) -> Result <()>
+{
+    let mut rl = Editor::<()>::new(); 
+    let cmd_parser = Commands::new();
+
+    loop {
+        let readline = rl.readline(">> ");
+
+        match readline {
+            Ok(line) => {
+                let history_entry: &str = line.as_ref();
+                rl.add_history_entry(history_entry);
+
+                if let Some(help_string) = cmd_parser.check_if_help(history_entry) {
+                    println!("{}", help_string);
+                    continue;
+                }
+    
+                let request = match cmd_parser.parse_command(line.as_ref()) {
+                    Ok(cmd) => cmd,
+                    Err(err) => {
+                        println!("Error: {:?}", err);
+                        continue;
+                    },
+                };
+
+                sender.send(request)?;
+                let exit = receiver.recv()?;
+
+                if exit {
+                        return Ok(());
+                }
+            }
+            Err(e) => {
+                use rustyline::error::ReadlineError;
+    
+                match e {
+                    // For end of file and ctrl-c, we just quit
+                    ReadlineError::Eof | ReadlineError::Interrupted => return Ok(()),
+                    actual_error => {
+                        // Show error message and quit
+                        println!("Error handling input: {:?}", actual_error);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+struct Cli {
+    debug_sender:   Sender<DebugRequest>,
+    receiver:       Receiver<Command>,
+    cli_sender:     Sender<bool>,
+}
+
+impl Cli {
+    pub fn new(debug_sender: Sender<DebugRequest>,
+               receiver: Receiver<Command>,
+               cli_sender: Sender<bool>
+               ) -> Cli
+    {
+        Cli {
+            debug_sender: debug_sender,
+            receiver: receiver,
+            cli_sender: cli_sender,
+        }
+    }
+
+
+    pub fn run(&mut self) -> Result<()> {
+        loop {
+            let command = self.receiver.recv()?;
+            match self.handle_command(command)? {
+                Some(exit) => {
+                    self.cli_sender.send(exit)?;
+                    if exit {
+                        return Ok(());
+                    } 
+                },
+                None => (),
+            };
+        }
+    }
+
+
+    fn handle_command(&mut self, command: Command) -> Result<Option<bool>> {
+        match command {
+            Command::Request(req) => self.debug_sender.send(req)?,
+            Command::Response(res) => return Ok(Some(self.handle_response(res)?)),
+            Command::Event(event) => self.handle_event(event),
+        };
+
+        Ok(None)
+    }
+
+
+    fn handle_event(&mut self, event: DebugEvent) {
+        match event {
+            DebugEvent::Halted { pc, reason, hit_breakpoint_ids } => self.handle_halted_event(pc, reason),
+        };
+    }
+    
+
+    fn handle_halted_event(&self, pc: u32, reason: HaltReason) {
+        println!("Core halted a pc: {}, because: {:?}", pc, reason);
+    }
+
+
+    fn handle_response(&mut self, response: DebugResponse) -> Result<bool> {
+        //println!("{:?}", response);
+        match response {
+            DebugResponse::Exit => return Ok(true),
+
+            DebugResponse::Attach => self.handle_attach_response(),
+            DebugResponse::Status { status, pc } => self.handle_status_response(status, pc),
+            DebugResponse::Continue => self.handle_continue_response(),
+            DebugResponse::Step => self.handle_step_response(),
+            DebugResponse::Halt { message }=> self.handle_halt_response(message),
+            DebugResponse::SetBinary => self.handle_set_binary_response(),
+            DebugResponse::Flash { message } => self.handle_flash_response(message),
+            DebugResponse::Reset { message } => self.handle_reset_response(message),
+            DebugResponse::Read { address, value } => self.handle_read_response(address, value),
+            DebugResponse::StackTrace { stack_trace } => self.handle_stack_trace_response(stack_trace),
+            DebugResponse::SetProbeNumber => self.handle_set_probe_number_response(),
+            DebugResponse::SetChip => self.handle_set_chip_response(),
+            DebugResponse::Variable { name, value, message } => self.handle_variable_response(name, value, message),
+            DebugResponse::Registers { registers } => self.handle_registers_response(registers),
+            DebugResponse::SetBreakpoint => self.handle_set_breakpoint_response(),
+            DebugResponse::SetBreakpoints { breakpoints } => self.handle_set_breakpoints_response(breakpoints),
+            DebugResponse::ClearBreakpoint => self.handle_clear_breakpoint_response(),
+            DebugResponse::ClearAllBreakpoints => self.handle_clear_all_breakpoints_response(),
+            DebugResponse::Code => self.handle_code_response(),
+            DebugResponse::Stack => self.handle_stack_response(),
+            DebugResponse::Error { message, request } => self.handle_error_response(message),
+            DebugResponse::SetCWD => self.handle_set_cwd_response(),
+            _ => (),
+        };
+        
+        Ok(false)
+    }
+
+
+    fn handle_attach_response(&self) {
+        println!("Debugger attached successfully");
+    }
+
+
+    fn handle_status_response(&self, status: CoreStatus, pc: Option<u32>) {
+        println!("Status: {:?}", &status);
+        if status.is_halted() && pc.is_some() {
+            println!("Core halted at address {:#010x}", pc.unwrap());
+        }
+    }
+
+
+    fn handle_continue_response(&self) {
+        println!("Core is running");
+    }
+
+
+    fn handle_step_response(&self) {
+        return (); 
+    }
+
+
+    fn handle_halt_response(&self, message: Option<String>) {
+        match message {
+            Some(msg) => println!("{}", msg),
+            None => (),
+        }; 
+    }
+
+
+    fn handle_set_binary_response(&self) {
+        println!("Binary file path set "); 
+    }
+
+
+    fn handle_flash_response(&self, message: Option<String>) {
+       match message {
+            Some(msg) => println!("Flash Error: {}", msg),
+            None => println!("Flash successful"),
+       }; 
+    }
+
+
+    fn handle_reset_response(&self, message: Option<String>) {
+        match message {
+            Some(msg) => println!("Reset Error: {}", msg),
+            None => println!("Reset successful"),
+        };
+    }
+
+
+    fn handle_read_response(&self, address: u32, value: Vec<u8>) {
+        println!("address: {}", address);
+        for val in value {
+            print!(" {:02x}", val);
+        }
+    }
+
+
+    fn handle_stack_trace_response(&self, stack_trace: Vec<StackFrame>) {
+        println!("\nStack Trace:");
+        for sf in &stack_trace {
+            self.print_stack_frame(sf);
+        }
+    }
+
+    fn print_stack_frame(&self, stack_frame: &StackFrame) {
+        println!("\tName: {}", stack_frame.name);
+        println!("\tline: {:?}, column: {:?}, pc: {:?}",
+                 match stack_frame.source.line {
+                     Some(l) => l.to_string(),
+                     None => "<unknown>".to_string(),
+                 },
+                 match stack_frame.source.column {
+                     Some(l) => l.to_string(),
+                     None => "<unknown>".to_string(),
+                 },
+                 stack_frame.call_frame.code_location);
+        println!("\tfile: {}, directory: {}",
+                 match &stack_frame.source.file {
+                     Some(val) => val,
+                     None => "<unknown>",
+                 },
+                 match &stack_frame.source.file {
+                     Some(val) => val,
+                     None => "<unknown>",
+                 });
+
+        for var in &stack_frame.variables {
+            println!("\t{:?} = {:?}",
+                     var.0,
+                     var.1);
+        }
+        println!("");
+    }
+
+
+    fn handle_set_probe_number_response(&self) {
+        println!("Probe number set "); 
+    }
+
+
+    fn handle_set_chip_response(&self) {
+        println!("Chip set"); 
+    }
+
+
+    fn handle_variable_response(&self, name: String, value: Option<String>, message: Option<String>) {
+        match message {
+            Some(msg) => println!("{}", msg),
+            None => println!("{} = {}", name, match value {
+                Some(val) => val.to_string(),
+                None => "<unknown>".to_string(),
+            }),
+        };
+    }
+
+
+    fn handle_registers_response(&self, registers: Vec<(String, u32)>) {
+        println!("Registers:");
+        for (name, value) in &registers {
+            println!("\t{}: {:#010x}", name, value)
+        }
+    }
+
+
+    fn handle_set_breakpoint_response(&self) {
+        unimplemented!();
+    }
+
+
+    fn handle_set_breakpoints_response(&self, breakpoints: Vec<Breakpoint>) {
+        unimplemented!();
+    }
+
+
+    fn handle_clear_breakpoint_response(&self) {
+        unimplemented!();
+    }
+
+
+    fn handle_clear_all_breakpoints_response(&self) {
+        println!("All hardware breakpoints cleared");
+    }
+
+
+    fn handle_code_response(&self) {
+        unimplemented!();
+    }
+
+
+    fn handle_stack_response(&self) {
+        unimplemented!();
+    }
+
+
+    fn handle_error_response(&self, message: String) {
+        println!("Error: {}", message);
+    }
+
+
+    fn handle_set_cwd_response(&self) {
+        println!("Current work directory set");
+    }
+}
+
