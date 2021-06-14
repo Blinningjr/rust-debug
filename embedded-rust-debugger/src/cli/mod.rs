@@ -82,6 +82,8 @@ fn command_reader(sender: Sender<Command>,
                 if let Some(help_string) = cmd_parser.check_if_help(history_entry) {
                     println!("{}", help_string);
                     continue;
+                } else if &line == "" {
+                    continue;
                 }
     
                 let request = match cmd_parser.parse_command(line.as_ref()) {
