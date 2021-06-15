@@ -6,10 +6,7 @@
  * Dwarf source: Dwarf 5 section 6.4.1
  */
 
-
-use super::{
-    Debugger,
-};
+use gimli::DebugFrame;
 
 use gimli::{
     Reader,
@@ -56,7 +53,7 @@ pub struct CallFrame {
 }
 
 
-pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger<R>, core: &mut probe_rs::Core) -> Result<Vec<CallFrame>> {
+pub fn create_call_stacktrace<'a, R: Reader<Offset = usize>>(debug_frame: &'a DebugFrame<R>, core: &mut probe_rs::Core) -> Result<Vec<CallFrame>> {
     let pc =        core.registers().program_counter();
     let pc_val =    core.read_core_reg(pc)?;
 
@@ -65,7 +62,7 @@ pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger
         registers[i as usize] = core.read_core_reg(i).ok();
     }
 
-    let mut cfi = CallFrameIterator::new(debugger, registers, pc_val as u64)?;
+    let mut cfi = CallFrameIterator::new(debug_frame, registers, pc_val as u64)?;
     let mut stacktrace = vec!();
 
     loop {
@@ -83,8 +80,8 @@ pub fn create_call_stacktrace<R: Reader<Offset = usize>>(debugger: &mut Debugger
 }
 
 
-pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
-    debugger:       &'b mut Debugger<'a, R>,
+pub struct CallFrameIterator<'a, R: Reader<Offset = usize>> {
+    debug_frame:       &'a DebugFrame<R>,
     frame_counter:  u64,
     code_location:  Option<u64>,
     registers:      [Option<u32>; 16],
@@ -99,14 +96,14 @@ pub struct CallFrameIterator<'a, 'b, R: Reader<Offset = usize>> {
 }
 
 
-impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
-    pub fn new(debugger: &'b mut Debugger<'a, R>,
+impl<'a, R: Reader<Offset = usize>> CallFrameIterator<'a, R> {
+    pub fn new(debug_frame: &'a DebugFrame<R>,
                registers: [Option<u32>;16],
                pc:      u64,
-               ) -> Result<CallFrameIterator<'a, 'b, R>>
+               ) -> Result<CallFrameIterator<'a, R>>
     {
         Ok(CallFrameIterator {
-            debugger:       debugger,
+            debug_frame:       debug_frame,
             frame_counter:  1,
             code_location:  Some(pc),
             registers:      registers,
@@ -131,7 +128,7 @@ impl<'a, 'b, R: Reader<Offset = usize>> CallFrameIterator<'a, 'b, R> {
             },
         };
 
-        let unwind_info = match self.debugger.debug_frame.unwind_info_for_address(
+        let unwind_info = match self.debug_frame.unwind_info_for_address(
             &self.bases,
             &mut self.ctx,
             code_location,

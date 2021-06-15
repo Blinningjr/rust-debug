@@ -26,7 +26,10 @@ use crossbeam_channel::{
 
 use capstone::arch::BuildsCapstone;
 
-use super::debugger::Debugger;
+use super::debugger::{
+    Debugger,
+    find_breakpoint_location,
+};
 
 use super::{
     read_dwarf,
@@ -418,7 +421,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         address = match source_file {
-            Some(path) => self.debugger.find_location(&self.cwd, &path, address as u64, None)?.expect("Could not file location form source file line number") as u32,
+            Some(path) => find_breakpoint_location(self.debugger.dwarf, &self.cwd, &path, address as u64, None)?.expect("Could not file location form source file line number") as u32,
             None => address,
         };
 
@@ -631,7 +634,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
         let mut breakpoints= vec!();
         for bkpt in source_breakpoints {
-            let breakpoint = match self.debugger.find_location(&self.cwd, &source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
+            let breakpoint = match find_breakpoint_location(self.debugger.dwarf, &self.cwd, &source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
                 Some(address) => {
                     let mut breakpoint = Breakpoint {
                         id: Some(address as i64),

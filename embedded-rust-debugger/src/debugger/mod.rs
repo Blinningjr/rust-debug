@@ -62,7 +62,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
     pub fn get_current_stacktrace(&mut self, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<stacktrace::StackFrame>>
     {
-        let call_stacktrace = stacktrace::create_call_stacktrace(self, core)?;
+        let call_stacktrace = stacktrace::create_call_stacktrace(self.debug_frame, core)?;
         let mut stacktrace = vec!();
         for cst in &call_stacktrace {
             stacktrace.push(self.create_stackframe(core, cst, cwd)?);
@@ -71,97 +71,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    // Good source: DWARF section 6.2
-    // TODO: Create a function that correcly gets the directory and file_name;
-    pub fn find_location(&mut self,
-                         cwd: &str,
-                         path: &str,
-                         line: u64,
-                         column: Option<u64>
-                         ) -> Result<Option<u64>>
-    {
-        let mut locations = vec!();
-
-        let mut units = self.dwarf.units();
-        while let Some(unit_header) = units.next()? {
-            let unit = self.dwarf.unit(unit_header)?; 
-
-            if let Some(ref line_program) = unit.line_program {
-                let lp_header = line_program.header();
-                
-                for file_entry in lp_header.file_names() {
-
-                    let directory = match file_entry.directory(lp_header) {
-                        Some(dir_av) => {
-                            let dir_raw = self.dwarf.attr_string(&unit, dir_av)?;
-                            dir_raw.to_string()?.to_string()
-                        },
-                        None => continue,
-                    };
-                    
-                    let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
-                    let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
-
-                    if !file_path.starts_with("/") { // TODO: Find a better solution
-                        file_path = format!("{}/{}", cwd, file_path); 
-                    }
-
-                    if path == &file_path {
-                        let mut rows = line_program.clone().rows();
-                        while let Some((header, row)) = rows.next_row()? {
-
-                            let file_entry = match row.file(header) {
-                                Some(v) => v,
-                                None => continue,
-                            };
-
-                            let directory = match file_entry.directory(header) {
-                                Some(dir_av) => {
-                                    let dir_raw = self.dwarf.attr_string(&unit, dir_av)?;
-                                    dir_raw.to_string()?.to_string()
-                                },
-                                None => continue,
-                            };
-                            
-                            let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?;
-                            let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
-                            if !file_path.starts_with("/") { // TODO: Find a better solution
-                                file_path = format!("{}/{}", cwd, file_path); 
-                            }
-
-                            if path == &file_path {
-                                if let Some(l) = row.line() {
-                                    if line == l {
-                                        locations.push((row.column(), row.address()));
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                }
-            }
-        }
-
-        match locations.len() {
-            0 => return Ok(None),
-            len => {
-                let search = match column {
-                    Some(v) => gimli::ColumnType::Column(v),
-                    None    => gimli::ColumnType::LeftEdge,
-                };
-
-                let mut res = locations[0];
-                for i in 1..len {
-                    if locations[i].0 <= search && locations[i].0 > res.0 {
-                        res = locations[i];
-                    }
-                }
-
-                return Ok(Some(res.1));
-            },
-        };
-    }
 
 
     pub fn create_stackframe(&mut self,
@@ -170,7 +79,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                              cwd: &str,
                              ) -> Result<stacktrace::StackFrame>
     {
-        let (section_offset, unit_offset) = self.find_function_die(call_frame.code_location as u32)?;
+        let (section_offset, unit_offset) = find_function_die(self.dwarf, call_frame.code_location as u32)?;
         let header = self.dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
         let unit = gimli::Unit::new(&self.dwarf, header)?;
         let die = unit.entry(unit_offset)?;
@@ -350,56 +259,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         })
     }
 
-    pub fn find_function_die(&mut self, address: u32) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)> {
-        let unit = get_current_unit(&self.dwarf, address)?;
-        let mut cursor = unit.entries();
-
-        let mut depth = 0;
-        let mut res = None; 
-        let mut dies = vec!();
-
-        assert!(cursor.next_dfs().unwrap().is_some());
-        while let Some((delta_depth, current)) = cursor.next_dfs()? {
-            // Update depth value, and break out of the loop when we
-            // return to the original starting position.
-            depth += delta_depth;
-            if depth <= 0 {
-                break;
-            }
-
-            match current.tag() {
-                gimli::DW_TAG_subprogram | gimli::DW_TAG_inlined_subroutine => {
-                    if let Some(true) = die_in_range(&self.dwarf, &unit, current, address) {
-                        match res {
-                            Some(val) => {
-                                if val > depth {
-                                    res = Some(depth);
-                                    dies = vec!(current.clone());
-                                } else if val == depth {
-                                    dies.push(current.clone());
-                                }
-                            },
-                            None => {
-                                res = Some(depth);
-                                dies.push(current.clone());
-                            },
-                        };
-                    }
-                },
-                _ => (),
-            }; 
-        }
-
-        use crate::debugger::evaluate::attributes::name_attribute;
-        for d in &dies {
-            println!("die name: {:?}", name_attribute(self.dwarf, d));
-        }
-        if dies.len() != 1 {
-            panic!("panic here");
-        }
-        return Ok((unit.header.offset(), dies[0].offset()));
-    }
-
 
     pub fn find_variable(&mut self,
                          core:      &mut probe_rs::Core,
@@ -442,7 +301,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         frame_base = self.check_frame_base(core, unit, pc, &die, frame_base, &registers)?;
 
         // Check for the searched vairable.
-        if self.check_var_name(unit, pc, &die, search) {
+        if check_var_name(self.dwarf, unit, pc, &die, search) {
             match self.eval_location(core, unit, pc, &die, frame_base, &registers)? {
                 Some(val) => return Ok(Some(val)),
                 None => (),
@@ -474,36 +333,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     }
 
 
-    fn check_var_name(&mut self,
-                      unit:     &Unit<R>,
-                      pc:       u32,
-                      die:      &DebuggingInformationEntry<R>,
-                      search:   &str
-                      ) -> bool
-    {
-        if die.tag() == gimli::DW_TAG_variable ||
-            die.tag() == gimli::DW_TAG_formal_parameter ||
-                die.tag() == gimli::DW_TAG_constant { // Check that it is a variable.
-
-            if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
-                return self.dwarf.string(offset).unwrap().to_string().unwrap() == search;// Compare the name of the variable. 
-
-            } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-                match offset {
-                    UnitRef(o) => {
-                        if let Ok(ndie) = unit.entry(o) {
-                            return self.check_var_name(unit, pc, &ndie, search);
-                        }
-                    },
-                    _ => {
-                        println!("{:?}", offset);
-                        unimplemented!();
-                    },
-                };
-            }
-        }
-        return false;
-    }
 
 
     fn call_evaluate(&mut self,
@@ -572,14 +401,11 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
-                //self.print_die(&die)?;
                 let value = self.call_evaluate(core, unit, pc, expr, frame_base, unit, die, registers)?;
-                //println!("\n");
 
                 return Ok(Some(value));
             },
             Some(LocationListsRef(offset)) => {
-                //self.print_die(&die)?;
                 let mut locations = self.dwarf.locations(unit, offset)?;
                 while let Some(llent) = locations.next()? {
                     if in_range(pc, &llent.range) {
@@ -627,5 +453,184 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             return Ok(frame_base);
         }
     }
+}
+
+
+pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
+                                                        address: u32
+                                                        ) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)>
+{
+    let unit = get_current_unit(&dwarf, address)?;
+    let mut cursor = unit.entries();
+
+    let mut depth = 0;
+    let mut res = None; 
+    let mut dies = vec!();
+
+    assert!(cursor.next_dfs().unwrap().is_some());
+    while let Some((delta_depth, current)) = cursor.next_dfs()? {
+        // Update depth value, and break out of the loop when we
+        // return to the original starting position.
+        depth += delta_depth;
+        if depth <= 0 {
+            break;
+        }
+
+        match current.tag() {
+            gimli::DW_TAG_subprogram | gimli::DW_TAG_inlined_subroutine => {
+                if let Some(true) = die_in_range(&dwarf, &unit, current, address) {
+                    match res {
+                        Some(val) => {
+                            if val > depth {
+                                res = Some(depth);
+                                dies = vec!(current.clone());
+                            } else if val == depth {
+                                dies.push(current.clone());
+                            }
+                        },
+                        None => {
+                            res = Some(depth);
+                            dies.push(current.clone());
+                        },
+                    };
+                }
+            },
+            _ => (),
+        }; 
+    }
+
+    use crate::debugger::evaluate::attributes::name_attribute;
+    for d in &dies {
+        println!("die name: {:?}", name_attribute(dwarf, d));
+    }
+    if dies.len() != 1 {
+        panic!("panic here");
+    }
+    return Ok((unit.header.offset(), dies[0].offset()));
+}
+
+
+
+// Good source: DWARF section 6.2
+pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
+                     cwd: &str,
+                     path: &str,
+                     line: u64,
+                     column: Option<u64>
+                     ) -> Result<Option<u64>>
+{
+    let mut locations = vec!();
+
+    let mut units = dwarf.units();
+    while let Some(unit_header) = units.next()? {
+        let unit = dwarf.unit(unit_header)?; 
+
+        if let Some(ref line_program) = unit.line_program {
+            let lp_header = line_program.header();
+            
+            for file_entry in lp_header.file_names() {
+
+                let directory = match file_entry.directory(lp_header) {
+                    Some(dir_av) => {
+                        let dir_raw = dwarf.attr_string(&unit, dir_av)?;
+                        dir_raw.to_string()?.to_string()
+                    },
+                    None => continue,
+                };
+                
+                let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?;
+                let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+
+                if !file_path.starts_with("/") { // TODO: Find a better solution
+                    file_path = format!("{}/{}", cwd, file_path); 
+                }
+
+                if path == &file_path {
+                    let mut rows = line_program.clone().rows();
+                    while let Some((header, row)) = rows.next_row()? {
+
+                        let file_entry = match row.file(header) {
+                            Some(v) => v,
+                            None => continue,
+                        };
+
+                        let directory = match file_entry.directory(header) {
+                            Some(dir_av) => {
+                                let dir_raw = dwarf.attr_string(&unit, dir_av)?;
+                                dir_raw.to_string()?.to_string()
+                            },
+                            None => continue,
+                        };
+                        
+                        let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?;
+                        let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+                        if !file_path.starts_with("/") { // TODO: Find a better solution
+                            file_path = format!("{}/{}", cwd, file_path); 
+                        }
+
+                        if path == &file_path {
+                            if let Some(l) = row.line() {
+                                if line == l {
+                                    locations.push((row.column(), row.address()));
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+    match locations.len() {
+        0 => return Ok(None),
+        len => {
+            let search = match column {
+                Some(v) => gimli::ColumnType::Column(v),
+                None    => gimli::ColumnType::LeftEdge,
+            };
+
+            let mut res = locations[0];
+            for i in 1..len {
+                if locations[i].0 <= search && locations[i].0 > res.0 {
+                    res = locations[i];
+                }
+            }
+
+            return Ok(Some(res.1));
+        },
+    };
+}
+
+
+fn check_var_name<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
+                                                 unit:     &Unit<R>,
+                                                 pc:       u32,
+                                                 die:      &DebuggingInformationEntry<R>,
+                                                 search:   &str
+                                                 ) -> bool
+{
+    if die.tag() == gimli::DW_TAG_variable ||
+        die.tag() == gimli::DW_TAG_formal_parameter ||
+            die.tag() == gimli::DW_TAG_constant { // Check that it is a variable.
+
+        if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
+            return dwarf.string(offset).unwrap().to_string().unwrap() == search;// Compare the name of the variable. 
+
+        } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            match offset {
+                UnitRef(o) => {
+                    if let Ok(ndie) = unit.entry(o) {
+                        return check_var_name(dwarf, unit, pc, &ndie, search);
+                    }
+                },
+                _ => {
+                    println!("{:?}", offset);
+                    unimplemented!();
+                },
+            };
+        }
+    }
+    return false;
 }
 
