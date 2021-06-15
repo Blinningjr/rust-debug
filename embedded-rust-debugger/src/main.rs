@@ -82,7 +82,6 @@ pub struct Opt {
     /// Set Port: only required when `mode` is set to `DebugAdapter`
     #[structopt(short = "p", long = "port", required_if("mode", "DebugAdapter"), default_value = "8800")]
     port: u16,
-
 }
 
 
@@ -99,8 +98,6 @@ fn main() -> Result<()> {
         Mode::DebugAdapter => debug_adapter::start_tcp_server(opt.port),//server::start_server(opt.port),
     }
 }
-
-
 
 
 fn attach_probe(chip: &str, probe_num: usize) -> Result<Session>
@@ -172,9 +169,11 @@ pub fn get_current_unit<'a, R>(
             i += 1;
         }
     }
+
     if i > 1 {
         panic!("Found more then one unit in range {}", i);
     }
+
     return match res {
         Some(u) => Ok(u),
         None => Err(Error::MissingUnitDie),

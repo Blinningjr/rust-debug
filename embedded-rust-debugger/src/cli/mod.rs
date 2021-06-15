@@ -187,15 +187,15 @@ impl Cli {
             DebugResponse::Status { status, pc } => self.handle_status_response(status, pc),
             DebugResponse::Continue => self.handle_continue_response(),
             DebugResponse::Step => self.handle_step_response(),
-            DebugResponse::Halt { message }=> self.handle_halt_response(message),
+            DebugResponse::Halt => self.handle_halt_response(),
             DebugResponse::SetBinary => self.handle_set_binary_response(),
-            DebugResponse::Flash { message } => self.handle_flash_response(message),
-            DebugResponse::Reset { message } => self.handle_reset_response(message),
+            DebugResponse::Flash => self.handle_flash_response(),
+            DebugResponse::Reset => self.handle_reset_response(),
             DebugResponse::Read { address, value } => self.handle_read_response(address, value),
             DebugResponse::StackTrace { stack_trace } => self.handle_stack_trace_response(stack_trace),
             DebugResponse::SetProbeNumber => self.handle_set_probe_number_response(),
             DebugResponse::SetChip => self.handle_set_chip_response(),
-            DebugResponse::Variable { name, value, message } => self.handle_variable_response(name, value, message),
+            DebugResponse::Variable { name, value } => self.handle_variable_response(name, value),
             DebugResponse::Registers { registers } => self.handle_registers_response(registers),
             DebugResponse::SetBreakpoint => self.handle_set_breakpoint_response(),
             DebugResponse::SetBreakpoints { breakpoints } => self.handle_set_breakpoints_response(breakpoints),
@@ -203,7 +203,7 @@ impl Cli {
             DebugResponse::ClearAllBreakpoints => self.handle_clear_all_breakpoints_response(),
             DebugResponse::Code { pc, instructions } => self.handle_code_response(pc, instructions),
             DebugResponse::Stack { stack_pointer, stack } => self.handle_stack_response(stack_pointer, stack),
-            DebugResponse::Error { message, request: _ } => self.handle_error_response(message),
+            DebugResponse::Error { message } => self.handle_error_response(message),
             DebugResponse::SetCWD => self.handle_set_cwd_response(),
         };
         
@@ -234,11 +234,8 @@ impl Cli {
     }
 
 
-    fn handle_halt_response(&self, message: Option<String>) {
-        match message {
-            Some(msg) => println!("{}", msg),
-            None => (),
-        }; 
+    fn handle_halt_response(&self) {
+        return ();
     }
 
 
@@ -247,19 +244,13 @@ impl Cli {
     }
 
 
-    fn handle_flash_response(&self, message: Option<String>) {
-       match message {
-            Some(msg) => println!("Flash Error: {}", msg),
-            None => println!("Flash successful"),
-       }; 
+    fn handle_flash_response(&self) {
+        println!("Flash successful");
     }
 
 
-    fn handle_reset_response(&self, message: Option<String>) {
-        match message {
-            Some(msg) => println!("Reset Error: {}", msg),
-            None => println!("Reset successful"),
-        };
+    fn handle_reset_response(&self) {
+        println!("Target reset");
     }
 
 
@@ -334,14 +325,8 @@ impl Cli {
     }
 
 
-    fn handle_variable_response(&self, name: String, value: Option<String>, message: Option<String>) {
-        match message {
-            Some(msg) => println!("{}", msg),
-            None => println!("{} = {}", name, match value {
-                Some(val) => val.to_string(),
-                None => "<unknown>".to_string(),
-            }),
-        };
+    fn handle_variable_response(&self, name: String, value: String) {
+        print!("{} = {}", name, value);
     }
 
 

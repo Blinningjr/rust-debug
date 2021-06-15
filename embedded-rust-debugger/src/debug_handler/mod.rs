@@ -88,7 +88,7 @@ impl DebugHandler {
             let (exit, response) = match self.handle_request(&mut sender, &mut reciver, request) {
                 Ok(val) => val,
                 Err(err) => {
-                    sender.send(Command::Response(DebugResponse::Error { message: format!("{:?}", err), request: None}))?;
+                    sender.send(Command::Response(DebugResponse::Error { message: format!("{:?}", err)}))?;
                     continue;
                 },
             };
@@ -129,7 +129,6 @@ impl DebugHandler {
                 if self.config.is_missing_config() {
                     return Ok((false, DebugResponse::Error {
                         message: self.config.missing_config_message(),
-                        request: Some(request),
                     }));
                 }
 
@@ -419,7 +418,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         address = match source_file {
-            Some(path) => self.debugger.find_location(&self.cwd, &path, address as u64, None)?.expect("Could not file location form  source file line number") as u32,
+            Some(path) => self.debugger.find_location(&self.cwd, &path, address as u64, None)?.expect("Could not file location form source file line number") as u32,
             None => address,
         };
 
@@ -474,27 +473,21 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
-   
-        let (value, message) = match status.is_halted() {
+
+        match status.is_halted() {
             true => {
                 let pc  = core.read_core_reg(core.registers().program_counter())?; 
                 let unit = get_current_unit(&self.debugger.dwarf, pc)?; 
 
-                let value = self.debugger.find_variable(&mut core, &unit, pc, name);
+                let value = self.debugger.find_variable(&mut core, &unit, pc, name)?;
 
-                match value {
-                    Ok(val)     => (Some(format!("{}", val)), None),
-                    Err(_err)   => (None, Some(format!("Could not find {}", name))),
-                }
+                Ok(Command::Response(DebugResponse::Variable {
+                    name: name.to_string(),
+                    value: format!("{}", value),
+                }))
             },
-            false => (None, Some("Core must be halted".to_owned())),
-        };
- 
-        Ok(Command::Response(DebugResponse::Variable {
-            name: name.to_string(),
-            value: value,
-            message: message,
-        }))
+            false => Err(anyhow!("Core must be halted")),
+        }
     }
 
 
@@ -525,73 +518,33 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let mut core = self.session.core(0)?;
 
         if reset_and_halt {
-            match core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core") {
-                Ok(_) => (),
-                Err(err) => {
-                    return Ok(Command::Response(DebugResponse::Reset {
-                        message: Some(format!("{:?}", err)),
-                    }));
-                },
-            };
-
+            core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?;
         } else {
-            match core.reset().context("Failed to reset the core") {
-                Ok(_) => (),
-                Err(err) => {
-                    return Ok(Command::Response(DebugResponse::Reset {
-                        message: Some(format!("{:?}", err)),
-                    }));
-                },
-            };
+            core.reset().context("Failed to reset the core")?;
         }
 
         self.running = true;
 
-        Ok(Command::Response(DebugResponse::Reset {
-            message: None,
-        }))
+        Ok(Command::Response(DebugResponse::Reset))
     }
 
 
     fn flash_command(&mut self, reset_and_halt: bool) -> Result<Command>
     {
-        match download_file(&mut self.session, &self.file_path, Format::Elf).context("Failed to flash target") {
-            Ok(_) => (),
-            Err(err) => {
-                return Ok(Command::Response(DebugResponse::Flash {
-                    message: Some(format!("{:?}", err)),
-                }));
-            },
-        };
+        download_file(&mut self.session, &self.file_path, Format::Elf).context("Failed to flash target")?;
 
         let mut core = self.session.core(0)?;
 
         if reset_and_halt {
-            match core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core") {
-                Ok(_) => (),
-                Err(err) => {
-                    return Ok(Command::Response(DebugResponse::Flash {
-                        message: Some(format!("{:?}", err)),
-                    }));
-                },
-            };
+            core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?;
 
         } else {
-            match core.reset().context("Failed to reset the core") {
-                Ok(_) => (),
-                Err(err) => {
-                    return Ok(Command::Response(DebugResponse::Flash {
-                        message: Some(format!("{:?}", err)),
-                    }));
-                },
-            };
+            core.reset().context("Failed to reset the core")?;
         }
 
         self.running = true;
 
-        Ok(Command::Response(DebugResponse::Flash {
-            message: None,
-        }))
+        Ok(Command::Response(DebugResponse::Flash))
     }
 
 
@@ -599,20 +552,16 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
-    
-        let message = if status.is_halted() {
-            warn!("Core is already halted, status: {:?}", status);
-            Some("Core is already halted".to_owned())
 
+        if status.is_halted() {
+            warn!("Core is already halted, status: {:?}", status);
+            return Err(anyhow!("Core is already halted"));
         } else {
             let cpu_info = core.halt(Duration::from_millis(100))?;
             info!("Core halted at pc = 0x{:08x}", cpu_info.pc);
-            None
         };
-        
-        Ok(Command::Response(DebugResponse::Halt {
-            message: message,
-        }))
+
+        Ok(Command::Response(DebugResponse::Halt))
     }
 
 
@@ -621,11 +570,11 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
         let mut pc = None;
-    
+
         if status.is_halted() {
             pc = Some(core.read_core_reg(core.registers().program_counter())?);
         }
-    
+
         Ok(Command::Response(DebugResponse::Status {
             status: status,
             pc: pc,
@@ -637,7 +586,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
-    
+
         if status.is_halted() {
             let pc = continue_fix(&mut core, &self.breakpoints)?;
             self.running = true;
@@ -645,11 +594,10 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
             return Ok(Command::Response(DebugResponse::Step));
         }
-        
-        
+
+
         Ok(Command::Response(DebugResponse::Error {
             message: "Can only step when core is halted".to_owned(),
-            request: None,
         }))
     }
 

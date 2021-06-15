@@ -238,7 +238,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
     fn handle_dap_request(&mut self, request: Request) -> Result<bool> {
         let result = match request.command.as_ref() {
-            "launch"                    => unimplemented!(),
+            "launch"                    => self.handle_launch_dap_request(&request),
             "attach"                    => self.handle_attach_dap_request(&request),
             "setBreakpoints"            => self.handle_set_breakpoints_dap_request(&request),
             "threads"                   => self.handle_threads_dap_request(&request),
@@ -313,6 +313,11 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
     }
 
 
+    fn handle_launch_dap_request(&mut self, request: &Request) -> Result<bool> {
+        unimplemented!();
+    }
+
+
     fn handle_attach_dap_request(&mut self, request: &Request) -> Result<bool> {
         let args: AttachRequestArguments = get_arguments(&request)?;
         debug!("attach args: {:#?}", args);
@@ -351,15 +356,29 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             None => (),
         };
 
+        // Flash and attach or just attach to the core
+        match args.flash {
+            Some(true) => {
+                // Flash to chip
+                self.sender.send(DebugRequest::Flash {
+                    reset_and_halt: match args.halt_after_reset { Some(val) => val, None => false,},
+                })?;
 
-        // Attach to chip
-        self.sender.send(DebugRequest::Attach {
-            reset: match args.reset { Some(val) => val, None => false,},
-            reset_and_halt: match args.halt_after_reset { Some(val) => val, None => false,},
-        })?;
+                // Get Flash DebugResponse
+                let _ack = self.retrieve_response()?;
+            },
+            _ => {
+                // Attach to chip
+                self.sender.send(DebugRequest::Attach {
+                    reset: match args.reset { Some(val) => val, None => false,},
+                    reset_and_halt: match args.halt_after_reset { Some(val) => val, None => false,},
+                })?;
 
-        // Get Attach DebugResponse
-        let _ack = self.retrieve_response()?;
+                // Get Attach DebugResponse
+                let _ack = self.retrieve_response()?;
+            },
+        };
+
 
 
         let response = Response {
@@ -760,7 +779,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             let command = self.receiver.recv()?;
             match command {
                 Command::Response(response) => {
-                    if let DebugResponse::Error { message, request: _ } = response {
+                    if let DebugResponse::Error { message } = response {
                         return Err(anyhow!("{}", message));
                     }
                     return Ok(response);
@@ -885,5 +904,18 @@ struct AttachRequestArguments {
     cwd: Option<String>,
     reset: Option<bool>,
     halt_after_reset: Option<bool>,
+    flash: Option<bool>,
 }
+
+
+#[derive(Deserialize, Debug, Default)]
+struct LaunchRequestArguments {
+    program: String,
+    chip: String,
+    cwd: Option<String>,
+    reset: Option<bool>,
+    no_debug: Option<bool>,
+    halt_after_reset: Option<bool>,
+}
+
 
