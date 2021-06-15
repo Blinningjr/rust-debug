@@ -335,52 +335,6 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 
 
 
-    fn call_evaluate(&mut self,
-                    core:       &mut probe_rs::Core,
-                    nunit:      &Unit<R>,
-                    pc:         u32,
-                    expr:       gimli::Expression<R>,
-                    frame_base: Option<u64>,
-                    unit:     &Unit<R>,
-                    die: &DebuggingInformationEntry<R>,
-                    registers:     &Vec<(u16, u32)>,
-                    ) -> Result<EvaluatorValue<R>>
-    {
-        if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
-            match tattr {
-                gimli::AttributeValue::UnitRef(offset) => {
-                    let die = unit.entry(offset)?;
-                    return self.evaluate(core, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers);
-                },
-                gimli::AttributeValue::DebugInfoRef(di_offset) => {
-                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-                    let mut iter = self.dwarf.debug_info.units();
-                    while let Ok(Some(header)) = iter.next() {
-                        let unit = self.dwarf.unit(header).unwrap();
-                        if let Some(offset) = offset.to_unit_offset(&unit) {
-                            let die = unit.entry(offset)?;
-                            return self.evaluate(core, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers);
-                        }
-                    }
-                    return Err(anyhow!(""));
-                },
-                _ => return Err(anyhow!("")),
-            };
-        } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-            match die_offset {
-                UnitRef(offset) => {
-                    if let Ok(ndie) = unit.entry(offset) {
-                        return self.call_evaluate(core, nunit, pc, expr, frame_base, unit, &ndie, registers);
-                    }
-                },
-                _ => {
-                    println!("{:?}", die_offset);
-                    unimplemented!();
-                },
-            };
-        }
-        return Err(anyhow!(""));
-    }
 
     fn eval_location(&mut self,
                      core:          &mut probe_rs::Core,
@@ -401,7 +355,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
         //println!("{:?}", die.attr_value(gimli::DW_AT_location));
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => {
-                let value = self.call_evaluate(core, unit, pc, expr, frame_base, unit, die, registers)?;
+                let value = call_evaluate(self.dwarf, core, unit, pc, expr, frame_base, unit, die, registers)?;
 
                 return Ok(Some(value));
             },
@@ -409,7 +363,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
                 let mut locations = self.dwarf.locations(unit, offset)?;
                 while let Some(llent) = locations.next()? {
                     if in_range(pc, &llent.range) {
-                        let value = self.call_evaluate(core, unit, pc, llent.data, frame_base, unit, die, registers)?;
+                        let value = call_evaluate(self.dwarf, core, unit, pc, llent.data, frame_base, unit, die, registers)?;
                         return Ok(Some(value));
                     }
                 }
@@ -436,7 +390,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     {
         if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
             if let Some(expr) = val.exprloc_value() {
-                return Ok(match self.evaluate(core, unit, pc, expr, frame_base, None, None, registers) {
+                return Ok(match evaluate::evaluate(self.dwarf, core, unit, pc, expr, frame_base, None, None, registers) {
                     //Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
                     //Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
                     Ok(EvaluatorValue::Value(BaseValue::Address32(v))) => Some(v as u64),
@@ -633,4 +587,44 @@ fn check_var_name<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
     }
     return false;
 }
+
+
+pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core:       &mut probe_rs::Core, nunit:      &Unit<R>, pc:         u32, expr:       gimli::Expression<R>, frame_base: Option<u64>, unit:     &Unit<R>, die: &DebuggingInformationEntry<R>, registers:     &Vec<(u16, u32)>,) -> Result<EvaluatorValue<R>>
+{
+    if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
+        match tattr {
+            gimli::AttributeValue::UnitRef(offset) => {
+                let die = unit.entry(offset)?;
+                return evaluate::evaluate(dwarf, core, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers);
+            },
+            gimli::AttributeValue::DebugInfoRef(di_offset) => {
+                let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                let mut iter = dwarf.debug_info.units();
+                while let Ok(Some(header)) = iter.next() {
+                    let unit = dwarf.unit(header).unwrap();
+                    if let Some(offset) = offset.to_unit_offset(&unit) {
+                        let die = unit.entry(offset)?;
+                        return evaluate::evaluate(dwarf, core, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers);
+                    }
+                }
+                return Err(anyhow!(""));
+            },
+            _ => return Err(anyhow!("")),
+        };
+    } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+        match die_offset {
+            UnitRef(offset) => {
+                if let Ok(ndie) = unit.entry(offset) {
+                    return call_evaluate(dwarf, core, nunit, pc, expr, frame_base, unit, &ndie, registers);
+                }
+            },
+            _ => {
+                println!("{:?}", die_offset);
+                unimplemented!();
+            },
+        };
+    }
+    return Err(anyhow!(""));
+}
+
 
