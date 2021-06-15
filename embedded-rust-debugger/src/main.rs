@@ -37,7 +37,11 @@ use std::rc::Rc;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use anyhow::{Context, Result};
+use anyhow::{
+    Context,
+    Result,
+    anyhow,
+};
 
 use std::str::FromStr;
 
@@ -94,8 +98,8 @@ fn main() -> Result<()> {
     let _ = TermLogger::init(log_level, cfg, TerminalMode::Mixed);
     
     match opt.mode {
-        Mode::Debug => cli::debug_mode(opt), //debug_mode(opt.file_path.unwrap()),
-        Mode::DebugAdapter => debug_adapter::start_tcp_server(opt.port),//server::start_server(opt.port),
+        Mode::Debug => cli::debug_mode(opt),
+        Mode::DebugAdapter => debug_adapter::start_tcp_server(opt.port),
     }
 }
 
@@ -104,12 +108,15 @@ fn attach_probe(chip: &str, probe_num: usize) -> Result<Session>
 {
     // Get a list of all available debug probes.
     let probes = Probe::list_all();
-    
+
     // Use the first probe found.
-    let probe = probes[probe_num].open().context("Failed to open probe")?;
-    
+    let probe = match probes.len() > probe_num {
+        true => probes[probe_num].open().context("Failed to open probe")?,
+        false => return Err(anyhow!("Probe {} not available", probe_num)),
+    };
+
     // Attach to a chip.
-    let session = probe.attach_under_reset(chip).context("Failed to attach probe to target")?; // TODO: User should choose.
+    let session = probe.attach_under_reset(chip).context("Failed to attach probe to target")?;
  
     Ok(session)
 }
@@ -164,7 +171,7 @@ pub fn get_current_unit<'a, R>(
     let mut i = 0;
     while let Some(header) = iter.next()? {
         let unit = dwarf.unit(header)?;
-        if Some(true) == in_ranges(pc, &mut dwarf.unit_ranges(&unit).unwrap()) {
+        if Some(true) == in_ranges(pc, &mut dwarf.unit_ranges(&unit)?) {
             res = Some(unit);
             i += 1;
         }

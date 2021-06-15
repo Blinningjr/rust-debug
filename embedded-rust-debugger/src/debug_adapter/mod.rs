@@ -154,17 +154,17 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
 
     fn init(&mut self) -> Result<()> {
         let message = {
-            let mut res = None;
+            let res;
             loop {
                 match read_dap_msg(&mut self.reader) {
                     Ok(val) => {
-                        res  = Some(val);
+                        res = val;
                         break;
                     },
                     Err(_) => continue,
                 };
             }
-            res.unwrap()
+            res
         };
 
         let request = verify_init_msg(message)?;
@@ -313,7 +313,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
     }
 
 
-    fn handle_launch_dap_request(&mut self, request: &Request) -> Result<bool> {
+    fn handle_launch_dap_request(&mut self, _request: &Request) -> Result<bool> {
         unimplemented!();
     }
 
