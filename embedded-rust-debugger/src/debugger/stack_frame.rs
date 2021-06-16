@@ -1,10 +1,10 @@
 use crate::debugger::call_stack::CallFrame;
-use crate::debugger::get_die_source_reference;
 use crate::debugger::die_in_range;
 use crate::debugger::EvaluatorValue;
 use crate::debugger::check_frame_base;
 use crate::debugger::eval_location;
 use crate::debugger::get_var_name;
+use crate::debugger::source_information::SourceInformation;
 
 use crate::get_current_unit;
 
@@ -17,26 +17,14 @@ use gimli::{
     AttributeValue::DebugStrRef,
 };
 
-use anyhow::{
-    Result,
-    anyhow,
-};
-
-
-#[derive(Debug, Clone)]
-pub struct SourceReference {
-    pub directory:  Option<String>,
-    pub file:       Option<String>,
-    pub line:       Option<u64>,
-    pub column:     Option<u64>,
-}
+use anyhow::Result;
 
 
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     pub call_frame: CallFrame,
     pub name: String,
-    pub source: SourceReference,
+    pub source: SourceInformation,
     pub variables: Vec<(Option<String>, String)>,
 }
 
@@ -70,7 +58,7 @@ impl StackFrame {
         Ok(StackFrame{
             call_frame: call_frame.clone(),
             name: name,
-            source: get_die_source_reference(dwarf, &unit, &die, cwd)?,
+            source: SourceInformation::get_die_source_information(dwarf, &unit, &die, cwd)?,
             variables: variables,
         })
     }

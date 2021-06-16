@@ -23,7 +23,6 @@ use anyhow::{
 
 use log::trace;
 
-use probe_rs::MemoryInterface;
 
 #[derive(Debug, Clone)]
 pub struct CallFrame {
