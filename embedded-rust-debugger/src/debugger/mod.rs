@@ -58,354 +58,340 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
             breakpoints:    vec!(),
         }
     }
+}
 
 
-    pub fn get_current_stacktrace(&mut self, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<stacktrace::StackFrame>>
-    {
-        let call_stacktrace = stacktrace::create_call_stacktrace(self.debug_frame, core)?;
-        let mut stacktrace = vec!();
-        for cst in &call_stacktrace {
-            stacktrace.push(self.create_stackframe(core, cst, cwd)?);
-        }
-        Ok(stacktrace)
+pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debug_frame: & DebugFrame<R>, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<stacktrace::StackFrame>>
+{
+    let call_stacktrace = stacktrace::create_call_stacktrace(debug_frame, core)?;
+    let mut stacktrace = vec!();
+    for cst in &call_stacktrace {
+        stacktrace.push(create_stackframe(dwarf, core, cst, cwd)?);
     }
+    Ok(stacktrace)
+}
 
 
+pub fn create_stackframe<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                         core:    &mut probe_rs::Core,
+                         call_frame: &stacktrace::CallFrame,
+                         cwd: &str,
+                         ) -> Result<stacktrace::StackFrame>
+{
+    let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
+    let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
+    let unit = gimli::Unit::new(dwarf, header)?;
+    let die = unit.entry(unit_offset)?;
 
+    let name = match die.attr_value(gimli::DW_AT_name)? {
+        Some(DebugStrRef(offset)) => format!("{:?}", dwarf.string(offset)?.to_string()?),
+        _ => "<unknown>".to_string(),
+    };
 
-    pub fn create_stackframe(&mut self,
-                             core:    &mut probe_rs::Core,
-                             call_frame: &stacktrace::CallFrame,
-                             cwd: &str,
-                             ) -> Result<stacktrace::StackFrame>
-    {
-        let (section_offset, unit_offset) = find_function_die(self.dwarf, call_frame.code_location as u32)?;
-        let header = self.dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
-        let unit = gimli::Unit::new(&self.dwarf, header)?;
-        let die = unit.entry(unit_offset)?;
-
-        let name = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => format!("{:?}", self.dwarf.string(offset)?.to_string()?),
-            _ => "<unknown>".to_string(),
-        };
-
-        let mut registers = vec!();
-        for i in 0..call_frame.registers.len() {
-            match call_frame.registers[i] {
-                Some(val) => registers.push((i as u16, val)),
-                None => (),
-            };
-        }
-
-        let variables = self.get_scope_variables(core, &unit, &die, call_frame.code_location as u32, &registers)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
-
-        Ok(stacktrace::StackFrame{
-            call_frame: call_frame.clone(),
-            name: name,
-            source: self.get_die_source_reference(&unit, &die, cwd)?,
-            variables: variables,
-        })
-    }
-
-    pub fn get_scope_variables(&mut self,
-                               core:    &mut probe_rs::Core,
-                               unit:    &Unit<R>,
-                               die:     &DebuggingInformationEntry<'_, '_, R>,
-                               pc:      u32,
-                               registers: &Vec<(u16, u32)>,
-                               ) -> Result<Vec<(Option<String>, EvaluatorValue<R>)>>
-    {
-        let mut variables = vec!();
-        let frame_base = self.check_frame_base(core, unit, pc, die, None, registers)?;
-
-        let mut tree = unit.entries_tree(Some(die.offset()))?;
-        let node = tree.root()?;
-
-        self.get_scope_variables_search(core, unit, pc, node, frame_base, &mut variables, registers)?;
-        return Ok(variables);
-    }
-
-    pub fn get_scope_variables_search(&mut self,
-                                      core:             &mut probe_rs::Core,
-                                      unit:             &Unit<R>,
-                                      pc:               u32,
-                                      node:             EntriesTreeNode<R>,
-                                      frame_base:       Option<u64>,
-                                      variables:        &mut Vec<(Option<String>, EvaluatorValue<R>)>,
-                                      registers:        &Vec<(u16, u32)>,
-                                      ) -> Result<()>
-    {
-        let die = node.entry();
-        
-        // Check if die in range
-        match die_in_range(&self.dwarf, unit, die, pc) {
-            Some(false) => return Ok(()),
-            _ => (),
-        };
-
-//        // Check if we enter a new scope / frame.  // TODO: don't know if this is correct.
-//        if frame_base != self.check_frame_base(core, unit, pc, die, frame_base, registers)? {
-//            return Ok(());
-//        }
-
-        //use crate::debugger::evaluate::attributes::name_attribute;
-        //println!("tag: {:?}, name: {:?}", die.tag().static_string(), name_attribute(self.dwarf, die));
-
-        match self.eval_location(core, unit, pc, &die, frame_base, registers)? {
-            Some(val) => {
-                let name = self.get_var_name(unit, pc, die)?; // TODO: get name
-                variables.push((name, val));
-            },
+    let mut registers = vec!();
+    for i in 0..call_frame.registers.len() {
+        match call_frame.registers[i] {
+            Some(val) => registers.push((i as u16, val)),
             None => (),
         };
-
-        // Recursively process the children.
-        let mut children = node.children();
-        while let Some(child) = children.next()? {
-            self.get_scope_variables_search(core, unit, pc, child, frame_base, variables, registers)?;
-        }
-        Ok(())
     }
+
+    let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &registers)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
+
+    Ok(stacktrace::StackFrame{
+        call_frame: call_frame.clone(),
+        name: name,
+        source: get_die_source_reference(dwarf, &unit, &die, cwd)?,
+        variables: variables,
+    })
+}
+
+
+pub fn get_scope_variables<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                           core:    &mut probe_rs::Core,
+                           unit:    &Unit<R>,
+                           die:     &DebuggingInformationEntry<'_, '_, R>,
+                           pc:      u32,
+                           registers: &Vec<(u16, u32)>,
+                           ) -> Result<Vec<(Option<String>, EvaluatorValue<R>)>>
+{
+    let mut variables = vec!();
+    let frame_base = check_frame_base(dwarf, core, unit, pc, die, None, registers)?;
+
+    let mut tree = unit.entries_tree(Some(die.offset()))?;
+    let node = tree.root()?;
+
+    get_scope_variables_search(dwarf, core, unit, pc, node, frame_base, &mut variables, registers)?;
+    return Ok(variables);
+}
+
+
+pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                  core:             &mut probe_rs::Core,
+                                  unit:             &Unit<R>,
+                                  pc:               u32,
+                                  node:             EntriesTreeNode<R>,
+                                  frame_base:       Option<u64>,
+                                  variables:        &mut Vec<(Option<String>, EvaluatorValue<R>)>,
+                                  registers:        &Vec<(u16, u32)>,
+                                  ) -> Result<()>
+{
+    let die = node.entry();
     
-    fn get_var_name(&mut self,
-                      unit:     &Unit<R>,
-                      pc:       u32,
-                      die:      &DebuggingInformationEntry<R>,
-                      ) -> Result<Option<String>>
-    {
-        if die.tag() == gimli::DW_TAG_variable ||
-            die.tag() == gimli::DW_TAG_formal_parameter ||
-                die.tag() == gimli::DW_TAG_constant { // Check that it is a variable.
+    // Check if die in range
+    match die_in_range(dwarf, unit, die, pc) {
+        Some(false) => return Ok(()),
+        _ => (),
+    };
 
-            if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
-                return Ok(Some(self.dwarf.string(offset).unwrap().to_string().unwrap().to_string()))
+    match eval_location(dwarf, core, unit, pc, &die, frame_base, registers)? {
+        Some(val) => {
+            let name = get_var_name(dwarf, unit, pc, die)?; // TODO: get name
+            variables.push((name, val));
+        },
+        None => (),
+    };
 
-            } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-                match offset {
-                    UnitRef(o) => {
-                        if let Ok(ndie) = unit.entry(o) {
-                            return self.get_var_name(unit, pc, &ndie);
-                        }
-                    },
-                    _ => {
-                        println!("{:?}", offset);
-                        unimplemented!();
-                    },
-                };
-            }
-        }
-        return Ok(None);
+    // Recursively process the children.
+    let mut children = node.children();
+    while let Some(child) = children.next()? {
+        get_scope_variables_search(dwarf, core, unit, pc, child, frame_base, variables, registers)?;
     }
+    Ok(())
+}
 
 
-    // TODO: Create a function that correcly gets the directory and file_name;
-    pub fn get_die_source_reference(&mut self,
-                                unit:   &Unit<R>,
-                                die:    &DebuggingInformationEntry<'_, '_, R>,
-                                cwd:    &str
-                                ) -> Result<stacktrace::SourceReference>
-    {
-        let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
-            Some(gimli::AttributeValue::FileIndex(v)) => {
-                match &unit.line_program {
-                    Some(lp) => {
-                        let header = lp.header();
-                        match header.file(v) {
-                            Some(file_entry)    => {
-                                let (file, directory) = match file_entry.directory(header) {
-                                    Some(dir_av) => {
-                                        let mut dir_raw = self.dwarf.attr_string(&unit, dir_av)?.to_string()?.to_string();
-                                        let file_raw = self.dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string();
-                                        let file = file_raw.trim_start_matches(&dir_raw).to_string();
+fn get_var_name<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                  unit:     &Unit<R>,
+                  pc:       u32,
+                  die:      &DebuggingInformationEntry<R>,
+                  ) -> Result<Option<String>>
+{
+    if die.tag() == gimli::DW_TAG_variable ||
+        die.tag() == gimli::DW_TAG_formal_parameter ||
+            die.tag() == gimli::DW_TAG_constant { // Check that it is a variable.
 
-                                        if !dir_raw.starts_with("/") {
-                                            dir_raw = format!("{}/{}", cwd, dir_raw);
-                                        }
+        if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
+            return Ok(Some(dwarf.string(offset).unwrap().to_string().unwrap().to_string()))
 
-                                        (file, Some(dir_raw)) 
-                                    },
-                                    None => (self.dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string(), None),
-                                };
-
-                                (Some(file), directory)
-                            },
-                            None        => (None, None),
-                        }
-                    },
-                    None    => (None, None),
-                }
-            },
-            None => (None, None),
-            Some(v) => unimplemented!("{:?}", v),
-        };
-
-        let line = match die.attr_value(gimli::DW_AT_decl_line)? {
-            Some(gimli::AttributeValue::Udata(v)) => Some(v),
-            None => None,
-            Some(v) => unimplemented!("{:?}", v),
-        };
-
-        let column = match die.attr_value(gimli::DW_AT_decl_column)? {
-            Some(gimli::AttributeValue::Udata(v)) => Some(v),
-            None => None,
-            Some(v) => unimplemented!("{:?}", v),
-        };
-        
-        Ok(stacktrace::SourceReference {
-            directory: directory,
-            file: file,
-            line: line,
-            column: column,
-        })
-    }
-
-
-    pub fn find_variable(&mut self,
-                         core:      &mut probe_rs::Core,
-                         unit:      &Unit<R>,
-                         pc:        u32,
-                         search:    &str
-                         ) -> Result<EvaluatorValue<R>>
-    {
-        let mut tree    = unit.entries_tree(None)?;
-        let root        = tree.root()?;
-
-//        self.print_tree(root)?;
-//        unimplemented!();
-
-        return match self.process_tree(core, unit, pc, root, None, search)? {
-            Some(val)   => Ok(val),
-            None        => Err(anyhow!("Can't find value")), // TODO: Change to a better error.
-        };
-    }
-
-
-    pub fn process_tree(&mut self, 
-                        core:           &mut probe_rs::Core,
-                        unit:           &Unit<R>,
-                        pc:             u32,
-                        node:           EntriesTreeNode<R>,
-                        mut frame_base: Option<u64>,
-                        search:         &str
-                        ) -> Result<Option<EvaluatorValue<R>>>
-    {
-        let die = node.entry();
-
-        // Check if die in range
-        match die_in_range(&self.dwarf, unit, die, pc) {
-            Some(false) => return Ok(None),
-            _ => (),
-        };
-
-        let registers = self.get_registers(core)?;
-        frame_base = self.check_frame_base(core, unit, pc, &die, frame_base, &registers)?;
-
-        // Check for the searched vairable.
-        if check_var_name(self.dwarf, unit, pc, &die, search) {
-            match self.eval_location(core, unit, pc, &die, frame_base, &registers)? {
-                Some(val) => return Ok(Some(val)),
-                None => (),
-            };
-        }
-        
-        // Recursively process the children.
-        let mut children = node.children();
-        while let Some(child) = children.next()? {
-            if let Some(result) = self.process_tree(core, unit, pc, child, frame_base, search)? {
-                return Ok(Some(result));
-            }
-        }
-        Ok(None)
-    }
-
-
-    fn get_registers(&mut self, core: &mut probe_rs::Core) -> Result<Vec<(u16, u32)>>
-    {
-        let mut registers = vec!();
-
-        let register_file = core.registers();
-        for reg in register_file.registers() {
-            let value = core.read_core_reg(reg)?;
-            registers.push((probe_rs::CoreRegisterAddress::from(reg).0, value));
-        }
-
-        Ok(registers)
-    }
-
-
-
-
-
-    fn eval_location(&mut self,
-                     core:          &mut probe_rs::Core,
-                     unit:          &Unit<R>,
-                     pc:            u32,
-                     die:           &DebuggingInformationEntry<R>,
-                     frame_base:    Option<u64>,
-                     registers:     &Vec<(u16, u32)>,
-                     ) -> Result<Option<EvaluatorValue<R>>> 
-    {
-        //println!("{:?}", die.attr_value(gimli::DW_AT_const_value));
-        match die.attr_value(gimli::DW_AT_const_value)? {
-            Some(v) => panic!("const_value: {:#?}", v), // TODO: parse the value of the variable
-            None => (),
-        };
-
-
-        //println!("{:?}", die.attr_value(gimli::DW_AT_location));
-        match die.attr_value(gimli::DW_AT_location)? {
-            Some(Exprloc(expr)) => {
-                let value = call_evaluate(self.dwarf, core, unit, pc, expr, frame_base, unit, die, registers)?;
-
-                return Ok(Some(value));
-            },
-            Some(LocationListsRef(offset)) => {
-                let mut locations = self.dwarf.locations(unit, offset)?;
-                while let Some(llent) = locations.next()? {
-                    if in_range(pc, &llent.range) {
-                        let value = call_evaluate(self.dwarf, core, unit, pc, llent.data, frame_base, unit, die, registers)?;
-                        return Ok(Some(value));
+        } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            match offset {
+                UnitRef(o) => {
+                    if let Ok(ndie) = unit.entry(o) {
+                        return get_var_name(dwarf, unit, pc, &ndie);
                     }
-                }
-
-                return Ok(Some(EvaluatorValue::OutOfRange));
-            },
-            None => return Ok(None), //Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
-            Some(v) => {
-                println!("{:?}", v);
-                unimplemented!();
-            },
+                },
+                _ => {
+                    println!("{:?}", offset);
+                    unimplemented!();
+                },
+            };
         }
     }
-    
+    return Ok(None);
+}
 
-    pub fn check_frame_base(&mut self,
-                            core:       &mut probe_rs::Core,
-                            unit:       &Unit<R>,
-                            pc:         u32,
-                            die:        &DebuggingInformationEntry<'_, '_, R>,
-                            frame_base: Option<u64>,
-                            registers:     &Vec<(u16, u32)>,
-                            ) -> Result<Option<u64>>
-    {
-        if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
-            if let Some(expr) = val.exprloc_value() {
-                return Ok(match evaluate::evaluate(self.dwarf, core, unit, pc, expr, frame_base, None, None, registers) {
-                    //Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
-                    //Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
-                    Ok(EvaluatorValue::Value(BaseValue::Address32(v))) => Some(v as u64),
-                    Ok(v) => {
-                        println!("{:?}", v);
-                        unimplemented!()
-                    },
-                    Err(err) => panic!(err),
-                });
-            } else {
-                return Ok(None);
+
+pub fn get_die_source_reference<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                                           unit:   &Unit<R>,
+                                                           die:    &DebuggingInformationEntry<'_, '_, R>,
+                                                           cwd:    &str
+                                                           ) -> Result<stacktrace::SourceReference>
+{
+    let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
+        Some(gimli::AttributeValue::FileIndex(v)) => {
+            match &unit.line_program {
+                Some(lp) => {
+                    let header = lp.header();
+                    match header.file(v) {
+                        Some(file_entry)    => {
+                            let (file, directory) = match file_entry.directory(header) {
+                                Some(dir_av) => {
+                                    let mut dir_raw = dwarf.attr_string(&unit, dir_av)?.to_string()?.to_string();
+                                    let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string();
+                                    let file = file_raw.trim_start_matches(&dir_raw).to_string();
+
+                                    if !dir_raw.starts_with("/") {
+                                        dir_raw = format!("{}/{}", cwd, dir_raw);
+                                    }
+
+                                    (file, Some(dir_raw)) 
+                                },
+                                None => (dwarf.attr_string(&unit, file_entry.path_name())?.to_string()?.to_string(), None),
+                            };
+
+                            (Some(file), directory)
+                        },
+                        None        => (None, None),
+                    }
+                },
+                None    => (None, None),
             }
-        } else {
-            return Ok(frame_base);
+        },
+        None => (None, None),
+        Some(v) => unimplemented!("{:?}", v),
+    };
+
+    let line = match die.attr_value(gimli::DW_AT_decl_line)? {
+        Some(gimli::AttributeValue::Udata(v)) => Some(v),
+        None => None,
+        Some(v) => unimplemented!("{:?}", v),
+    };
+
+    let column = match die.attr_value(gimli::DW_AT_decl_column)? {
+        Some(gimli::AttributeValue::Udata(v)) => Some(v),
+        None => None,
+        Some(v) => unimplemented!("{:?}", v),
+    };
+    
+    Ok(stacktrace::SourceReference {
+        directory: directory,
+        file: file,
+        line: line,
+        column: column,
+    })
+}
+
+
+pub fn find_variable<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                     core:      &mut probe_rs::Core,
+                     unit:      &Unit<R>,
+                     pc:        u32,
+                     search:    &str
+                     ) -> Result<EvaluatorValue<R>>
+{
+    let mut tree    = unit.entries_tree(None)?;
+    let root        = tree.root()?;
+
+    return match process_tree(dwarf, core, unit, pc, root, None, search)? {
+        Some(val)   => Ok(val),
+        None        => Err(anyhow!("Can't find value")), // TODO: Change to a better error.
+    };
+}
+
+
+pub fn process_tree<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, 
+                    core:           &mut probe_rs::Core,
+                    unit:           &Unit<R>,
+                    pc:             u32,
+                    node:           EntriesTreeNode<R>,
+                    mut frame_base: Option<u64>,
+                    search:         &str
+                    ) -> Result<Option<EvaluatorValue<R>>>
+{
+    let die = node.entry();
+
+    // Check if die in range
+    match die_in_range(&dwarf, unit, die, pc) {
+        Some(false) => return Ok(None),
+        _ => (),
+    };
+
+    let registers = get_registers(core)?;
+    frame_base = check_frame_base(dwarf, core, unit, pc, &die, frame_base, &registers)?;
+
+    // Check for the searched vairable.
+    if check_var_name(dwarf, unit, pc, &die, search) {
+        match eval_location(dwarf, core, unit, pc, &die, frame_base, &registers)? {
+            Some(val) => return Ok(Some(val)),
+            None => (),
+        };
+    }
+    
+    // Recursively process the children.
+    let mut children = node.children();
+    while let Some(child) = children.next()? {
+        if let Some(result) = process_tree(dwarf, core, unit, pc, child, frame_base, search)? {
+            return Ok(Some(result));
         }
+    }
+    Ok(None)
+}
+
+
+fn get_registers(core: &mut probe_rs::Core) -> Result<Vec<(u16, u32)>>
+{
+    let mut registers = vec!();
+
+    let register_file = core.registers();
+    for reg in register_file.registers() {
+        let value = core.read_core_reg(reg)?;
+        registers.push((probe_rs::CoreRegisterAddress::from(reg).0, value));
+    }
+
+    Ok(registers)
+}
+
+
+fn eval_location<R: Reader<Offset = usize>>(dwarf:         & Dwarf<R>,
+                 core:          &mut probe_rs::Core,
+                 unit:          &Unit<R>,
+                 pc:            u32,
+                 die:           &DebuggingInformationEntry<R>,
+                 frame_base:    Option<u64>,
+                 registers:     &Vec<(u16, u32)>,
+                 ) -> Result<Option<EvaluatorValue<R>>> 
+{
+    //println!("{:?}", die.attr_value(gimli::DW_AT_const_value));
+    match die.attr_value(gimli::DW_AT_const_value)? {
+        Some(v) => panic!("const_value: {:#?}", v), // TODO: parse the value of the variable
+        None => (),
+    };
+
+
+    //println!("{:?}", die.attr_value(gimli::DW_AT_location));
+    match die.attr_value(gimli::DW_AT_location)? {
+        Some(Exprloc(expr)) => {
+            let value = call_evaluate(dwarf, core, unit, pc, expr, frame_base, unit, die, registers)?;
+
+            return Ok(Some(value));
+        },
+        Some(LocationListsRef(offset)) => {
+            let mut locations = dwarf.locations(unit, offset)?;
+            while let Some(llent) = locations.next()? {
+                if in_range(pc, &llent.range) {
+                    let value = call_evaluate(dwarf, core, unit, pc, llent.data, frame_base, unit, die, registers)?;
+                    return Ok(Some(value));
+                }
+            }
+
+            return Ok(Some(EvaluatorValue::OutOfRange));
+        },
+        None => return Ok(None), //Err(anyhow!("Expected dwarf location informaiton")),//unimplemented!(), //return Err(Error::Io), // TODO: Better error
+        Some(v) => {
+            println!("{:?}", v);
+            unimplemented!();
+        },
+    }
+}
+
+
+pub fn check_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                                   core:       &mut probe_rs::Core,
+                                                   unit:       &Unit<R>,
+                                                   pc:         u32,
+                                                   die:        &DebuggingInformationEntry<'_, '_, R>,
+                                                   frame_base: Option<u64>,
+                                                   registers:     &Vec<(u16, u32)>,
+                                                   ) -> Result<Option<u64>>
+{
+    if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
+        if let Some(expr) = val.exprloc_value() {
+            return Ok(match evaluate::evaluate(dwarf, core, unit, pc, expr, frame_base, None, None, registers) {
+                //Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
+                //Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
+                Ok(EvaluatorValue::Value(BaseValue::Address32(v))) => Some(v as u64),
+                Ok(v) => {
+                    println!("{:?}", v);
+                    unimplemented!()
+                },
+                Err(err) => panic!(err),
+            });
+        } else {
+            return Ok(None);
+        }
+    } else {
+        return Ok(frame_base);
     }
 }
 

@@ -26,9 +26,12 @@ use crossbeam_channel::{
 
 use capstone::arch::BuildsCapstone;
 
+
+use super::debugger;
 use super::debugger::{
     Debugger,
     find_breakpoint_location,
+    get_current_stacktrace,
 };
 
 use super::{
@@ -482,7 +485,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                 let pc  = core.read_core_reg(core.registers().program_counter())?; 
                 let unit = get_current_unit(&self.debugger.dwarf, pc)?; 
 
-                let value = self.debugger.find_variable(&mut core, &unit, pc, name)?;
+                let value = debugger::find_variable(self.debugger.dwarf, &mut core, &unit, pc, name)?;
 
                 Ok(Command::Response(DebugResponse::Variable {
                     name: name.to_string(),
@@ -497,7 +500,10 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     fn stack_trace_command(&mut self) -> Result<Command>
     { 
         let mut core = self.session.core(0)?;
-        let stack_trace = self.debugger.get_current_stacktrace(&mut core, &self.cwd)?;
+        let stack_trace = get_current_stacktrace(self.debugger.dwarf,
+                                                 self.debugger.debug_frame,
+                                                 &mut core,
+                                                 &self.cwd)?;
         Ok(Command::Response(DebugResponse::StackTrace {
             stack_trace: stack_trace,
         }))
