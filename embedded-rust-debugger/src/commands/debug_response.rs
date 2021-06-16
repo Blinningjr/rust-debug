@@ -1,6 +1,6 @@
 use debugserver_types::Breakpoint;
-use super::super::debugger::call_stack::StackFrame;
 use probe_rs::CoreStatus;
+use crate::debugger::stack_frame::StackFrame;
 
 
 #[derive(Debug, Clone)]

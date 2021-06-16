@@ -1,27 +1,26 @@
 pub mod utils;
 pub mod evaluate;
-//pub mod stacktrace;
 pub mod call_stack;
+pub mod stack_frame;
 
+
+use crate::debugger::stack_frame::{
+    StackFrame,
+    SourceReference,
+};
 use probe_rs::MemoryInterface;
-
 use utils::{
     die_in_range,
     in_range,
 };
-
-
 use evaluate::value::{
     EvaluatorValue,
     BaseValue,
 };
-
-
 use anyhow::{
     Result,
     anyhow,
 };
-
 use gimli::{
     Unit,
     Dwarf,
@@ -38,9 +37,6 @@ use gimli::{
 };
 
 use super::get_current_unit;
-
-
-
 
 
 pub struct Debugger<'a, R: Reader<Offset = usize>> {
@@ -63,7 +59,7 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 }
 
 
-pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debug_frame: & DebugFrame<R>, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<call_stack::StackFrame>>
+pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debug_frame: & DebugFrame<R>, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<StackFrame>>
 {
 //    let call_stacktrace = stacktrace::create_call_stacktrace(debug_frame, core)?;
 
@@ -95,98 +91,9 @@ pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debu
 
     let mut stacktrace = vec!();
     for cst in &call_stacktrace {
-        stacktrace.push(create_stackframe(dwarf, core, cst, cwd)?);
+        stacktrace.push(StackFrame::create(dwarf, core, cst, cwd)?);
     }
     Ok(stacktrace)
-}
-
-
-pub fn create_stackframe<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                         core:    &mut probe_rs::Core,
-                         call_frame: &call_stack::CallFrame,
-                         cwd: &str,
-                         ) -> Result<call_stack::StackFrame>
-{
-    let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
-    let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
-    let unit = gimli::Unit::new(dwarf, header)?;
-    let die = unit.entry(unit_offset)?;
-
-    let name = match die.attr_value(gimli::DW_AT_name)? {
-        Some(DebugStrRef(offset)) => format!("{:?}", dwarf.string(offset)?.to_string()?),
-        _ => "<unknown>".to_string(),
-    };
-
-    let mut registers = vec!();
-    for i in 0..call_frame.registers.len() {
-        match call_frame.registers[i] {
-            Some(val) => registers.push((i as u16, val)),
-            None => (),
-        };
-    }
-
-    let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &registers)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
-
-    Ok(call_stack::StackFrame{
-        call_frame: call_frame.clone(),
-        name: name,
-        source: get_die_source_reference(dwarf, &unit, &die, cwd)?,
-        variables: variables,
-    })
-}
-
-
-pub fn get_scope_variables<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                           core:    &mut probe_rs::Core,
-                           unit:    &Unit<R>,
-                           die:     &DebuggingInformationEntry<'_, '_, R>,
-                           pc:      u32,
-                           registers: &Vec<(u16, u32)>,
-                           ) -> Result<Vec<(Option<String>, EvaluatorValue<R>)>>
-{
-    let mut variables = vec!();
-    let frame_base = check_frame_base(dwarf, core, unit, pc, die, None, registers)?;
-
-    let mut tree = unit.entries_tree(Some(die.offset()))?;
-    let node = tree.root()?;
-
-    get_scope_variables_search(dwarf, core, unit, pc, node, frame_base, &mut variables, registers)?;
-    return Ok(variables);
-}
-
-
-pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                                  core:             &mut probe_rs::Core,
-                                  unit:             &Unit<R>,
-                                  pc:               u32,
-                                  node:             EntriesTreeNode<R>,
-                                  frame_base:       Option<u64>,
-                                  variables:        &mut Vec<(Option<String>, EvaluatorValue<R>)>,
-                                  registers:        &Vec<(u16, u32)>,
-                                  ) -> Result<()>
-{
-    let die = node.entry();
-    
-    // Check if die in range
-    match die_in_range(dwarf, unit, die, pc) {
-        Some(false) => return Ok(()),
-        _ => (),
-    };
-
-    match eval_location(dwarf, core, unit, pc, &die, frame_base, registers)? {
-        Some(val) => {
-            let name = get_var_name(dwarf, unit, pc, die)?; // TODO: get name
-            variables.push((name, val));
-        },
-        None => (),
-    };
-
-    // Recursively process the children.
-    let mut children = node.children();
-    while let Some(child) = children.next()? {
-        get_scope_variables_search(dwarf, core, unit, pc, child, frame_base, variables, registers)?;
-    }
-    Ok(())
 }
 
 
@@ -225,7 +132,7 @@ pub fn get_die_source_reference<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                                            unit:   &Unit<R>,
                                                            die:    &DebuggingInformationEntry<'_, '_, R>,
                                                            cwd:    &str
-                                                           ) -> Result<call_stack::SourceReference>
+                                                           ) -> Result<SourceReference>
 {
     let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
         Some(gimli::AttributeValue::FileIndex(v)) => {
@@ -273,7 +180,7 @@ pub fn get_die_source_reference<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
         Some(v) => unimplemented!("{:?}", v),
     };
     
-    Ok(call_stack::SourceReference {
+    Ok(SourceReference {
         directory: directory,
         file: file,
         line: line,
@@ -425,58 +332,6 @@ pub fn check_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 }
 
 
-pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
-                                                        address: u32
-                                                        ) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)>
-{
-    let unit = get_current_unit(&dwarf, address)?;
-    let mut cursor = unit.entries();
-
-    let mut depth = 0;
-    let mut res = None; 
-    let mut dies = vec!();
-
-    assert!(cursor.next_dfs().unwrap().is_some());
-    while let Some((delta_depth, current)) = cursor.next_dfs()? {
-        // Update depth value, and break out of the loop when we
-        // return to the original starting position.
-        depth += delta_depth;
-        if depth <= 0 {
-            break;
-        }
-
-        match current.tag() {
-            gimli::DW_TAG_subprogram | gimli::DW_TAG_inlined_subroutine => {
-                if let Some(true) = die_in_range(&dwarf, &unit, current, address) {
-                    match res {
-                        Some(val) => {
-                            if val > depth {
-                                res = Some(depth);
-                                dies = vec!(current.clone());
-                            } else if val == depth {
-                                dies.push(current.clone());
-                            }
-                        },
-                        None => {
-                            res = Some(depth);
-                            dies.push(current.clone());
-                        },
-                    };
-                }
-            },
-            _ => (),
-        }; 
-    }
-
-    use crate::debugger::evaluate::attributes::name_attribute;
-    for d in &dies {
-        println!("die name: {:?}", name_attribute(dwarf, d));
-    }
-    if dies.len() != 1 {
-        panic!("panic here");
-    }
-    return Ok((unit.header.offset(), dies[0].offset()));
-}
 
 
 

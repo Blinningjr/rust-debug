@@ -26,24 +26,6 @@ use log::trace;
 use probe_rs::MemoryInterface;
 
 #[derive(Debug, Clone)]
-pub struct StackFrame {
-    pub call_frame: CallFrame,
-    pub name: String,
-    pub source: SourceReference,
-    pub variables: Vec<(Option<String>, String)>,
-}
-
-
-#[derive(Debug, Clone)]
-pub struct SourceReference {
-    pub directory:  Option<String>,
-    pub file:       Option<String>,
-    pub line:       Option<u64>,
-    pub column:     Option<u64>,
-}
-
-
-#[derive(Debug, Clone)]
 pub struct CallFrame {
     pub id:             u64,
     pub registers:      [Option<u32>; 16],
