@@ -1,5 +1,5 @@
 use debugserver_types::Breakpoint;
-use super::super::debugger::stacktrace::StackFrame;
+use super::super::debugger::call_stack::StackFrame;
 use probe_rs::CoreStatus;
 
 

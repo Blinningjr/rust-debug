@@ -31,7 +31,7 @@ use probe_rs::{
 
 use rustyline::Editor;
 
-use crate::debugger::stacktrace::StackFrame;
+use crate::debugger::call_stack::StackFrame;
 
 use debugserver_types::Breakpoint;
 

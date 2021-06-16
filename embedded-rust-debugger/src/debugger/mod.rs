@@ -1,7 +1,9 @@
 pub mod utils;
 pub mod evaluate;
-pub mod stacktrace;
+//pub mod stacktrace;
+pub mod call_stack;
 
+use probe_rs::MemoryInterface;
 
 use utils::{
     die_in_range,
@@ -61,9 +63,36 @@ impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
 }
 
 
-pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debug_frame: & DebugFrame<R>, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<stacktrace::StackFrame>>
+pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debug_frame: & DebugFrame<R>, core: &mut probe_rs::Core, cwd: &str) -> Result<Vec<call_stack::StackFrame>>
 {
-    let call_stacktrace = stacktrace::create_call_stacktrace(debug_frame, core)?;
+//    let call_stacktrace = stacktrace::create_call_stacktrace(debug_frame, core)?;
+
+        let pc_reg =   probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0 as usize;
+        let link_reg = probe_rs::CoreRegisterAddress::from(core.registers().return_address()).0 as usize;
+    let sp_reg =   probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0 as usize;
+
+    let register_file = core.registers();
+   
+    let mut regs = [0;16];
+    for register in register_file.registers() {
+        let value = core.read_core_reg(register)?;
+   
+        regs[probe_rs::CoreRegisterAddress::from(register).0 as usize] = value;
+    }
+
+    let mut csu = call_stack::CallStackUnwinder::new(pc_reg, link_reg, sp_reg, regs);
+    loop {
+        match csu.unwind(debug_frame)? {
+            call_stack::UnwindResult::Complete => break,
+            call_stack::UnwindResult::RequiresAddress { address } => {
+                let mut buff = vec![0u32; 1];
+                core.read_32(address, &mut buff)?;
+                csu.add_address(address, buff[0]); 
+            },
+        }
+    }
+    let call_stacktrace = csu.get_call_stack();
+
     let mut stacktrace = vec!();
     for cst in &call_stacktrace {
         stacktrace.push(create_stackframe(dwarf, core, cst, cwd)?);
@@ -74,9 +103,9 @@ pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debu
 
 pub fn create_stackframe<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                          core:    &mut probe_rs::Core,
-                         call_frame: &stacktrace::CallFrame,
+                         call_frame: &call_stack::CallFrame,
                          cwd: &str,
-                         ) -> Result<stacktrace::StackFrame>
+                         ) -> Result<call_stack::StackFrame>
 {
     let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
     let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
@@ -98,7 +127,7 @@ pub fn create_stackframe<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
     let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &registers)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
 
-    Ok(stacktrace::StackFrame{
+    Ok(call_stack::StackFrame{
         call_frame: call_frame.clone(),
         name: name,
         source: get_die_source_reference(dwarf, &unit, &die, cwd)?,
@@ -196,7 +225,7 @@ pub fn get_die_source_reference<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                                            unit:   &Unit<R>,
                                                            die:    &DebuggingInformationEntry<'_, '_, R>,
                                                            cwd:    &str
-                                                           ) -> Result<stacktrace::SourceReference>
+                                                           ) -> Result<call_stack::SourceReference>
 {
     let (file, directory) = match die.attr_value(gimli::DW_AT_decl_file)? {
         Some(gimli::AttributeValue::FileIndex(v)) => {
@@ -244,7 +273,7 @@ pub fn get_die_source_reference<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
         Some(v) => unimplemented!("{:?}", v),
     };
     
-    Ok(stacktrace::SourceReference {
+    Ok(call_stack::SourceReference {
         directory: directory,
         file: file,
         line: line,
