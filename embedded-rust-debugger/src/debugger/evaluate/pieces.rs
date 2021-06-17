@@ -121,15 +121,10 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                              registers,
                                              memory)?,
 
-            RequiresEntryValue(entry) => unimplemented!(),//resolve_requires_entry_value(dwarf, // TODO
-//                                                                  unit,
-//                                                                  &mut eval,
-//                                                                  &mut result,
-//                                                                  entry.clone(),
-//                                                                  pc,
-//                                                                  frame_base,
-//                                                                  registers,
-//                                                                  memory)?,
+            RequiresEntryValue(ref entry) => {
+                let e = entry.clone();
+                resolve_requires_entry_value(dwarf, unit, &mut eval,&mut result, e, pc, frame_base, registers, memory)?
+            },
 
             RequiresParameterRef(unit_offset) => resolve_requires_paramter_ref(dwarf, unit, &mut eval, &mut result, unit_offset, type_unit, pc, frame_base, registers, memory)?,
 
