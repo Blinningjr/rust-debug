@@ -2,15 +2,11 @@ pub mod value;
 pub mod evaluate;
 pub mod attributes;
 
+use std::collections::HashMap;
+
 use super::{
     call_evaluate,
 };
-
-
-use probe_rs::{
-    MemoryInterface,
-};
-
 
 use gimli::{
     Dwarf,
@@ -62,31 +58,53 @@ use anyhow::{
 };
 
 
+pub enum EvalResult {
+    Complete,
+    RequiresRegister { register: u16 },
+    RequiresMemory { address: u32, num_words: usize },
+}
+
+
+pub enum EvaluatorResult<R: Reader<Offset = usize>> {
+    Complete(EvaluatorValue<R>),
+    Requires(EvalResult),
+}
+
+
+pub enum EvalPieceResult<R: Reader<Offset = usize>> {
+    Complete(Vec<gimli::Piece<R>>),
+    Requires(EvalResult),
+}
+
+
 pub fn evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                core:       &mut probe_rs::Core,
                 unit:       &Unit<R>,
                 pc:         u32,
                 expr:       Expression<R>,
                 frame_base: Option<u64>,
                 type_unit:  Option<&gimli::Unit<R>>,
                 type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
-                registers:     &Vec<(u16, u32)>,
-                ) -> Result<EvaluatorValue<R>>
+                registers:  &HashMap<u16, u32>,
+                memory:     &HashMap<u32, u32>,
+                ) -> Result<EvaluatorResult<R>>
 {
-    let pieces = evaluate_pieces(dwarf, core, unit, pc, expr, frame_base, type_unit, registers)?;
-    evaluate_value(dwarf, core, pieces, type_unit, type_die, registers)
+    let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, type_unit, registers, memory)? {
+        EvalPieceResult::Complete(val) => val,
+        EvalPieceResult::Requires(req) => return Ok(EvaluatorResult::Requires(req)),
+    };
+    evaluate_value(dwarf, pieces, type_unit, type_die, registers, memory)
 }
 
 
 pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                core:       &mut probe_rs::Core,
                 unit:       &Unit<R>,
                 pc:         u32,
                 expr:       Expression<R>,
                 frame_base: Option<u64>,
                 type_unit:  Option<&gimli::Unit<R>>,
-                registers:     &Vec<(u16, u32)>,
-                ) -> Result<Vec<gimli::Piece<R>>>
+                registers:  &HashMap<u16, u32>,
+                memory:     &HashMap<u32, u32>,
+                ) -> Result<EvalPieceResult<R>>
 {
     let mut eval    = expr.evaluation(unit.encoding());
     let mut result  = eval.evaluate()?;
@@ -94,29 +112,30 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
     println!("fb: {:?}, pc: {:?}", frame_base, pc);
     loop {
         //println!("{:#?}", result);
-        match result {
+        let resolved = match result {
             Complete => break,
             RequiresMemory{address, size, space, base_type} =>
-                resolve_requires_mem(core,
-                                     unit,
+                resolve_requires_mem(unit,
                                      &mut eval,
                                      &mut result,
                                      address,
                                      size,
                                      space,
-                                     base_type)?,
+                                     base_type,
+                                     memory)?,
 
             RequiresRegister{register, base_type} =>
-                resolve_requires_reg(core,
-                                     unit,
+                resolve_requires_reg(unit,
                                      &mut eval,
                                      &mut result,
                                      register,
                                      base_type,
                                      registers)?,
 
-            RequiresFrameBase => 
-                result = eval.resume_with_frame_base(frame_base.unwrap())?, // TODO: Check and test if correct.
+            RequiresFrameBase => {
+                result = eval.resume_with_frame_base(frame_base.unwrap())?;
+                EvalResult::Complete
+            }, // TODO: Check and test if correct.
 
             RequiresTls(_tls) =>
                 unimplemented!(), // TODO
@@ -126,54 +145,43 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
             RequiresAtLocation(die_ref) =>
                 resolve_requires_at_location(dwarf,
-                                             core,
                                              unit,
                                              pc,
                                              &mut eval,
                                              &mut result,
                                              frame_base,
                                              die_ref,
-                                             registers)?,
+                                             registers,
+                                             memory)?,
 
-            RequiresEntryValue(e) =>
-              result = eval.resume_with_entry_value(convert_to_gimli_value(evaluate(dwarf,
-                                                                                                                                                        core,
-                                                                  unit,
-                                                                  pc,
-                                                                  e,
-                                                                  frame_base, 
-                                                                  None,
-                                                                  None,
-                                                                  registers
-                                                                  )?.to_value().unwrap()))?,
+            RequiresEntryValue(entry) => unimplemented!(),//resolve_requires_entry_value(dwarf, // TODO
+//                                                                  unit,
+//                                                                  &mut eval,
+//                                                                  &mut result,
+//                                                                  entry.clone(),
+//                                                                  pc,
+//                                                                  frame_base,
+//                                                                  registers,
+//                                                                  memory)?,
 
-            RequiresParameterRef(unit_offset) => //unimplemented!(), // TODO: Check and test if correct.
-                {
-                    let die     = unit.entry(unit_offset)?;
-                    let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-                    let value   = evaluate(dwarf, core, unit, pc, expr, frame_base, type_unit, Some(&die), registers)?;
+            RequiresParameterRef(unit_offset) => resolve_requires_paramter_ref(dwarf, unit, &mut eval, &mut result, unit_offset, type_unit, pc, frame_base, registers, memory)?,
 
-                    if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
-                        result = eval.resume_with_parameter_ref(val)?;
-                    } else {
-                        return Err(anyhow!("could not find parameter"));
-                    }
-                },
+            RequiresRelocatedAddress(num) => resolve_requires_relocated_address(&mut eval, &mut result, num)?,
 
-            RequiresRelocatedAddress(num) =>
-                result = eval.resume_with_relocated_address(num)?, // TODO: Check and test if correct.
+            RequiresIndexedAddress {index, relocate: _} => resolve_requires_indexed_address(dwarf, unit, &mut eval, &mut result, index)?,
 
-            RequiresIndexedAddress {index, relocate: _} => //unimplemented!(), // TODO: Check and test if correct. Also handle relocate flag
-                result = eval.resume_with_indexed_address(dwarf.address(unit, index)?)?,
+            RequiresBaseType(unit_offset) => resolve_requires_base_type(unit, &mut eval, &mut result, unit_offset)?,
+        };
 
-            RequiresBaseType(unit_offset) => // TODO: Check and test if correct
-                result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)).value_type())?,
+        match resolved {
+            EvalResult::Complete => continue,
+            _ => return Ok(EvalPieceResult::Requires(resolved)),
         };
     }
 
     let pieces = eval.result();
     println!("{:#?}", pieces);
-    Ok(pieces)
+    Ok(EvalPieceResult::Complete(pieces))
 }
 
 
@@ -181,27 +189,27 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
 
 fn resolve_requires_at_location<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                                core:       &mut probe_rs::Core,
                                 unit:       &Unit<R>,
                                 pc:         u32,
                                 eval:       &mut Evaluation<R>,
                                 result:     &mut EvaluationResult<R>,
                                 frame_base: Option<u64>,
                                 die_ref:    DieReference<usize>,
-                                registers:     &Vec<(u16, u32)>,
-                                ) -> Result<()>
+                                registers:  &HashMap<u16, u32>,
+                                memory:  &HashMap<u32, u32>,
+                                ) -> Result<EvalResult>
                                 where R: Reader<Offset = usize>
 { 
     match die_ref {
         DieReference::UnitRef(unit_offset) => {
-            return help_at_location(dwarf, core, unit, pc, eval, result, frame_base, unit_offset, registers);
+            return help_at_location(dwarf, unit, pc, eval, result, frame_base, unit_offset, registers, memory);
         },
 
         DieReference::DebugInfoRef(debug_info_offset) => {
             let unit_header = dwarf.debug_info.header_from_offset(debug_info_offset)?;
             if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                 let new_unit = dwarf.unit(unit_header)?;
-                return help_at_location(dwarf, core, &new_unit, pc, eval, result, frame_base, unit_offset, registers);
+                return help_at_location(dwarf, &new_unit, pc, eval, result, frame_base, unit_offset, registers, memory);
             } else {
                 return Err(anyhow!("Could not find at location"));
             }    
@@ -211,36 +219,42 @@ fn resolve_requires_at_location<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
 
 pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
-                                                 core:       &mut probe_rs::Core,
                                                  pieces:     Vec<gimli::Piece<R>>,
                                                  type_unit:  Option<&gimli::Unit<R>>,
                                                  type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
-                                                 registers:     &Vec<(u16, u32)>,
-                                                 ) -> Result<EvaluatorValue<R>>
+                                                 registers:  &HashMap<u16, u32>,
+                                                 memory:     &HashMap<u32, u32>,
+                                                 ) -> Result<EvaluatorResult<R>>
 {
     let mut evaluator = evaluate::Evaluator::new(&dwarf, pieces.clone(), type_unit, type_die);
-    for (reg, data) in registers {
-        evaluator.add_register(*reg, *data);
-    }
     loop {
         match evaluator.evaluate(&dwarf) {
             evaluate::EvaluatorResult::Complete => break,
             evaluate::EvaluatorResult::RequireReg(reg) => { 
                 println!("read reg: {:?}", reg);
-                let data = core.read_core_reg(reg)?;
-                evaluator.add_register(reg, data);
+                match registers.get(&reg) {
+                    Some(data) => evaluator.add_register(reg, *data),
+                    None => return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
+                        register: reg,
+                    })),
+                };
             },
-            evaluate::EvaluatorResult::RequireData {address, num_words: _} => {
-                let mut data: [u32; 1] = [0];
-                core.read_32(address as u32, &mut data)?;
-                evaluator.add_address(address, data[0]); // TODO: Read more then 1 word
+            evaluate::EvaluatorResult::RequireData {address, num_words} => {
+                println!("address: {:?}, num_words: {:?}", address, num_words);
+                match memory.get(&address) {
+                    Some(data) => evaluator.add_address(address, *data),
+                    None => return Ok(EvaluatorResult::Requires(EvalResult::RequiresMemory {
+                        address: address,
+                        num_words: num_words,
+                    })),
+                }; 
             },
         };
     }
     let value = evaluator.get_value();
 
 //      println!("Value: {:#?}", value);
-    Ok(value.unwrap())
+    Ok(EvaluatorResult::Complete(value.unwrap()))
 }
 
 
@@ -248,24 +262,29 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
  * Resolves requires memory when evaluating a die.
  * TODO: Check and test if correct.
  */
-fn resolve_requires_mem<R: Reader<Offset = usize>>(core:       &mut probe_rs::Core,
-                                                   unit:       &Unit<R>,
+fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
                                                    eval:       &mut Evaluation<R>,
                                                    result:     &mut EvaluationResult<R>,
                                                    address:    u64,
-                                                   _size:       u8, // TODO: Handle size
-                                                   _space:      Option<u64>, // TODO: Handle space
-                                                   base_type:  UnitOffset<usize>
-                                                   ) -> Result<()>
+                                                   size:       u8, // TODO: Handle size
+                                                   space:      Option<u64>, // TODO: Handle space
+                                                   base_type:  UnitOffset<usize>,
+                                                   memory:      &HashMap<u32, u32>,
+                                                   ) -> Result<EvalResult>
                                                    where R: Reader<Offset = usize>
 {
-    let mut data: [u32; 2] = [0,0]; // TODO: How much data should be read? 2 x 32?
-    core.read_32(address as u32, &mut data)?;
-    let value = parse_base_type(unit, &data, base_type);
-    *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
-
-    Ok(())
-    // TODO: Mask the relevant bits?
+    println!("address: {:?}, size: {:?}, space: {:?}", address, size, space);
+    match memory.get(&(address as u32)) { //TODO handle size and space
+        Some(data) => {
+            let value = parse_base_type(unit, &[*data], base_type);
+            *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
+            Ok(EvalResult::Complete)
+        },
+        None => Ok(EvalResult::RequiresMemory {
+            address: address as u32,
+            num_words:  (size as usize + 4 - 1)/4, 
+        }),
+    }
 }
 
 
@@ -273,52 +292,153 @@ fn resolve_requires_mem<R: Reader<Offset = usize>>(core:       &mut probe_rs::Co
  * Resolves requires register when evaluating a die.
  * TODO: Check and test if correct.
  */
-fn resolve_requires_reg<R: Reader<Offset = usize>>(core:       &mut probe_rs::Core,
+fn resolve_requires_reg<R: Reader<Offset = usize>>(
                         unit:       &Unit<R>,
                         eval:       &mut Evaluation<R>,
                         result:     &mut EvaluationResult<R>,
                         reg:        Register,
                         base_type:  UnitOffset<usize>,
-                        registers:     &Vec<(u16, u32)>,
-                        ) -> Result<()>
+                        registers:  &HashMap<u16, u32>,
+                        ) -> Result<EvalResult>
                         where R: Reader<Offset = usize>
 {
     println!("req reg: {:?}", reg.0);
-    let mut data    = core.read_core_reg(reg.0)?;
-    for r in registers {
-        if r.0 == reg.0 {
-            data = r.1;
-            break;
-        }
+    match registers.get(&reg.0) {
+        Some(data) => {
+            let value   = parse_base_type(unit, &[*data], base_type);
+            *result     = eval.resume_with_register(convert_to_gimli_value(value))?;
+
+            Ok(EvalResult::Complete)
+        },
+        None => Ok(EvalResult::RequiresRegister {
+            register: reg.0,
+        }),
     }
-
-    let value   = parse_base_type(unit, &[data], base_type);
-    *result     = eval.resume_with_register(convert_to_gimli_value(value))?;    
-
-    Ok(())
 }
 
 
+fn resolve_requires_entry_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
+                        unit:       &Unit<R>,
+                        eval:       &mut Evaluation<R>,
+                        result:     &mut EvaluationResult<R>,
+                        entry:      gimli::Expression<R>,
+                        pc: u32,
+                        frame_base: Option<u64>,
+                        registers:  &HashMap<u16, u32>,
+                        memory:     &HashMap<u32, u32>,
+                        ) -> Result<EvalResult>
+                        where R: Reader<Offset = usize>
+{
+    let entry_value = match evaluate(dwarf, unit, pc, entry, frame_base, None, None, registers, memory)? {
+        EvaluatorResult::Complete(val) => val,
+        EvaluatorResult::Requires(req) => return Ok(req),
+    };
+
+    *result = eval.resume_with_entry_value(convert_to_gimli_value(entry_value.to_value().unwrap()))?;
+
+    Ok(EvalResult::Complete)
+}
+
+
+fn resolve_requires_paramter_ref<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
+                        unit:       &Unit<R>,
+                        eval:       &mut Evaluation<R>,
+                        result:     &mut EvaluationResult<R>,
+                        unit_offset: UnitOffset,
+                        type_unit:  Option<&gimli::Unit<R>>,
+                        pc: u32,
+                        frame_base: Option<u64>,
+                        registers:  &HashMap<u16, u32>,
+                        memory:     &HashMap<u32, u32>,
+                        ) -> Result<EvalResult>
+                        where R: Reader<Offset = usize>
+{
+    let die     = unit.entry(unit_offset)?;
+    let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
+    let value   = match evaluate(dwarf, unit, pc, expr, frame_base, type_unit, Some(&die), registers, memory)? {
+        EvaluatorResult::Complete(val) => val,
+        EvaluatorResult::Requires(req) => return Ok(req),
+    };
+
+    if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
+        *result = eval.resume_with_parameter_ref(val)?;
+    } else {
+        panic!("here");
+        //return Err(anyhow!("could not find parameter"));
+    }
+
+    Ok(EvalResult::Complete)
+}
+
+
+fn resolve_requires_relocated_address<R: Reader<Offset = usize>>(
+                        eval:       &mut Evaluation<R>,
+                        result:     &mut EvaluationResult<R>,
+                        num: u64
+                        ) -> Result<EvalResult>
+                        where R: Reader<Offset = usize>
+{
+    *result = eval.resume_with_relocated_address(num)?; // TODO: Check and test if correct.
+
+    Ok(EvalResult::Complete)
+}
+
+
+fn resolve_requires_indexed_address<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
+                        unit:       &Unit<R>,
+                        eval:       &mut Evaluation<R>,
+                        result:     &mut EvaluationResult<R>,
+                        index:      gimli::DebugAddrIndex,
+                        ) -> Result<EvalResult>
+                        where R: Reader<Offset = usize>
+{
+    // TODO: Check and test if correct. Also handle relocate flag
+    *result = eval.resume_with_indexed_address(dwarf.address(unit, index)?)?;
+
+    Ok(EvalResult::Complete)
+}
+
+
+fn resolve_requires_base_type<R: Reader<Offset = usize>>(
+                        unit:       &Unit<R>,
+                        eval:       &mut Evaluation<R>,
+                        result:     &mut EvaluationResult<R>,
+                        unit_offset: UnitOffset,
+                        ) -> Result<EvalResult>
+                        where R: Reader<Offset = usize>
+{
+    // TODO: Check and test if correct
+
+    *result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)).value_type())?;
+
+    Ok(EvalResult::Complete)
+}
+
+
+
 fn help_at_location<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                    core:           &mut probe_rs::Core,
                     unit:           &Unit<R>,
                     pc:             u32,
                     eval:           &mut Evaluation<R>,
                     result:         &mut EvaluationResult<R>,
                     frame_base:     Option<u64>,
                     unit_offset:    UnitOffset<usize>,
-                    registers:     &Vec<(u16, u32)>,
-                    ) -> Result<()>
+                    registers:  &HashMap<u16, u32>,
+                    memory:  &HashMap<u32, u32>,
+                    ) -> Result<EvalResult>
                     where R: Reader<Offset = usize>
 {
     let die = unit.entry(unit_offset)?;
     if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
-        
-        let val = call_evaluate(dwarf, core, &unit, pc, expr, frame_base, &unit, &die, registers)?;
+       
+        let val = match call_evaluate(dwarf, &unit, pc, expr, frame_base, &unit, &die, registers, memory)? {
+            EvaluatorResult::Complete(val) => val,
+            EvaluatorResult::Requires(req) => return Ok(req),
+        };
 
         if let EvaluatorValue::Bytes(b) = val {
            *result =  eval.resume_with_at_location(b)?;
-           return Ok(());
+           return Ok(EvalResult::Complete);
         } else {
             return Err(anyhow!("Error expected bytes"));
         }

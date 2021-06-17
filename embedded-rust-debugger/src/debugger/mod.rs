@@ -4,7 +4,9 @@ pub mod call_stack;
 pub mod source_information;
 pub mod stack_frame;
 
-
+use crate::debugger::evaluate::EvaluatorResult;
+use crate::debugger::evaluate::EvalResult;
+use std::collections::HashMap;
 use crate::debugger::stack_frame::{
     StackFrame,
 };
@@ -213,20 +215,19 @@ fn eval_location<R: Reader<Offset = usize>>(dwarf:         & Dwarf<R>,
         None => (),
     };
 
-
     //println!("{:?}", die.attr_value(gimli::DW_AT_location));
     match die.attr_value(gimli::DW_AT_location)? {
         Some(Exprloc(expr)) => {
-            let value = call_evaluate(dwarf, core, unit, pc, expr, frame_base, unit, die, registers)?;
+            let value = required_handler(dwarf, core, unit, pc, expr, frame_base, unit, die, registers)?;
 
-            return Ok(Some(value));
+            return Ok(value);
         },
         Some(LocationListsRef(offset)) => {
             let mut locations = dwarf.locations(unit, offset)?;
             while let Some(llent) = locations.next()? {
                 if in_range(pc, &llent.range) {
-                    let value = call_evaluate(dwarf, core, unit, pc, llent.data, frame_base, unit, die, registers)?;
-                    return Ok(Some(value));
+                    let value = required_handler(dwarf, core, unit, pc, llent.data, frame_base, unit, die, registers)?;
+                    return Ok(value);
                 }
             }
 
@@ -237,6 +238,42 @@ fn eval_location<R: Reader<Offset = usize>>(dwarf:         & Dwarf<R>,
             println!("{:?}", v);
             unimplemented!();
         },
+    }
+}
+
+
+fn required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
+                                               core:    &mut probe_rs::Core,
+                                               nunit:      &Unit<R>,
+                                               pc:         u32,
+                                               expr:       gimli::Expression<R>,
+                                               frame_base: Option<u64>,
+                                               unit:     &Unit<R>,
+                                               die: &DebuggingInformationEntry<R>,
+                                               registers:     &Vec<(u16, u32)>,
+                                               ) -> Result<Option<EvaluatorValue<R>>> {
+    let mut memory = HashMap::new();
+    let mut regs = HashMap::new();
+    for (reg, val) in registers {
+        regs.insert(*reg, *val);
+    }
+    
+    loop {
+        let result = call_evaluate(dwarf, unit, pc, expr.clone(), frame_base, unit, die, &regs, &memory)?;
+        match result {
+            EvaluatorResult::Complete(val) => return Ok(Some(val)),
+            EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
+                panic!("unreachable");
+                //let value = core.read_core_reg(register)?;
+                //regs.insert(register, value);
+            },
+            EvaluatorResult::Requires(EvalResult::RequiresMemory { address, num_words: _ })  => {
+                let mut buff = vec![0u32; 1];
+                core.read_32(address, &mut buff)?;
+                memory.insert(address, buff[0]);
+            },
+            _ => unreachable!(),
+        };
     }
 }
 
@@ -252,7 +289,8 @@ pub fn check_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 {
     if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
         if let Some(expr) = val.exprloc_value() {
-            return Ok(match evaluate::evaluate(dwarf, core, unit, pc, expr, frame_base, None, None, registers) {
+
+            return Ok(match evaluate_required_handler(dwarf, core, unit, pc, expr, frame_base, None, None, registers) {
                 //Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
                 //Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
                 Ok(EvaluatorValue::Value(BaseValue::Address32(v))) => Some(v as u64),
@@ -267,6 +305,42 @@ pub fn check_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
         }
     } else {
         return Ok(frame_base);
+    }
+}
+
+
+fn evaluate_required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
+                                               core:    &mut probe_rs::Core,
+                                               unit:      &Unit<R>,
+                                               pc:         u32,
+                                               expr:       gimli::Expression<R>,
+                                               frame_base: Option<u64>,
+                                               type_unit:     Option<&Unit<R>>,
+                                               type_die: Option<&DebuggingInformationEntry<R>>,
+                                               registers:     &Vec<(u16, u32)>,
+                                               ) -> Result<EvaluatorValue<R>> {
+    let mut memory = HashMap::new();
+    let mut regs = HashMap::new();
+    for (reg, val) in registers {
+        regs.insert(*reg, *val);
+    }
+    
+    loop {
+        let result = evaluate::evaluate(dwarf, unit, pc, expr.clone(), frame_base, type_unit, type_die, &regs, &memory)?;
+        match result {
+            EvaluatorResult::Complete(val) => return Ok(val),
+            EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
+                panic!("unreachable");
+                //let value = core.read_core_reg(register)?;
+                //regs.insert(register, value);
+            },
+            EvaluatorResult::Requires(EvalResult::RequiresMemory { address, num_words: _ })  => {
+                let mut buff = vec![0u32; 1];
+                core.read_32(address, &mut buff)?;
+                memory.insert(address, buff[0]);
+            },
+            _ => unreachable!(),
+        };
     }
 }
 
@@ -398,13 +472,22 @@ fn check_var_name<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
 }
 
 
-pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core:       &mut probe_rs::Core, nunit:      &Unit<R>, pc:         u32, expr:       gimli::Expression<R>, frame_base: Option<u64>, unit:     &Unit<R>, die: &DebuggingInformationEntry<R>, registers:     &Vec<(u16, u32)>,) -> Result<EvaluatorValue<R>>
+pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                                nunit:      &Unit<R>,
+                                                pc:         u32,
+                                                expr:       gimli::Expression<R>,
+                                                frame_base: Option<u64>,
+                                                unit:     &Unit<R>,
+                                                die: &DebuggingInformationEntry<R>,
+                                                registers: &HashMap<u16, u32>,
+                                                memory: &HashMap<u32, u32>,
+                                                ) -> Result<EvaluatorResult<R>>
 {
     if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
         match tattr {
             gimli::AttributeValue::UnitRef(offset) => {
                 let die = unit.entry(offset)?;
-                return evaluate::evaluate(dwarf, core, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers);
+                return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers, memory);
             },
             gimli::AttributeValue::DebugInfoRef(di_offset) => {
                 let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
@@ -413,7 +496,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core:       &
                     let unit = dwarf.unit(header).unwrap();
                     if let Some(offset) = offset.to_unit_offset(&unit) {
                         let die = unit.entry(offset)?;
-                        return evaluate::evaluate(dwarf, core, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers);
+                        return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers, memory);
                     }
                 }
                 return Err(anyhow!(""));
@@ -424,7 +507,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core:       &
         match die_offset {
             UnitRef(offset) => {
                 if let Ok(ndie) = unit.entry(offset) {
-                    return call_evaluate(dwarf, core, nunit, pc, expr, frame_base, unit, &ndie, registers);
+                    return call_evaluate(dwarf, nunit, pc, expr, frame_base, unit, &ndie, registers, memory);
                 }
             },
             _ => {
