@@ -3,6 +3,7 @@ pub mod evaluate;
 pub mod call_stack;
 pub mod source_information;
 pub mod stack_frame;
+pub mod variable;
 
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::EvalResult;
