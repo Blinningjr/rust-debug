@@ -28,7 +28,7 @@ pub fn name_attribute<R: Reader<Offset = usize>>(dwarf: &gimli::Dwarf<R>,
             println!("name_attribute, unknown: {:?}", unknown);
             unimplemented!();
         },
-        None => Some("<Unknown>".to_string()), // TODO: return None
+        None => return None,
     };
 }
 

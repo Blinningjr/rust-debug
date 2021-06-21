@@ -5,8 +5,13 @@ use crate::debugger::check_frame_base;
 use crate::debugger::eval_location;
 use crate::debugger::get_var_name;
 use crate::debugger::source_information::SourceInformation;
+use crate::debugger::evaluate::EvaluatorResult;
+use crate::debugger::evaluate::EvalResult;
+use crate::debugger::variable::VariableCreator;
 
 use crate::get_current_unit;
+
+use probe_rs::MemoryInterface;
 
 use gimli::{
     Reader,
@@ -242,6 +247,37 @@ pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
     }
     Ok(())
 }
+
+
+pub fn eval_var<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                  core:             &mut probe_rs::Core,
+                                  unit:             &Unit<R>,
+                                  die:              &DebuggingInformationEntry<R>,
+                                  pc:               u32,
+                                  frame_base:       Option<u64>,
+                                  registers:        &Vec<(u16, u32)>,
+                                  ) -> Result<(Option<String>, EvaluatorValue<R>)>
+{
+    let mut vc = VariableCreator::new(dwarf, unit.header.offset(), die.offset(), registers, frame_base, pc)?;
+
+    loop {
+        match vc.continue_create(dwarf)? {
+            EvaluatorResult::Complete(val) => return Ok((Some(vc.name), val)),
+            EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
+                panic!("unreachable");
+                //let value = core.read_core_reg(register)?;
+                //regs.insert(register, value);
+            },
+            EvaluatorResult::Requires(EvalResult::RequiresMemory { address, num_words: _ })  => {
+                let mut buff = vec![0u32; 1];
+                core.read_32(address, &mut buff)?;
+                vc.add_to_memory(address, buff[0]);
+            },
+            _ => unreachable!(),
+        };
+    }
+}
+
 
 
 pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,

@@ -21,8 +21,10 @@ use anyhow::{
 
 use std::collections::HashMap;
 
-use crate::debugger::stack_frame::find_function_die;
+use crate::debugger::evaluate::attributes;
 use crate::debugger::in_range;
+use crate::debugger::evaluate::EvaluatorResult;
+use crate::debugger::evaluate::evaluate;
 
 
 #[derive(Debug, Clone)]
@@ -53,7 +55,7 @@ impl VariableCreator {
     pub fn new<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                section_offset: UnitSectionOffset,
                unit_offset: UnitOffset,
-               registers: Vec<(u16, u32)>,
+               registers: &Vec<(u16, u32)>,
                frame_base: Option<u64>,
                pc: u32,
                ) -> Result<VariableCreator>
@@ -66,7 +68,7 @@ impl VariableCreator {
 
         let mut regs = HashMap::new();
         for (reg, val) in registers {
-            regs.insert(reg, val);
+            regs.insert(*reg, *val);
         }
 
         Ok(VariableCreator {
@@ -83,6 +85,11 @@ impl VariableCreator {
     }
 
 
+    pub fn add_to_memory(&mut self, address: u32, value: u32) {
+        self.memory.insert(address, value);
+    }
+
+
     pub fn get_variable(&self) -> Result<Variable> {
         match &self.value {
             Some(val) => Ok(Variable {
@@ -94,8 +101,35 @@ impl VariableCreator {
     }
 
 
-    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>) -> Result<bool> {
-        unimplemented!();
+    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>) -> Result<EvaluatorResult<R>> {
+        let header = dwarf.debug_info.header_from_offset(self.section_offset.as_debug_info_offset().unwrap())?;
+        let unit = gimli::Unit::new(dwarf, header)?;
+        let die = unit.entry(self.unit_offset)?;
+
+
+        let expression = match find_variable_location(dwarf, &unit, &die, self.pc)? {
+            VariableLocation::Expression(expr) => expr,
+            VariableLocation::LocationListEntry(llent) => llent.data,
+            _ => unimplemented!(),
+        };
+
+
+        let (type_section_offset, type_unit_offset) = find_variable_type_die(dwarf, &unit, &die)?;
+
+        let header = dwarf.debug_info.header_from_offset(type_section_offset.as_debug_info_offset().unwrap())?;
+        let type_unit = gimli::Unit::new(dwarf, header)?;
+        let type_die = unit.entry(type_unit_offset)?;
+
+
+        evaluate(dwarf,
+                 &unit,
+                 self.pc,
+                 expression,
+                 self.frame_base,
+                 Some(&type_unit),
+                 Some(&type_die),
+                 &self.registers,
+                 &self.memory)
     }
 }
 
@@ -141,7 +175,6 @@ fn get_var_name<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 }
 
 
-
 pub enum VariableLocation<R: Reader<Offset = usize>> {
     Expression(gimli::Expression<R>),
     LocationListEntry(gimli::LocationListEntry<R>),
@@ -179,5 +212,37 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
     } else {
         return Err(anyhow!("This die is not a variable"));
     } 
+}
+
+
+pub fn find_variable_type_die<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
+                          unit:         &Unit<R>,
+                          die:          &DebuggingInformationEntry<R>,
+                          ) -> Result<(UnitSectionOffset, UnitOffset)>
+{
+    if is_variable_die(die) {
+        match attributes::type_attribute(dwarf, unit, die) {
+            Some(result) => return Ok(result),
+            None => {
+                if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+                    match die_offset {
+                        UnitRef(offset) => {
+                            if let Ok(ao_die) = unit.entry(offset) {
+                                return find_variable_type_die(dwarf, unit, &ao_die);
+                            }
+                        },
+                        _ => {
+                            println!("{:?}", die_offset);
+                            unimplemented!();
+                        },
+                    };        
+                }
+
+                return Err(anyhow!("Could not find this variables type die"));
+            },
+        }
+    } else {
+        return Err(anyhow!("This die is not a variable"));
+    }
 }
 
