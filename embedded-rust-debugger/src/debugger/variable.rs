@@ -45,8 +45,6 @@ pub struct VariableCreator {
     pub value:  Option<String>,
     pub frame_base: Option<u64>,
     pub pc: u32,
-
-    pub memory_and_registers: MemoryAndRegisters,
 }
 
 
@@ -54,7 +52,6 @@ impl VariableCreator {
     pub fn new<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                section_offset: UnitSectionOffset,
                unit_offset: UnitOffset,
-               registers: &Vec<(u16, u32)>,
                frame_base: Option<u64>,
                pc: u32,
                ) -> Result<VariableCreator>
@@ -65,10 +62,6 @@ impl VariableCreator {
 
         let name = get_var_name(dwarf, &unit, &die)?;
 
-        let mut memory_and_registers = MemoryAndRegisters::new();
-        for (reg, val) in registers {
-            memory_and_registers.add_to_registers(*reg, *val);
-        }
 
         Ok(VariableCreator {
             section_offset: section_offset,
@@ -77,14 +70,7 @@ impl VariableCreator {
             value: None,
             frame_base: frame_base,
             pc: pc,
-
-            memory_and_registers: memory_and_registers,
         })
-    }
-
-
-    pub fn add_to_memory(&mut self, address: u32, value: u32) {
-        self.memory_and_registers.add_to_memory(address, value);
     }
 
 
@@ -99,7 +85,7 @@ impl VariableCreator {
     }
 
 
-    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>) -> Result<EvalResult> {
+    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> Result<EvalResult> {
         let header = dwarf.debug_info.header_from_offset(self.section_offset.as_debug_info_offset().unwrap())?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(self.unit_offset)?;
@@ -133,7 +119,7 @@ impl VariableCreator {
                  self.frame_base,
                  Some(&type_unit),
                  Some(&type_die),
-                 &self.memory_and_registers)? {
+                 memory_and_registers)? {
             EvaluatorResult::Complete(val) => {
                 self.value = Some(val.to_string()); 
                 Ok(EvalResult::Complete)

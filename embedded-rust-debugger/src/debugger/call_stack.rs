@@ -58,8 +58,6 @@ pub struct CallStackUnwinder<R: Reader<Offset = usize>> {
     ctx:    gimli::UninitializedUnwindContext<R>,
 
     call_stack: Vec<CallFrame>,
-
-    memory_and_registers: MemoryAndRegisters,
 }
 
 
@@ -67,33 +65,26 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
     pub fn new(program_counter_register:    usize,
                link_register:               usize,
                stack_pointer_register:      usize,
-               registers:                   [u32;16]
+               memory_and_registers:        &MemoryAndRegisters,
                ) -> CallStackUnwinder<R>
     {
         let mut regs = [None;16];
-        for i in 0..16 {
-            regs[i] = Some(registers[i]);
+        for (reg, val) in &memory_and_registers.registers {
+            regs[*reg as usize] = Some(*val);
         }
         CallStackUnwinder {
             program_counter_register:   program_counter_register,
             link_register:              link_register,
             stack_pointer_register:     stack_pointer_register,
 
-            code_location:  Some(registers[program_counter_register] as u64),
+            code_location:  memory_and_registers.get_register_value(&(program_counter_register as u16)).map(|v| *v as u64),
             registers:      regs,
 
             bases:          gimli::BaseAddresses::default(),
             ctx:            gimli::UninitializedUnwindContext::new(),
 
             call_stack:     vec!(),
-
-            memory_and_registers: MemoryAndRegisters::new(),
         }
-    }
-
-
-    pub fn add_address(&mut self, address: u32, value: u32) {
-        self.memory_and_registers.add_to_memory(address, value);
     }
 
 
@@ -102,8 +93,9 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
     }
 
 
-    pub fn unwind<'a>(&mut self,
-                debug_frame: &'a DebugFrame<R>,
+    pub fn unwind<'b>(&mut self,
+                debug_frame: &'b DebugFrame<R>,
+                memory_and_registers:        &MemoryAndRegisters,
                 ) -> Result<UnwindResult>
     {
         let code_location = match self.code_location {
@@ -155,7 +147,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
                         None => return Err(anyhow!("Expected CFA to have a value")),
                     }) as u32;
 
-                    let value = match self.memory_and_registers.get_address_value(&address) {
+                    let value = match memory_and_registers.get_address_value(&address) {
                         Some(val) => *val,
                         None => return Ok(UnwindResult::RequiresAddress {
                             address: address,
@@ -199,7 +191,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
         // a backtrace, not the next instruction to be executed.
         self.code_location = self.registers[self.link_register as usize].map(|pc| u64::from(pc & !1) - 1);
         
-        self.unwind(debug_frame)
+        self.unwind(debug_frame, memory_and_registers)
     }
 
 

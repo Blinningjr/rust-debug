@@ -72,21 +72,22 @@ pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debu
 
     let register_file = core.registers();
    
-    let mut regs = [0;16];
+    let mut memory_and_registers = MemoryAndRegisters::new();
     for register in register_file.registers() {
         let value = core.read_core_reg(register)?;
-   
-        regs[probe_rs::CoreRegisterAddress::from(register).0 as usize] = value;
+  
+        memory_and_registers.add_to_registers(probe_rs::CoreRegisterAddress::from(register).0, value);
     }
 
-    let mut csu = call_stack::CallStackUnwinder::new(pc_reg, link_reg, sp_reg, regs);
+
+    let mut csu = call_stack::CallStackUnwinder::new(pc_reg, link_reg, sp_reg, &memory_and_registers);
     loop {
-        match csu.unwind(debug_frame)? {
+        match csu.unwind(debug_frame, &memory_and_registers)? {
             call_stack::UnwindResult::Complete => break,
             call_stack::UnwindResult::RequiresAddress { address } => {
                 let mut buff = vec![0u32; 1];
                 core.read_32(address, &mut buff)?;
-                csu.add_address(address, buff[0]); 
+                memory_and_registers.add_to_memory(address, buff[0]);
             },
         }
     }
@@ -168,7 +169,13 @@ pub fn process_tree<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
     };
 
     let registers = get_registers(core)?;
-    frame_base = check_frame_base(dwarf, core, unit, pc, &die, frame_base, &registers)?;
+    let mut memory_and_registers = MemoryAndRegisters::new();
+    for (reg, val) in &registers {
+        memory_and_registers.add_to_registers(*reg, *val);
+    }
+
+    
+    frame_base = check_frame_base(dwarf, core, unit, pc, &die, frame_base, &mut memory_and_registers)?;
 
     // Check for the searched vairable.
     if check_var_name(dwarf, unit, pc, &die, search) {
@@ -288,13 +295,13 @@ pub fn check_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                                    pc:         u32,
                                                    die:        &DebuggingInformationEntry<'_, '_, R>,
                                                    frame_base: Option<u64>,
-                                                   registers:     &Vec<(u16, u32)>,
+                                                   memory_and_registers: &mut MemoryAndRegisters,
                                                    ) -> Result<Option<u64>>
 {
     if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
         if let Some(expr) = val.exprloc_value() {
 
-            return Ok(match evaluate_required_handler(dwarf, core, unit, pc, expr, frame_base, None, None, registers) {
+            return Ok(match evaluate_required_handler(dwarf, core, unit, pc, expr, frame_base, None, None, memory_and_registers) {
                 //Ok(EvaluatorValue::Value(BaseValue::U64(v))) => Some(v),
                 //Ok(EvaluatorValue::Value(BaseValue::U32(v))) => Some(v as u64),
                 Ok(EvaluatorValue::Value(BaseValue::Address32(v))) => Some(v as u64),
@@ -321,16 +328,11 @@ fn evaluate_required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                                                frame_base: Option<u64>,
                                                type_unit:     Option<&Unit<R>>,
                                                type_die: Option<&DebuggingInformationEntry<R>>,
-                                               registers:     &Vec<(u16, u32)>,
+                                               memory_and_registers: &mut MemoryAndRegisters,
                                                ) -> Result<EvaluatorValue<R>>
 {
-    let mut memory_and_registers = MemoryAndRegisters::new();
-    for (reg, val) in registers {
-        memory_and_registers.add_to_registers(*reg, *val);
-    }
-    
     loop {
-        let result = evaluate::evaluate(dwarf, unit, pc, expr.clone(), frame_base, type_unit, type_die, &memory_and_registers)?;
+        let result = evaluate::evaluate(dwarf, unit, pc, expr.clone(), frame_base, type_unit, type_die, memory_and_registers)?;
         match result {
             EvaluatorResult::Complete(val) => return Ok(val),
             EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {

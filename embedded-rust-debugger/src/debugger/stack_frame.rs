@@ -10,6 +10,7 @@ use crate::debugger::evaluate::EvalResult;
 use crate::debugger::variable::VariableCreator;
 use crate::debugger::variable::is_variable_die;
 use crate::debugger::variable::Variable;
+use crate::debugger::MemoryAndRegisters;
 
 use crate::get_current_unit;
 
@@ -121,15 +122,16 @@ impl StackFrame {
             _ => "<unknown>".to_string(),
         };
 
-        let mut registers = vec!();
+
+        let mut memory_and_registers = MemoryAndRegisters::new();
         for i in 0..call_frame.registers.len() {
             match call_frame.registers[i] {
-                Some(val) => registers.push((i as u16, val)),
+                Some(val) => memory_and_registers.add_to_registers(i as u16, val),
                 None => (),
             };
         }
 
-        let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &registers)?;
+        let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &mut memory_and_registers)?;
 
         Ok(StackFrame{
             call_frame: call_frame.clone(),
@@ -202,16 +204,16 @@ pub fn get_scope_variables<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                            unit:    &Unit<R>,
                            die:     &DebuggingInformationEntry<'_, '_, R>,
                            pc:      u32,
-                           registers: &Vec<(u16, u32)>,
+                           memory_and_registers: &mut MemoryAndRegisters,
                            ) -> Result<Vec<Variable>>
 {
     let mut variables = vec!();
-    let frame_base = check_frame_base(dwarf, core, unit, pc, die, None, registers)?;
+    let frame_base = check_frame_base(dwarf, core, unit, pc, die, None, memory_and_registers)?;
 
     let mut tree = unit.entries_tree(Some(die.offset()))?;
     let node = tree.root()?;
 
-    get_scope_variables_search(dwarf, core, unit, pc, node, frame_base, &mut variables, registers)?;
+    get_scope_variables_search(dwarf, core, unit, pc, node, frame_base, &mut variables, memory_and_registers)?;
     return Ok(variables);
 }
 
@@ -223,7 +225,7 @@ pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                   node:             EntriesTreeNode<R>,
                                   frame_base:       Option<u64>,
                                   variables:        &mut Vec<Variable>,
-                                  registers:        &Vec<(u16, u32)>,
+                                  memory_and_registers: &mut MemoryAndRegisters,
                                   ) -> Result<()>
 {
     let die = node.entry();
@@ -236,13 +238,13 @@ pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
 
     if is_variable_die(&die) {
-        variables.push(eval_var(dwarf, core, unit, &die, pc, frame_base, registers)?);
+        variables.push(eval_var(dwarf, core, unit, &die, pc, frame_base, memory_and_registers)?);
     }
 
     // Recursively process the children.
     let mut children = node.children();
     while let Some(child) = children.next()? {
-        get_scope_variables_search(dwarf, core, unit, pc, child, frame_base, variables, registers)?;
+        get_scope_variables_search(dwarf, core, unit, pc, child, frame_base, variables, memory_and_registers)?;
     }
     Ok(())
 }
@@ -254,13 +256,13 @@ pub fn eval_var<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                   die:              &DebuggingInformationEntry<R>,
                                   pc:               u32,
                                   frame_base:       Option<u64>,
-                                  registers:        &Vec<(u16, u32)>,
+                                  memory_and_registers: &mut MemoryAndRegisters,
                                   ) -> Result<Variable>
 {
-    let mut vc = VariableCreator::new(dwarf, unit.header.offset(), die.offset(), registers, frame_base, pc)?;
+    let mut vc = VariableCreator::new(dwarf, unit.header.offset(), die.offset(), frame_base, pc)?;
 
     loop {
-        match vc.continue_create(dwarf)? {
+        match vc.continue_create(dwarf, memory_and_registers)? {
             EvalResult::Complete => break,
             EvalResult::RequiresRegister { register } => {
                 panic!("unreachable");
@@ -270,7 +272,7 @@ pub fn eval_var<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
             EvalResult::RequiresMemory { address, num_words: _ } => {
                 let mut buff = vec![0u32; 1];
                 core.read_32(address, &mut buff)?;
-                vc.add_to_memory(address, buff[0]);
+                memory_and_registers.add_to_memory(address, buff[0]);
             },
         };
     }
