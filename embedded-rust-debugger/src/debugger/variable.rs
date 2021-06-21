@@ -29,7 +29,7 @@ use crate::debugger::evaluate::evaluate;
 
 #[derive(Debug, Clone)]
 pub struct Variable {
-    pub name:   String,
+    pub name:   Option<String>,
     pub value:  String,
 //    pub type_:  String,
 //    pub locations: Vec<u32>, // u32 or registery number
@@ -41,7 +41,7 @@ pub struct Variable {
 pub struct VariableCreator {
     pub section_offset: UnitSectionOffset,
     pub unit_offset: UnitOffset,
-    pub name:   String,
+    pub name:   Option<String>,
     pub value:  Option<String>,
     pub frame_base: Option<u64>,
     pub pc: u32,
@@ -145,14 +145,14 @@ pub fn is_variable_die<R: Reader<Offset = usize>>(die: &DebuggingInformationEntr
 fn get_var_name<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                            unit:     &Unit<R>,
                                            die:      &DebuggingInformationEntry<R>,
-                                           ) -> Result<String>
+                                           ) -> Result<Option<String>>
 {
     if is_variable_die(die) {
         // Get the name of the variable.
         if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) {
-            return Ok(
+            return Ok(Some(
                 dwarf.string(offset)?.to_string()?.to_string()
-            );
+            ));
 
         } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
             match offset {
@@ -168,7 +168,7 @@ fn get_var_name<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
             };
         }
 
-        return Err(anyhow!("Can't find name attribute"));
+        return Ok(None);
     } else {
         return Err(anyhow!("This die is not a variable"));
     }

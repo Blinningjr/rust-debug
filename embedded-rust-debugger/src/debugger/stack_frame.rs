@@ -8,6 +8,7 @@ use crate::debugger::source_information::SourceInformation;
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::EvalResult;
 use crate::debugger::variable::VariableCreator;
+use crate::debugger::variable::is_variable_die;
 
 use crate::get_current_unit;
 
@@ -232,13 +233,10 @@ pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
         _ => (),
     };
 
-    match eval_location(dwarf, core, unit, pc, &die, frame_base, registers)? {
-        Some(val) => {
-            let name = get_var_name(dwarf, unit, pc, die)?; // TODO: get name
-            variables.push((name, val));
-        },
-        None => (),
-    };
+
+    if is_variable_die(&die) {
+        variables.push(eval_var(dwarf, core, unit, &die, pc, frame_base, registers)?);
+    }
 
     // Recursively process the children.
     let mut children = node.children();
@@ -262,7 +260,7 @@ pub fn eval_var<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
     loop {
         match vc.continue_create(dwarf)? {
-            EvaluatorResult::Complete(val) => return Ok((Some(vc.name), val)),
+            EvaluatorResult::Complete(val) => return Ok((vc.name, val)),
             EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
                 panic!("unreachable");
                 //let value = core.read_core_reg(register)?;
