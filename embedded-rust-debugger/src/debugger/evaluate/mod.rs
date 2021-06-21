@@ -67,7 +67,7 @@ pub fn evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                 memory:     &HashMap<u32, u32>,
                 ) -> Result<EvaluatorResult<R>>
 {
-    let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, type_unit, registers, memory)? {
+    let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, memory)? {
         EvalPieceResult::Complete(val) => val,
         EvalPieceResult::Requires(req) => return Ok(EvaluatorResult::Requires(req)),
     };

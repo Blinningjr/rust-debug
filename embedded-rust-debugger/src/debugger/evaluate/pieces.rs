@@ -68,7 +68,6 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                 pc:         u32,
                 expr:       Expression<R>,
                 frame_base: Option<u64>,
-                type_unit:  Option<&gimli::Unit<R>>,
                 registers:  &HashMap<u16, u32>,
                 memory:     &HashMap<u32, u32>,
                 ) -> Result<EvalPieceResult<R>>
@@ -126,7 +125,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                 resolve_requires_entry_value(dwarf, unit, &mut eval,&mut result, e, pc, frame_base, registers, memory)?
             },
 
-            RequiresParameterRef(unit_offset) => resolve_requires_paramter_ref(dwarf, unit, &mut eval, &mut result, unit_offset, type_unit, pc, frame_base, registers, memory)?,
+            RequiresParameterRef(unit_offset) => resolve_requires_paramter_ref(dwarf, unit, &mut eval, &mut result, unit_offset, pc, frame_base, registers, memory)?,
 
             RequiresRelocatedAddress(num) => resolve_requires_relocated_address(&mut eval, &mut result, num)?,
 
@@ -264,7 +263,6 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                         eval:       &mut Evaluation<R>,
                         result:     &mut EvaluationResult<R>,
                         unit_offset: UnitOffset,
-                        type_unit:  Option<&gimli::Unit<R>>,
                         pc: u32,
                         frame_base: Option<u64>,
                         registers:  &HashMap<u16, u32>,
@@ -274,7 +272,7 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
 {
     let die     = unit.entry(unit_offset)?;
     let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
-    let value   = match evaluate(dwarf, unit, pc, expr, frame_base, type_unit, Some(&die), registers, memory)? {
+    let value   = match evaluate(dwarf, unit, pc, expr, frame_base, Some(unit), Some(&die), registers, memory)? {
         EvaluatorResult::Complete(val) => val,
         EvaluatorResult::Requires(req) => return Ok(req),
     };

@@ -111,7 +111,14 @@ impl VariableCreator {
         let expression = match find_variable_location(dwarf, &unit, &die, self.pc)? {
             VariableLocation::Expression(expr) => expr,
             VariableLocation::LocationListEntry(llent) => llent.data,
-            _ => unimplemented!(),
+            VariableLocation::OutOfRange => {
+                self.value = Some("<OutOfRange>".to_owned());
+                return Ok(EvalResult::Complete);
+            },
+            VariableLocation::NoLocation => {
+                self.value = Some("<OptimizedOut>".to_owned());
+                return Ok(EvalResult::Complete);
+            },
         };
 
 
