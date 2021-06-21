@@ -618,11 +618,11 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
                 variables.push(debugserver_types::Variable {
                     evaluate_name: None, //Option<String>,
                     indexed_variables: None,
-                    name: match &var.0 {Some(name) => name.clone(), None => "<unknown>".to_string(),},
+                    name: match &var.name {Some(name) => name.clone(), None => "<unknown>".to_string(),},
                     named_variables: None,
                     presentation_hint: None,
                     type_: None,
-                    value: var.1.clone(),
+                    value: var.value.clone(),
                     variables_reference: 0, // i64,
                 });
             }

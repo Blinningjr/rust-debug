@@ -23,6 +23,7 @@ use std::collections::HashMap;
 
 use crate::debugger::evaluate::attributes;
 use crate::debugger::in_range;
+use crate::debugger::evaluate::EvalResult;
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::evaluate;
 
@@ -101,7 +102,7 @@ impl VariableCreator {
     }
 
 
-    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>) -> Result<EvaluatorResult<R>> {
+    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>) -> Result<EvalResult> {
         let header = dwarf.debug_info.header_from_offset(self.section_offset.as_debug_info_offset().unwrap())?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(self.unit_offset)?;
@@ -121,7 +122,7 @@ impl VariableCreator {
         let type_die = unit.entry(type_unit_offset)?;
 
 
-        evaluate(dwarf,
+        match evaluate(dwarf,
                  &unit,
                  self.pc,
                  expression,
@@ -129,7 +130,14 @@ impl VariableCreator {
                  Some(&type_unit),
                  Some(&type_die),
                  &self.registers,
-                 &self.memory)
+                 &self.memory)? {
+            EvaluatorResult::Complete(val) => {
+                self.value = Some(val.to_string()); 
+                Ok(EvalResult::Complete)
+            },
+            EvaluatorResult::Requires(req) => Ok(req),
+            _ => unreachable!(),
+        }
     }
 }
 

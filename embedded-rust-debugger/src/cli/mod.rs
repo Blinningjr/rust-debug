@@ -308,8 +308,8 @@ impl Cli {
 
         for var in &stack_frame.variables {
             println!("\t{:?} = {:?}",
-                     var.0,
-                     var.1);
+                     var.name,
+                     var.value);
         }
         println!("");
     }

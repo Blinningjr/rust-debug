@@ -9,6 +9,7 @@ use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::EvalResult;
 use crate::debugger::variable::VariableCreator;
 use crate::debugger::variable::is_variable_die;
+use crate::debugger::variable::Variable;
 
 use crate::get_current_unit;
 
@@ -33,7 +34,7 @@ pub struct StackFrame {
     pub call_frame: CallFrame,
     pub name: String,
     pub source: SourceInformation,
-    pub variables: Vec<(Option<String>, String)>,
+    pub variables: Vec<Variable>,
 }
 
 
@@ -46,7 +47,7 @@ pub struct StackFrameCreator {
     pub name: String,
     pub source: SourceInformation,
     pub frame_base: Option<u64>,
-    pub variables: Vec<(Option<String>, String)>, 
+    pub variables: Vec<Variable>, 
 }
 
 
@@ -128,7 +129,7 @@ impl StackFrame {
             };
         }
 
-        let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &registers)?.iter().map(|(n, v)| (n.clone(), format!("{}", v))).collect();
+        let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &registers)?;
 
         Ok(StackFrame{
             call_frame: call_frame.clone(),
@@ -202,7 +203,7 @@ pub fn get_scope_variables<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                            die:     &DebuggingInformationEntry<'_, '_, R>,
                            pc:      u32,
                            registers: &Vec<(u16, u32)>,
-                           ) -> Result<Vec<(Option<String>, EvaluatorValue<R>)>>
+                           ) -> Result<Vec<Variable>>
 {
     let mut variables = vec!();
     let frame_base = check_frame_base(dwarf, core, unit, pc, die, None, registers)?;
@@ -221,7 +222,7 @@ pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                   pc:               u32,
                                   node:             EntriesTreeNode<R>,
                                   frame_base:       Option<u64>,
-                                  variables:        &mut Vec<(Option<String>, EvaluatorValue<R>)>,
+                                  variables:        &mut Vec<Variable>,
                                   registers:        &Vec<(u16, u32)>,
                                   ) -> Result<()>
 {
@@ -254,26 +255,27 @@ pub fn eval_var<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                   pc:               u32,
                                   frame_base:       Option<u64>,
                                   registers:        &Vec<(u16, u32)>,
-                                  ) -> Result<(Option<String>, EvaluatorValue<R>)>
+                                  ) -> Result<Variable>
 {
     let mut vc = VariableCreator::new(dwarf, unit.header.offset(), die.offset(), registers, frame_base, pc)?;
 
     loop {
         match vc.continue_create(dwarf)? {
-            EvaluatorResult::Complete(val) => return Ok((vc.name, val)),
-            EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
+            EvalResult::Complete => break,
+            EvalResult::RequiresRegister { register } => {
                 panic!("unreachable");
                 //let value = core.read_core_reg(register)?;
                 //regs.insert(register, value);
             },
-            EvaluatorResult::Requires(EvalResult::RequiresMemory { address, num_words: _ })  => {
+            EvalResult::RequiresMemory { address, num_words: _ } => {
                 let mut buff = vec![0u32; 1];
                 core.read_32(address, &mut buff)?;
                 vc.add_to_memory(address, buff[0]);
             },
-            _ => unreachable!(),
         };
     }
+
+    vc.get_variable()
 }
 
 
