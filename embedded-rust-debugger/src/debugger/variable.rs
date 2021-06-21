@@ -3,7 +3,6 @@ use gimli::{
     Dwarf,
     Unit,
     DebuggingInformationEntry,
-    EntriesTreeNode,
     AttributeValue::{
         DebugStrRef,
         UnitRef,
@@ -61,6 +60,7 @@ impl VariableCreator {
         let die = unit.entry(unit_offset)?;
 
         let name = get_var_name(dwarf, &unit, &die)?;
+        println!("name1: {:?}", name);
 
 
         Ok(VariableCreator {
@@ -125,7 +125,6 @@ impl VariableCreator {
                 Ok(EvalResult::Complete)
             },
             EvaluatorResult::Requires(req) => Ok(req),
-            _ => unreachable!(),
         }
     }
 }

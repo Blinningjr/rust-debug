@@ -1,9 +1,6 @@
 use crate::debugger::call_stack::CallFrame;
 use crate::debugger::die_in_range;
 use crate::debugger::EvaluatorValue;
-use crate::debugger::check_frame_base;
-use crate::debugger::eval_location;
-use crate::debugger::get_var_name;
 use crate::debugger::source_information::SourceInformation;
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::EvalResult;
@@ -11,10 +8,10 @@ use crate::debugger::variable::VariableCreator;
 use crate::debugger::variable::is_variable_die;
 use crate::debugger::variable::Variable;
 use crate::debugger::MemoryAndRegisters;
+use crate::debugger::evaluate::evaluate;
+use crate::debugger::evaluate::value::BaseValue;
 
 use crate::get_current_unit;
-
-use probe_rs::MemoryInterface;
 
 use gimli::{
     Reader,
@@ -27,7 +24,10 @@ use gimli::{
     UnitOffset,
 };
 
-use anyhow::Result;
+use anyhow::{
+    Result,
+    anyhow,
+};
 
 
 #[derive(Debug, Clone)]
@@ -44,9 +44,11 @@ pub struct StackFrameCreator {
     pub section_offset: gimli::UnitSectionOffset,
     pub unit_offset: gimli::UnitOffset,
     pub dies_to_check: Vec<gimli::UnitOffset>,
+
     pub call_frame: CallFrame,
     pub name: String,
     pub source: SourceInformation,
+
     pub frame_base: Option<u64>,
     pub variables: Vec<Variable>, 
 }
@@ -71,7 +73,7 @@ impl StackFrameCreator {
 
         let source = SourceInformation::get_die_source_information(dwarf, &unit, &node.entry(), cwd)?;
 
-        let mut dies_to_check = get_functions_variables_die_offset(dwarf, section_offset, unit_offset, call_frame.code_location as u32)?;
+        let dies_to_check = get_functions_variables_die_offset(dwarf, section_offset, unit_offset, call_frame.code_location as u32)?;
 
         Ok(StackFrameCreator {
             section_offset: section_offset,
@@ -86,11 +88,88 @@ impl StackFrameCreator {
     }
 
 
-    pub fn continue_creation<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>) -> Result<bool> {
-        //if self.frame_base.is_none() {
-        //    self.frame_base =  
-        //}
-        unimplemented!();
+    pub fn continue_creation<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &mut MemoryAndRegisters) -> Result<EvalResult> {
+        let pc = self.call_frame.code_location as u32;
+
+        memory_and_registers.stash_registers();
+        for i in 0..self.call_frame.registers.len() {
+            match self.call_frame.registers[i] {
+                Some(val) => memory_and_registers.add_to_registers(i as u16, val),
+                None => (),
+            };
+        }
+
+        if self.frame_base.is_none() {
+            let header = match dwarf.debug_info.header_from_offset(self.section_offset.as_debug_info_offset().unwrap()) {
+                Ok(val) => val,
+                Err(err) => {
+                    memory_and_registers.pop_stashed_registers();
+                    return Err(anyhow!(err));
+                },
+            };
+            let unit = match gimli::Unit::new(dwarf, header) {
+                Ok(val) => val,
+                Err(err) => {
+                    memory_and_registers.pop_stashed_registers();
+                    return Err(anyhow!(err));
+                },
+            };
+
+            let die = match unit.entry(self.unit_offset) {
+                Ok(val) => val,
+                Err(err) => {
+                    memory_and_registers.pop_stashed_registers();
+                    return Err(anyhow!(err));
+                },
+            };
+
+            self.frame_base = match evaluate_frame_base(dwarf, &unit, pc, &die, memory_and_registers) {
+                Ok(FrameBaseResult::Complete(val)) => Some(val),
+                Ok(FrameBaseResult::Requires(req)) => panic!("{:?}", req),
+                Err(err) => {
+                    memory_and_registers.pop_stashed_registers();
+                    return Err(err);
+                },
+            };
+        }
+
+
+        while self.dies_to_check.len() > 0 {
+            match self.evaluate_variable(dwarf, memory_and_registers, pc) {
+                Ok(result) => {
+                    match result {
+                        EvalResult::Complete => continue,
+                        _ => {
+                            memory_and_registers.pop_stashed_registers();
+                            return Ok(result);
+                        },
+                    };
+                },
+                Err(err) => {
+                    memory_and_registers.pop_stashed_registers();
+                    return Err(err);
+                },
+            };
+        } 
+        memory_and_registers.pop_stashed_registers();
+
+        Ok(EvalResult::Complete)
+    }
+
+
+    fn evaluate_variable<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &mut MemoryAndRegisters, pc: u32) -> Result<EvalResult> {
+        let mut vc = VariableCreator::new(dwarf, self.section_offset, self.dies_to_check[0], self.frame_base, pc)?;
+
+        let result = vc.continue_create(dwarf, memory_and_registers)?;
+        match result {
+            EvalResult::Complete => (), 
+            _ => return Ok(result),
+        };
+
+        self.dies_to_check.remove(0);
+        self.variables.push(vc.get_variable()?);
+
+        Ok(EvalResult::Complete)
     }
 
 
@@ -104,43 +183,6 @@ impl StackFrameCreator {
     }
 }
 
-
-impl StackFrame {
-    pub fn create<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
-                  core:    &mut probe_rs::Core,
-                  call_frame: &CallFrame,
-                  cwd: &str,
-                  ) -> Result<StackFrame>
-    {
-        let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
-        let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
-        let unit = gimli::Unit::new(dwarf, header)?;
-        let die = unit.entry(unit_offset)?;
-
-        let name = match die.attr_value(gimli::DW_AT_name)? {
-            Some(DebugStrRef(offset)) => format!("{:?}", dwarf.string(offset)?.to_string()?),
-            _ => "<unknown>".to_string(),
-        };
-
-
-        let mut memory_and_registers = MemoryAndRegisters::new();
-        for i in 0..call_frame.registers.len() {
-            match call_frame.registers[i] {
-                Some(val) => memory_and_registers.add_to_registers(i as u16, val),
-                None => (),
-            };
-        }
-
-        let variables = get_scope_variables(dwarf, core, &unit, &die, call_frame.code_location as u32, &mut memory_and_registers)?;
-
-        Ok(StackFrame{
-            call_frame: call_frame.clone(),
-            name: name,
-            source: SourceInformation::get_die_source_information(dwarf, &unit, &die, cwd)?,
-            variables: variables,
-        })
-    }
-}
 
 
 pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
@@ -199,89 +241,6 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
 
 
 
-pub fn get_scope_variables<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                           core:    &mut probe_rs::Core,
-                           unit:    &Unit<R>,
-                           die:     &DebuggingInformationEntry<'_, '_, R>,
-                           pc:      u32,
-                           memory_and_registers: &mut MemoryAndRegisters,
-                           ) -> Result<Vec<Variable>>
-{
-    let mut variables = vec!();
-    let frame_base = check_frame_base(dwarf, core, unit, pc, die, None, memory_and_registers)?;
-
-    let mut tree = unit.entries_tree(Some(die.offset()))?;
-    let node = tree.root()?;
-
-    get_scope_variables_search(dwarf, core, unit, pc, node, frame_base, &mut variables, memory_and_registers)?;
-    return Ok(variables);
-}
-
-
-pub fn get_scope_variables_search<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                                  core:             &mut probe_rs::Core,
-                                  unit:             &Unit<R>,
-                                  pc:               u32,
-                                  node:             EntriesTreeNode<R>,
-                                  frame_base:       Option<u64>,
-                                  variables:        &mut Vec<Variable>,
-                                  memory_and_registers: &mut MemoryAndRegisters,
-                                  ) -> Result<()>
-{
-    let die = node.entry();
-    
-    // Check if die in range
-    match die_in_range(dwarf, unit, die, pc) {
-        Some(false) => return Ok(()),
-        _ => (),
-    };
-
-
-    if is_variable_die(&die) {
-        variables.push(eval_var(dwarf, core, unit, &die, pc, frame_base, memory_and_registers)?);
-    }
-
-    // Recursively process the children.
-    let mut children = node.children();
-    while let Some(child) = children.next()? {
-        get_scope_variables_search(dwarf, core, unit, pc, child, frame_base, variables, memory_and_registers)?;
-    }
-    Ok(())
-}
-
-
-pub fn eval_var<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                                  core:             &mut probe_rs::Core,
-                                  unit:             &Unit<R>,
-                                  die:              &DebuggingInformationEntry<R>,
-                                  pc:               u32,
-                                  frame_base:       Option<u64>,
-                                  memory_and_registers: &mut MemoryAndRegisters,
-                                  ) -> Result<Variable>
-{
-    let mut vc = VariableCreator::new(dwarf, unit.header.offset(), die.offset(), frame_base, pc)?;
-
-    loop {
-        match vc.continue_create(dwarf, memory_and_registers)? {
-            EvalResult::Complete => break,
-            EvalResult::RequiresRegister { register } => {
-                panic!("unreachable");
-                //let value = core.read_core_reg(register)?;
-                //regs.insert(register, value);
-            },
-            EvalResult::RequiresMemory { address, num_words: _ } => {
-                let mut buff = vec![0u32; 1];
-                core.read_32(address, &mut buff)?;
-                memory_and_registers.add_to_memory(address, buff[0]);
-            },
-        };
-    }
-
-    vc.get_variable()
-}
-
-
-
 pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                                                                      section_offset: UnitSectionOffset,
                                                                      unit_offset: UnitOffset,
@@ -297,17 +256,14 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwa
     {
         let die = node.entry();
 
-        match die_in_range(&dwarf, unit, die, pc) {
+        match die_in_range(dwarf, unit, die, pc) {
             Some(false) => return Ok(()),
             _ => (),
         };
 
-        match die.tag() {
-            gimli::DW_TAG_variable => list.push(die.offset()),
-            gimli::DW_TAG_formal_parameter => list.push(die.offset()),
-            gimli::DW_TAG_constant => list.push(die.offset()),
-            _ => (),
-        };
+        if is_variable_die(&die) {
+            list.push(die.offset());
+        }
 
         // Recursively process the children.
         let mut children = node.children();
@@ -333,5 +289,43 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwa
     }
 
     Ok(die_offsets)
+}
+
+
+
+pub enum FrameBaseResult {
+    Complete(u64),
+    Requires(EvalResult),
+}
+
+pub fn evaluate_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                                   unit:       &Unit<R>,
+                                                   pc:         u32,
+                                                   die:        &DebuggingInformationEntry<'_, '_, R>,
+                                                   memory_and_registers: &mut MemoryAndRegisters,
+                                                   ) -> Result<FrameBaseResult>
+{
+    if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
+        if let Some(expr) = val.exprloc_value() {
+
+            let result = evaluate(dwarf, unit, pc, expr.clone(), None, None, None, memory_and_registers)?;
+            let value = match result {
+                EvaluatorResult::Complete(val) => val,
+                EvaluatorResult::Requires(req) => return Ok(FrameBaseResult::Requires(req)),
+            };
+
+            match value {
+                EvaluatorValue::Value(BaseValue::Address32(v)) => return Ok(FrameBaseResult::Complete(v as u64)),
+                v  => {
+                    println!("{:?}", v);
+                    unimplemented!()
+                },
+            };
+        } else {
+            unimplemented!();
+        }
+    } else {
+        return Err(anyhow!("Die has no DW_AT_frame_base attribute"));
+    }
 }
 

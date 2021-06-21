@@ -196,7 +196,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
             // Get the die of the current state.
             let die = &unit.entry(die_offset).unwrap();
-            //println!("die tag {:?}", die.tag().static_string());
+            println!("die tag {:?}", die.tag().static_string());
 
             // Continue evaluating the value of the current state.
             match self.eval_type(dwarf, &unit, die, data_offset, result, false).unwrap().unwrap() {
@@ -962,7 +962,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         }
 
         self.stack.pop();
-        Ok(None)
+
+        unreachable!()
     }
 
 

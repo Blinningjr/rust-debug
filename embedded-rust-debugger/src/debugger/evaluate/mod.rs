@@ -19,7 +19,6 @@ use gimli::{
     Reader,
 };
 
-
 pub use value::{
     EvaluatorValue,
     StructValue,
@@ -31,18 +30,12 @@ pub use value::{
     BaseValue,
 };
 
-
-use evaluate::{
-    parse_base_type,
-};
-
-
 use anyhow::{
     Result,
-    anyhow,
 };
 
 
+#[derive(Debug, Clone)]
 pub enum EvalResult {
     Complete,
     RequiresRegister { register: u16 },
@@ -50,6 +43,7 @@ pub enum EvalResult {
 }
 
 
+#[derive(Debug, Clone)]
 pub enum EvaluatorResult<R: Reader<Offset = usize>> {
     Complete(EvaluatorValue<R>),
     Requires(EvalResult),

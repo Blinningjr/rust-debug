@@ -7,6 +7,7 @@ pub mod stack_frame;
 pub mod variable;
 
 
+use crate::debugger::stack_frame::StackFrameCreator;
 use crate::debugger::memory_and_registers::MemoryAndRegisters;
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::EvalResult;
@@ -66,8 +67,8 @@ pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debu
 {
 //    let call_stacktrace = stacktrace::create_call_stacktrace(debug_frame, core)?;
 
-        let pc_reg =   probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0 as usize;
-        let link_reg = probe_rs::CoreRegisterAddress::from(core.registers().return_address()).0 as usize;
+    let pc_reg =   probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0 as usize;
+    let link_reg = probe_rs::CoreRegisterAddress::from(core.registers().return_address()).0 as usize;
     let sp_reg =   probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0 as usize;
 
     let register_file = core.registers();
@@ -95,43 +96,24 @@ pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, debu
 
     let mut stacktrace = vec!();
     for cst in &call_stacktrace {
-        stacktrace.push(StackFrame::create(dwarf, core, cst, cwd)?);
+        let mut sfc = StackFrameCreator::new(cst.clone(), dwarf, cwd)?;
+        
+        loop {
+            match sfc.continue_creation(dwarf, &mut memory_and_registers)? {
+                EvalResult::Complete => break,
+                EvalResult::RequiresRegister { register: _ } => panic!("Skip this variable"),
+                EvalResult::RequiresMemory { address, num_words: _ } => {
+                    let mut buff = vec![0u32; 1];
+                    core.read_32(address, &mut buff)?;
+                    memory_and_registers.add_to_memory(address, buff[0]);
+                },
+            }
+        }
+
+        stacktrace.push(sfc.get_stack_frame());
     }
     Ok(stacktrace)
 }
-
-
-fn get_var_name<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
-                  unit:     &Unit<R>,
-                  pc:       u32,
-                  die:      &DebuggingInformationEntry<R>,
-                  ) -> Result<Option<String>>
-{
-    if die.tag() == gimli::DW_TAG_variable ||
-        die.tag() == gimli::DW_TAG_formal_parameter ||
-            die.tag() == gimli::DW_TAG_constant { // Check that it is a variable.
-
-        if let Ok(Some(DebugStrRef(offset))) =  die.attr_value(gimli::DW_AT_name) { // Get the name of the variable.
-            return Ok(Some(dwarf.string(offset).unwrap().to_string().unwrap().to_string()))
-
-        } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-            match offset {
-                UnitRef(o) => {
-                    if let Ok(ndie) = unit.entry(o) {
-                        return get_var_name(dwarf, unit, pc, &ndie);
-                    }
-                },
-                _ => {
-                    println!("{:?}", offset);
-                    unimplemented!();
-                },
-            };
-        }
-    }
-    return Ok(None);
-}
-
-
 
 
 pub fn find_variable<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
