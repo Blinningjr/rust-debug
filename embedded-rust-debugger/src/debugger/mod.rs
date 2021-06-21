@@ -1,3 +1,4 @@
+pub mod memory_and_registers;
 pub mod utils;
 pub mod evaluate;
 pub mod call_stack;
@@ -5,9 +6,10 @@ pub mod source_information;
 pub mod stack_frame;
 pub mod variable;
 
+
+use crate::debugger::memory_and_registers::MemoryAndRegisters;
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::EvalResult;
-use std::collections::HashMap;
 use crate::debugger::stack_frame::{
     StackFrame,
 };
@@ -252,15 +254,16 @@ fn required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                                                unit:     &Unit<R>,
                                                die: &DebuggingInformationEntry<R>,
                                                registers:     &Vec<(u16, u32)>,
-                                               ) -> Result<Option<EvaluatorValue<R>>> {
-    let mut memory = HashMap::new();
-    let mut regs = HashMap::new();
+                                               ) -> Result<Option<EvaluatorValue<R>>>
+{
+    let mut memory_and_registers = MemoryAndRegisters::new();
     for (reg, val) in registers {
-        regs.insert(*reg, *val);
+        memory_and_registers.add_to_registers(*reg, *val);
     }
+
     
     loop {
-        let result = call_evaluate(dwarf, unit, pc, expr.clone(), frame_base, unit, die, &regs, &memory)?;
+        let result = call_evaluate(dwarf, unit, pc, expr.clone(), frame_base, unit, die, &memory_and_registers)?;
         match result {
             EvaluatorResult::Complete(val) => return Ok(Some(val)),
             EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
@@ -271,7 +274,7 @@ fn required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
             EvaluatorResult::Requires(EvalResult::RequiresMemory { address, num_words: _ })  => {
                 let mut buff = vec![0u32; 1];
                 core.read_32(address, &mut buff)?;
-                memory.insert(address, buff[0]);
+                memory_and_registers.add_to_memory(address, buff[0]);
             },
             _ => unreachable!(),
         };
@@ -319,15 +322,15 @@ fn evaluate_required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                                                type_unit:     Option<&Unit<R>>,
                                                type_die: Option<&DebuggingInformationEntry<R>>,
                                                registers:     &Vec<(u16, u32)>,
-                                               ) -> Result<EvaluatorValue<R>> {
-    let mut memory = HashMap::new();
-    let mut regs = HashMap::new();
+                                               ) -> Result<EvaluatorValue<R>>
+{
+    let mut memory_and_registers = MemoryAndRegisters::new();
     for (reg, val) in registers {
-        regs.insert(*reg, *val);
+        memory_and_registers.add_to_registers(*reg, *val);
     }
     
     loop {
-        let result = evaluate::evaluate(dwarf, unit, pc, expr.clone(), frame_base, type_unit, type_die, &regs, &memory)?;
+        let result = evaluate::evaluate(dwarf, unit, pc, expr.clone(), frame_base, type_unit, type_die, &memory_and_registers)?;
         match result {
             EvaluatorResult::Complete(val) => return Ok(val),
             EvaluatorResult::Requires(EvalResult::RequiresRegister { register })  => {
@@ -338,7 +341,7 @@ fn evaluate_required_handler<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
             EvaluatorResult::Requires(EvalResult::RequiresMemory { address, num_words: _ })  => {
                 let mut buff = vec![0u32; 1];
                 core.read_32(address, &mut buff)?;
-                memory.insert(address, buff[0]);
+                memory_and_registers.add_to_memory(address, buff[0]);
             },
             _ => unreachable!(),
         };
@@ -480,15 +483,14 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                                 frame_base: Option<u64>,
                                                 unit:     &Unit<R>,
                                                 die: &DebuggingInformationEntry<R>,
-                                                registers: &HashMap<u16, u32>,
-                                                memory: &HashMap<u32, u32>,
+                                                memory_and_registers: &MemoryAndRegisters,
                                                 ) -> Result<EvaluatorResult<R>>
 {
     if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
         match tattr {
             gimli::AttributeValue::UnitRef(offset) => {
                 let die = unit.entry(offset)?;
-                return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers, memory);
+                return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(unit), Some(&die), memory_and_registers);
             },
             gimli::AttributeValue::DebugInfoRef(di_offset) => {
                 let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
@@ -497,7 +499,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                     let unit = dwarf.unit(header).unwrap();
                     if let Some(offset) = offset.to_unit_offset(&unit) {
                         let die = unit.entry(offset)?;
-                        return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers, memory);
+                        return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(&unit), Some(&die), memory_and_registers);
                     }
                 }
                 return Err(anyhow!(""));
@@ -508,7 +510,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
         match die_offset {
             UnitRef(offset) => {
                 if let Ok(ndie) = unit.entry(offset) {
-                    return call_evaluate(dwarf, nunit, pc, expr, frame_base, unit, &ndie, registers, memory);
+                    return call_evaluate(dwarf, nunit, pc, expr, frame_base, unit, &ndie, memory_and_registers);
                 }
             },
             _ => {

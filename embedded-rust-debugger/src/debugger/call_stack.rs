@@ -8,7 +8,7 @@
 
 use gimli::DebugFrame;
 
-use std::collections::HashMap;
+use crate::debugger::memory_and_registers::MemoryAndRegisters;
 
 use gimli::{
     Reader,
@@ -59,7 +59,7 @@ pub struct CallStackUnwinder<R: Reader<Offset = usize>> {
 
     call_stack: Vec<CallFrame>,
 
-    memory: HashMap<u32, u32>,
+    memory_and_registers: MemoryAndRegisters,
 }
 
 
@@ -87,13 +87,13 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
 
             call_stack:     vec!(),
 
-            memory: HashMap::new(),
+            memory_and_registers: MemoryAndRegisters::new(),
         }
     }
 
 
     pub fn add_address(&mut self, address: u32, value: u32) {
-        self.memory.insert(address, value);
+        self.memory_and_registers.add_to_memory(address, value);
     }
 
 
@@ -155,7 +155,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
                         None => return Err(anyhow!("Expected CFA to have a value")),
                     }) as u32;
 
-                    let value = match self.memory.get(&address) {
+                    let value = match self.memory_and_registers.get_address_value(&address) {
                         Some(val) => *val,
                         None => return Ok(UnwindResult::RequiresAddress {
                             address: address,

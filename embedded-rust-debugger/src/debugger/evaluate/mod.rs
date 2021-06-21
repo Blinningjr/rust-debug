@@ -6,7 +6,7 @@ pub mod pieces;
 
 use pieces::EvalPieceResult;
 use crate::debugger::evaluate::pieces::evaluate_pieces;
-use std::collections::HashMap;
+use crate::debugger::memory_and_registers::MemoryAndRegisters;
 
 use super::{
     call_evaluate,
@@ -63,15 +63,14 @@ pub fn evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                 frame_base: Option<u64>,
                 type_unit:  Option<&gimli::Unit<R>>,
                 type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
-                registers:  &HashMap<u16, u32>,
-                memory:     &HashMap<u32, u32>,
+                memory_and_registers: &MemoryAndRegisters,
                 ) -> Result<EvaluatorResult<R>>
 {
-    let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, memory)? {
+    let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, memory_and_registers)? {
         EvalPieceResult::Complete(val) => val,
         EvalPieceResult::Requires(req) => return Ok(EvaluatorResult::Requires(req)),
     };
-    evaluate_value(dwarf, pieces, type_unit, type_die, registers, memory)
+    evaluate_value(dwarf, pieces, type_unit, type_die, memory_and_registers)
 }
 
 
@@ -79,8 +78,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                                                  pieces:     Vec<gimli::Piece<R>>,
                                                  type_unit:  Option<&gimli::Unit<R>>,
                                                  type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
-                                                 registers:  &HashMap<u16, u32>,
-                                                 memory:     &HashMap<u32, u32>,
+                                                 memory_and_registers: &MemoryAndRegisters,
                                                  ) -> Result<EvaluatorResult<R>>
 {
     let mut evaluator = evaluate::Evaluator::new(&dwarf, pieces.clone(), type_unit, type_die);
@@ -89,7 +87,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
             evaluate::EvaluatorResult::Complete => break,
             evaluate::EvaluatorResult::RequireReg(reg) => { 
                 println!("read reg: {:?}", reg);
-                match registers.get(&reg) {
+                match memory_and_registers.get_register_value(&reg) {
                     Some(data) => evaluator.add_register(reg, *data),
                     None => return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
                         register: reg,
@@ -98,7 +96,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
             },
             evaluate::EvaluatorResult::RequireData {address, num_words} => {
                 println!("address: {:?}, num_words: {:?}", address, num_words);
-                match memory.get(&address) {
+                match memory_and_registers.get_address_value(&address) {
                     Some(data) => evaluator.add_address(address, *data),
                     None => return Ok(EvaluatorResult::Requires(EvalResult::RequiresMemory {
                         address: address,

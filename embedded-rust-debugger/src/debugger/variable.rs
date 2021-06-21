@@ -19,13 +19,12 @@ use anyhow::{
     anyhow,
 };
 
-use std::collections::HashMap;
-
 use crate::debugger::evaluate::attributes;
 use crate::debugger::in_range;
 use crate::debugger::evaluate::EvalResult;
 use crate::debugger::evaluate::EvaluatorResult;
 use crate::debugger::evaluate::evaluate;
+use crate::debugger::memory_and_registers::MemoryAndRegisters;
 
 
 #[derive(Debug, Clone)]
@@ -47,8 +46,7 @@ pub struct VariableCreator {
     pub frame_base: Option<u64>,
     pub pc: u32,
 
-    pub registers: HashMap<u16, u32>,
-    pub memory: HashMap<u32, u32>,
+    pub memory_and_registers: MemoryAndRegisters,
 }
 
 
@@ -67,9 +65,9 @@ impl VariableCreator {
 
         let name = get_var_name(dwarf, &unit, &die)?;
 
-        let mut regs = HashMap::new();
+        let mut memory_and_registers = MemoryAndRegisters::new();
         for (reg, val) in registers {
-            regs.insert(*reg, *val);
+            memory_and_registers.add_to_registers(*reg, *val);
         }
 
         Ok(VariableCreator {
@@ -80,14 +78,13 @@ impl VariableCreator {
             frame_base: frame_base,
             pc: pc,
 
-            registers: regs,
-            memory: HashMap::new(),
+            memory_and_registers: memory_and_registers,
         })
     }
 
 
     pub fn add_to_memory(&mut self, address: u32, value: u32) {
-        self.memory.insert(address, value);
+        self.memory_and_registers.add_to_memory(address, value);
     }
 
 
@@ -136,8 +133,7 @@ impl VariableCreator {
                  self.frame_base,
                  Some(&type_unit),
                  Some(&type_die),
-                 &self.registers,
-                 &self.memory)? {
+                 &self.memory_and_registers)? {
             EvaluatorResult::Complete(val) => {
                 self.value = Some(val.to_string()); 
                 Ok(EvalResult::Complete)
