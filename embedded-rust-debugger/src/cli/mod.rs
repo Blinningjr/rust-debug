@@ -326,7 +326,7 @@ impl Cli {
 
 
     fn handle_variable_response(&self, name: String, value: String) {
-        print!("{} = {}", name, value);
+        println!("{} = {}", name, value);
     }
 
 

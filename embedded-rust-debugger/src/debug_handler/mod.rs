@@ -2,12 +2,23 @@ mod config;
 
 use config::Config;
 
+use crate::debugger::evaluate::EvalResult;
+use crate::debugger::stack_frame::StackFrame;
+use crate::debugger::stack_frame::StackFrameCreator;
+use crate::debugger::call_stack::CallFrame;
+use crate::debugger::call_stack::CallStackUnwinder;
+use crate::debugger::call_stack::UnwindResult;
+use crate::debugger::memory_and_registers::MemoryAndRegisters;
+
+use gimli::DebugFrame;
+use gimli::Dwarf;
+use gimli::Reader;
+
 use super::commands::{
     debug_request::DebugRequest,
     debug_response::DebugResponse,
     debug_event::DebugEvent,
     Command,
-
 };
 
 use super::Opt;
@@ -27,22 +38,18 @@ use crossbeam_channel::{
 use capstone::arch::BuildsCapstone;
 
 
-use super::debugger;
 use super::debugger::{
     Debugger,
     find_breakpoint_location,
-    get_current_stacktrace,
 };
 
 use super::{
     read_dwarf,
     attach_probe,
-    get_current_unit,
 };
 
 use std::path::PathBuf;
 
-use gimli::Reader;
 
 
 use probe_rs::{
@@ -151,6 +158,7 @@ impl DebugHandler {
     }
 }
 
+
 pub fn init(sender: &mut Sender<Command>,
             reciver: &mut Receiver<DebugRequest>,
             file_path: PathBuf,
@@ -179,6 +187,8 @@ pub fn init(sender: &mut Sender<Command>,
         cwd:        cwd,
         check_time: Instant::now(),
         running: true,
+        memory_and_registers: MemoryAndRegisters::new(),
+        stack_trace: None,
     };
 
     debug.run(sender, reciver, request)
@@ -195,10 +205,11 @@ struct DebugServer<'a, R: Reader<Offset = usize>> {
     cwd:        String,
     check_time: Instant, 
     running: bool,
+    memory_and_registers: MemoryAndRegisters,
+    stack_trace: Option<Vec<StackFrame>>,
 }
 
 impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
-
     pub fn run(&mut self,
                sender: &mut Sender<Command>,
                reciver: &mut Receiver<DebugRequest>,
@@ -245,6 +256,12 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     }
 
 
+    fn clear_temporaries(&mut self) {
+        self.memory_and_registers.clear();
+        self.stack_trace = None;
+    }
+
+
     fn check_halted(&mut self, sender: &mut Sender<Command>) -> Result<()> {
         let delta = Duration::from_millis(400);
         if self.running && self.check_time.elapsed() > delta {
@@ -254,6 +271,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
         Ok(())
     }
+
 
     fn send_halt_event(&mut self, sender: &mut Sender<Command>) -> Result<()> {
         let mut core = self.session.core(0)?;
@@ -311,9 +329,11 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     fn attach_command(&mut self, reset: bool, reset_and_halt: bool) -> Result<Command>
     {
         if reset_and_halt {
+            self.clear_temporaries();
             let mut core = self.session.core(0)?;
             core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?; 
         } else if reset {
+            self.clear_temporaries();
             let mut core = self.session.core(0)?;
             core.reset().context("Failed to reset the core")?;
         }
@@ -479,18 +499,30 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         let status = core.status()?;
+        drop(core);
 
         match status.is_halted() {
             true => {
-                let pc  = core.read_core_reg(core.registers().program_counter())?; 
-                let unit = get_current_unit(&self.debugger.dwarf, pc)?; 
+                match &self.stack_trace {
+                    Some(stack_trace) => {
+                        if stack_trace.len() < 1 {
+                            return Err(anyhow!("Variable {:?} not found", name));
+                        }
+                        let variable = match stack_trace[0].find_variable(name) {
+                            Some(var) => var.clone(),
+                            None => return Err(anyhow!("Variable {:?} not found", name)),
+                        };
 
-                let value = debugger::find_variable(self.debugger.dwarf, &mut core, &unit, pc, name)?;
-
-                Ok(Command::Response(DebugResponse::Variable {
-                    name: name.to_string(),
-                    value: format!("{}", value),
-                }))
+                        Ok(Command::Response(DebugResponse::Variable {
+                            name: variable.name.unwrap(),
+                            value: variable.value,
+                        }))
+                    },
+                    None => {
+                        self.set_stack_trace()?;
+                        self.variable_command(name)
+                    },
+                }
             },
             false => Err(anyhow!("Core must be halted")),
         }
@@ -499,14 +531,17 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
     fn stack_trace_command(&mut self) -> Result<Command>
     { 
-        let mut core = self.session.core(0)?;
-        let stack_trace = get_current_stacktrace(self.debugger.dwarf,
-                                                 self.debugger.debug_frame,
-                                                 &mut core,
-                                                 &self.cwd)?;
-        Ok(Command::Response(DebugResponse::StackTrace {
-            stack_trace: stack_trace,
-        }))
+        match &self.stack_trace {
+            Some(stack_trace) => {
+                Ok(Command::Response(DebugResponse::StackTrace {
+                    stack_trace: stack_trace.clone(),
+                }))
+            },
+            None => {
+                self.set_stack_trace()?;
+                self.stack_trace_command()
+            },
+        }
     }
 
 
@@ -524,11 +559,15 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
     fn reset_command(&mut self, reset_and_halt: bool) -> Result<Command>
     {
-        let mut core = self.session.core(0)?;
-
         if reset_and_halt {
+            self.clear_temporaries();
+
+            let mut core = self.session.core(0)?;
             core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?;
         } else {
+            self.clear_temporaries();
+
+            let mut core = self.session.core(0)?;
             core.reset().context("Failed to reset the core")?;
         }
 
@@ -542,12 +581,16 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         download_file(&mut self.session, &self.file_path, Format::Elf).context("Failed to flash target")?;
 
-        let mut core = self.session.core(0)?;
-
         if reset_and_halt {
+            self.clear_temporaries();
+
+            let mut core = self.session.core(0)?;
             core.reset_and_halt(std::time::Duration::from_millis(10)).context("Failed to reset and halt the core")?;
 
         } else {
+            self.clear_temporaries();
+
+            let mut core = self.session.core(0)?;
             core.reset().context("Failed to reset the core")?;
         }
 
@@ -597,10 +640,14 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
         let status = core.status()?;
 
         if status.is_halted() {
+
             let pc = continue_fix(&mut core, &self.breakpoints)?;
             self.running = true;
             info!("Stopped at pc = 0x{:08x}", pc);
 
+            drop(core);
+
+            self.clear_temporaries();
             return Ok(Command::Response(DebugResponse::Step));
         }
 
@@ -614,15 +661,20 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     fn continue_command(&mut self) -> Result<Command>
     {
         let mut core = self.session.core(0)?;
-        let status = core.status()?;
+        let mut status = core.status()?;
 
         if status.is_halted() {
             let _pc = continue_fix(&mut core, &self.breakpoints)?;
             core.run()?;
             self.running = true;
+            status = core.status()?;
+
+            drop(core);
+
+            self.clear_temporaries();
         }
 
-        info!("Core status: {:?}", core.status()?);
+        info!("Core status: {:?}", status);
 
         Ok(Command::Response(DebugResponse::Continue))
     }
@@ -684,6 +736,19 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             breakpoints: breakpoints,
         }))
     }
+
+
+    fn set_stack_trace(&mut self) -> Result<()> {
+        let mut core = self.session.core(0)?;
+        let stack_trace = get_current_stacktrace(self.debugger.dwarf,
+                                                 self.debugger.debug_frame,
+                                                 &mut core,
+                                                 &self.cwd,
+                                                 &mut self.memory_and_registers)?;
+        self.stack_trace = Some(stack_trace);
+
+        Ok(())
+    }
 }
 
 
@@ -723,5 +788,74 @@ fn continue_fix(core: &mut probe_rs::Core, breakpoints: &HashMap<u32, Breakpoint
     };
 
     Ok(core.step()?.pc)
+}
+
+
+pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                                         debug_frame: & DebugFrame<R>,
+                                                         core: &mut probe_rs::Core, 
+                                                         cwd: &str,
+                                                         memory_and_registers: &mut MemoryAndRegisters,
+                                                         ) -> Result<Vec<StackFrame>>
+{
+    let pc_reg =   probe_rs::CoreRegisterAddress::from(core.registers().program_counter()).0 as usize;
+    let link_reg = probe_rs::CoreRegisterAddress::from(core.registers().return_address()).0 as usize;
+    let sp_reg =   probe_rs::CoreRegisterAddress::from(core.registers().stack_pointer()).0 as usize;
+ 
+//    let mut memory_and_registers = MemoryAndRegisters::new();
+    read_and_add_registers(core, memory_and_registers)?;
+
+    let mut csu = CallStackUnwinder::new(pc_reg, link_reg, sp_reg, memory_and_registers);
+    loop {
+        match csu.unwind(debug_frame, memory_and_registers)? {
+            UnwindResult::Complete => break,
+            UnwindResult::RequiresAddress { address } => {
+                let mut buff = vec![0u32; 1];
+                core.read_32(address, &mut buff)?;
+                memory_and_registers.add_to_memory(address, buff[0]);
+            },
+        }
+    }
+
+    let call_stacktrace = csu.get_call_stack();
+
+    let mut stacktrace = vec!();
+    for call_frame in &call_stacktrace {
+        let stack_frame = get_stack_frame(dwarf, core, cwd, memory_and_registers, call_frame.clone())?;
+
+        stacktrace.push(stack_frame);
+    }
+    Ok(stacktrace)
+}
+
+
+fn get_stack_frame<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core: &mut probe_rs::Core, cwd: &str, memory_and_registers: &mut MemoryAndRegisters, call_frame: CallFrame) -> Result<StackFrame>
+{
+    let mut sfc = StackFrameCreator::new(call_frame, dwarf, cwd)?;
+
+    loop {
+        match sfc.continue_creation(dwarf, memory_and_registers)? {
+            EvalResult::Complete => break,
+            EvalResult::RequiresRegister { register: _ } => panic!("Skip this variable"),
+            EvalResult::RequiresMemory { address, num_words: _ } => {
+                let mut buff = vec![0u32; 1];
+                core.read_32(address, &mut buff)?;
+                memory_and_registers.add_to_memory(address, buff[0]);
+            },
+        }
+    }
+
+    Ok(sfc.get_stack_frame())
+}
+
+
+fn read_and_add_registers(core: &mut probe_rs::Core, memory_and_registers: &mut MemoryAndRegisters) -> Result<()> {
+    let register_file = core.registers();
+    for register in register_file.registers() {
+        let value = core.read_core_reg(register)?; 
+        memory_and_registers.add_to_registers(probe_rs::CoreRegisterAddress::from(register).0, value);
+    }
+
+    Ok(())
 }
 

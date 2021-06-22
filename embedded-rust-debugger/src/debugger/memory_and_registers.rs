@@ -40,6 +40,7 @@ impl MemoryAndRegisters {
     pub fn clear(&mut self) {
         self.memory = HashMap::new();
         self.registers = HashMap::new();
+        self.stashed_registers = None;
     }
 
 

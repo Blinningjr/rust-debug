@@ -38,6 +38,23 @@ pub struct StackFrame {
     pub variables: Vec<Variable>,
 }
 
+impl StackFrame {
+    pub fn find_variable(&self, name: &str) -> Option<&Variable> {
+        for v in &self.variables {
+            match &v.name {
+                Some(var_name) => {
+                    if var_name == name {
+                        return Some(v);
+                    }
+                },
+                None => (),
+            };
+        }
+
+        return None;
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct StackFrameCreator {
