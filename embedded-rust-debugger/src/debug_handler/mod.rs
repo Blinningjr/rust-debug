@@ -312,6 +312,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
             DebugRequest::SetBreakpoint { address, source_file } => self.set_breakpoint_command(address, source_file),
             DebugRequest::Registers => self.registers_command(),
             DebugRequest::Variable { name } => self.variable_command(&name),
+            DebugRequest::Variables => self.variables_command(),
             DebugRequest::StackTrace      => self.stack_trace_command(),
             DebugRequest::Read { address, byte_size }     => self.read_command(address, byte_size),
             DebugRequest::Reset { reset_and_halt: rah }     => self.reset_command(rah),
@@ -520,6 +521,36 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                     None => {
                         self.set_stack_trace()?;
                         self.variable_command(name)
+                    },
+                }
+            },
+            false => Err(anyhow!("Core must be halted")),
+        }
+    }
+
+
+    fn variables_command(&mut self) -> Result<Command>
+    {
+        let mut core = self.session.core(0)?;
+        let status = core.status()?;
+        drop(core);
+
+        match status.is_halted() {
+            true => {
+                match &self.stack_trace {
+                    Some(stack_trace) => {
+                        let variables = match stack_trace.len() {
+                            0 => vec!(),
+                            _ => stack_trace[0].variables.clone(),
+                        };
+
+                        Ok(Command::Response(DebugResponse::Variables {
+                            variables: variables,
+                        }))
+                    },
+                    None => {
+                        self.set_stack_trace()?;
+                        self.variables_command()
                     },
                 }
             },

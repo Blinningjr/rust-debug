@@ -197,6 +197,7 @@ impl Cli {
             DebugResponse::SetProbeNumber => self.handle_set_probe_number_response(),
             DebugResponse::SetChip => self.handle_set_chip_response(),
             DebugResponse::Variable { variable } => self.handle_variable_response(variable),
+            DebugResponse::Variables { variables } => self.handle_variables_response(variables),
             DebugResponse::Registers { registers } => self.handle_registers_response(registers),
             DebugResponse::SetBreakpoint => self.handle_set_breakpoint_response(),
             DebugResponse::SetBreakpoints { breakpoints } => self.handle_set_breakpoints_response(breakpoints),
@@ -353,6 +354,14 @@ impl Cli {
             },
             None => (),
         };
+    }
+
+
+    fn handle_variables_response(&self, variables: Vec<Variable>) {
+        println!("Local variables:");
+        for var in variables {
+            self.handle_variable_response(var);
+        }
     }
 
 

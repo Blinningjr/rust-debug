@@ -18,6 +18,7 @@ pub enum DebugRequest {
     SetProbeNumber { number: usize },
     SetChip { chip: String },
     Variable { name: String },
+    Variables,
     Registers,
     SetBreakpoint { address: u32, source_file: Option<String>},
     SetBreakpoints { source_file: String, source_breakpoints: Vec<SourceBreakpoint> },

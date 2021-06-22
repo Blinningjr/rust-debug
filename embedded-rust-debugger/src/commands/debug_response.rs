@@ -21,6 +21,7 @@ pub enum DebugResponse {
     SetProbeNumber,
     SetChip,
     Variable { variable: Variable },
+    Variables { variables: Vec<Variable> },
     Registers { registers: Vec<(String, u32)> },
     SetBreakpoint,
     SetBreakpoints { breakpoints: Vec<Breakpoint> },

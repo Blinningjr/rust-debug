@@ -120,6 +120,13 @@ impl Commands {
                     },
                 },
                 CommandInfo {
+                    name: "variables",
+                    description: "Print all local variables",
+                    parser: |_args| {
+                        Ok(DebugRequest::Variables)
+                    },
+                },
+                CommandInfo {
                     name: "set-chip",
                     description: "Set chip model being used",
                     parser: |args| {
