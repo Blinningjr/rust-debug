@@ -5,8 +5,8 @@ pub mod pieces;
 
 
 use pieces::EvalPieceResult;
-use crate::debugger::evaluate::pieces::evaluate_pieces;
-use crate::debugger::memory_and_registers::MemoryAndRegisters;
+use crate::rust_debug::evaluate::pieces::evaluate_pieces;
+use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 
 use super::{
     call_evaluate,

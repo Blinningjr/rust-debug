@@ -7,8 +7,8 @@ pub mod stack_frame;
 pub mod variable;
 
 
-use crate::debugger::memory_and_registers::MemoryAndRegisters;
-use crate::debugger::evaluate::EvaluatorResult;
+use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
+use crate::rust_debug::evaluate::EvaluatorResult;
 
 use utils::{
     die_in_range,
@@ -32,28 +32,7 @@ use gimli::{
         UnitRef,
     },
     Reader,
-    DebugFrame,
 };
-
-
-pub struct Debugger<'a, R: Reader<Offset = usize>> {
-    pub dwarf:          &'a Dwarf<R>,
-    pub debug_frame:    &'a DebugFrame<R>,
-    pub breakpoints:    Vec<u32>,
-}
-
-
-impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
-    pub fn new(dwarf:       &'a Dwarf<R>,
-               debug_frame: &'a DebugFrame<R>,
-               ) -> Debugger<'a, R> {
-        Debugger{
-            dwarf:          dwarf,
-            debug_frame:    debug_frame,
-            breakpoints:    vec!(),
-        }
-    }
-}
 
 
 // Good source: DWARF section 6.2

@@ -18,13 +18,13 @@ use anyhow::{
     anyhow,
 };
 
-use crate::debugger::source_information::SourceInformation;
-use crate::debugger::evaluate::attributes;
-use crate::debugger::in_range;
-use crate::debugger::evaluate::EvalResult;
-use crate::debugger::evaluate::EvaluatorResult;
-use crate::debugger::evaluate::evaluate;
-use crate::debugger::memory_and_registers::MemoryAndRegisters;
+use crate::rust_debug::source_information::SourceInformation;
+use crate::rust_debug::evaluate::attributes;
+use crate::rust_debug::in_range;
+use crate::rust_debug::evaluate::EvalResult;
+use crate::rust_debug::evaluate::EvaluatorResult;
+use crate::rust_debug::evaluate::evaluate;
+use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 
 
 #[derive(Debug, Clone)]

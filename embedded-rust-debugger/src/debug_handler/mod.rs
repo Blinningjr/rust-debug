@@ -2,13 +2,13 @@ mod config;
 
 use config::Config;
 
-use crate::debugger::evaluate::EvalResult;
-use crate::debugger::stack_frame::StackFrame;
-use crate::debugger::stack_frame::StackFrameCreator;
-use crate::debugger::call_stack::CallFrame;
-use crate::debugger::call_stack::CallStackUnwinder;
-use crate::debugger::call_stack::UnwindResult;
-use crate::debugger::memory_and_registers::MemoryAndRegisters;
+use crate::rust_debug::evaluate::EvalResult;
+use crate::rust_debug::stack_frame::StackFrame;
+use crate::rust_debug::stack_frame::StackFrameCreator;
+use crate::rust_debug::call_stack::CallFrame;
+use crate::rust_debug::call_stack::CallStackUnwinder;
+use crate::rust_debug::call_stack::UnwindResult;
+use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 
 use gimli::DebugFrame;
 use gimli::Dwarf;
@@ -38,8 +38,7 @@ use crossbeam_channel::{
 use capstone::arch::BuildsCapstone;
 
 
-use super::debugger::{
-    Debugger,
+use super::rust_debug::{
     find_breakpoint_location,
 };
 
@@ -174,13 +173,13 @@ pub fn init(sender: &mut Sender<Command>,
         .expect("Failed to create Capstone object");
  
     let (owned_dwarf, owned_debug_frame) = read_dwarf(&file_path)?;
-    let debugger = Debugger::new(&owned_dwarf, &owned_debug_frame);
+    let debug_info = DebugInformation::new(&owned_dwarf, &owned_debug_frame);
 
     let session = attach_probe(&chip, probe_number)?;
     
     let mut debug = DebugServer {
         capstone: cs,
-        debugger: debugger,
+        debug_info: debug_info,
         session: session,
         breakpoints: HashMap::new(),
         file_path: file_path,
@@ -197,7 +196,7 @@ pub fn init(sender: &mut Sender<Command>,
 
 
 struct DebugServer<'a, R: Reader<Offset = usize>> {
-    debugger:   Debugger<'a, R>,
+    debug_info:   DebugInformation<'a, R>,
     session:    probe_rs::Session,
     capstone:   capstone::Capstone,
     breakpoints: HashMap<u32, Breakpoint>,
@@ -445,7 +444,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
     {
         let mut core = self.session.core(0)?;
         address = match source_file {
-            Some(path) => find_breakpoint_location(self.debugger.dwarf, &self.cwd, &path, address as u64, None)?.expect("Could not file location form source file line number") as u32,
+            Some(path) => find_breakpoint_location(self.debug_info.dwarf, &self.cwd, &path, address as u64, None)?.expect("Could not file location form source file line number") as u32,
             None => address,
         };
 
@@ -722,7 +721,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
         let mut breakpoints= vec!();
         for bkpt in source_breakpoints {
-            let breakpoint = match find_breakpoint_location(self.debugger.dwarf, &self.cwd, &source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
+            let breakpoint = match find_breakpoint_location(self.debug_info.dwarf, &self.cwd, &source_file, bkpt.line as u64, bkpt.column.map(|c| c as u64))? {
                 Some(address) => {
                     let mut breakpoint = Breakpoint {
                         id: Some(address as i64),
@@ -770,8 +769,8 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
 
     fn set_stack_trace(&mut self) -> Result<()> {
         let mut core = self.session.core(0)?;
-        let stack_trace = get_current_stacktrace(self.debugger.dwarf,
-                                                 self.debugger.debug_frame,
+        let stack_trace = get_current_stacktrace(self.debug_info.dwarf,
+                                                 self.debug_info.debug_frame,
                                                  &mut core,
                                                  &self.cwd,
                                                  &mut self.memory_and_registers)?;
@@ -887,5 +886,26 @@ fn read_and_add_registers(core: &mut probe_rs::Core, memory_and_registers: &mut 
     }
 
     Ok(())
+}
+
+
+
+pub struct DebugInformation<'a, R: Reader<Offset = usize>> {
+    pub dwarf:          &'a Dwarf<R>,
+    pub debug_frame:    &'a DebugFrame<R>,
+    pub breakpoints:    Vec<u32>,
+}
+
+
+impl<'a, R: Reader<Offset = usize>> DebugInformation<'a, R> {
+    pub fn new(dwarf:       &'a Dwarf<R>,
+               debug_frame: &'a DebugFrame<R>,
+               ) -> DebugInformation<'a, R> {
+        DebugInformation { 
+            dwarf:          dwarf,
+            debug_frame:    debug_frame,
+            breakpoints:    vec!(),
+        }
+    }
 }
 

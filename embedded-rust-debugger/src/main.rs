@@ -1,11 +1,11 @@
 mod commands;
-mod debugger;
+mod rust_debug;
 mod debug_handler;
 mod cli;
 mod debug_adapter;
 
 
-use debugger::{
+use rust_debug::{
     utils::{
         in_ranges
     },

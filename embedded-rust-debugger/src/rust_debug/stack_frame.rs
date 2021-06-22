@@ -1,15 +1,16 @@
-use crate::debugger::call_stack::CallFrame;
-use crate::debugger::die_in_range;
-use crate::debugger::EvaluatorValue;
-use crate::debugger::source_information::SourceInformation;
-use crate::debugger::evaluate::EvaluatorResult;
-use crate::debugger::evaluate::EvalResult;
-use crate::debugger::variable::VariableCreator;
-use crate::debugger::variable::is_variable_die;
-use crate::debugger::variable::Variable;
-use crate::debugger::MemoryAndRegisters;
-use crate::debugger::evaluate::evaluate;
-use crate::debugger::evaluate::value::BaseValue;
+use crate::rust_debug::call_stack::CallFrame;
+use crate::rust_debug::die_in_range;
+use crate::rust_debug::EvaluatorValue;
+use crate::rust_debug::source_information::SourceInformation;
+use crate::rust_debug::evaluate::EvaluatorResult;
+use crate::rust_debug::evaluate::EvalResult;
+use crate::rust_debug::variable::VariableCreator;
+use crate::rust_debug::variable::is_variable_die;
+use crate::rust_debug::variable::Variable;
+use crate::rust_debug::MemoryAndRegisters;
+use crate::rust_debug::evaluate::evaluate;
+use crate::rust_debug::evaluate::value::BaseValue;
+use crate::rust_debug::evaluate::attributes::name_attribute;
 
 use crate::get_current_unit;
 
@@ -245,7 +246,6 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
         }; 
     }
 
-    use crate::debugger::evaluate::attributes::name_attribute;
     for d in &dies {
         println!("die name: {:?}", name_attribute(dwarf, d));
     }
