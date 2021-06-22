@@ -177,7 +177,7 @@ pub fn init(sender: &mut Sender<Command>,
 
     let session = attach_probe(&chip, probe_number)?;
     
-    let mut debug = DebugServer {
+    let mut debugger = Debugger {
         capstone: cs,
         debug_info: debug_info,
         session: session,
@@ -190,12 +190,12 @@ pub fn init(sender: &mut Sender<Command>,
         stack_trace: None,
     };
 
-    debug.run(sender, reciver, request)
+    debugger.run(sender, reciver, request)
 }
 
 
 
-struct DebugServer<'a, R: Reader<Offset = usize>> {
+struct Debugger<'a, R: Reader<Offset = usize>> {
     debug_info:   DebugInformation<'a, R>,
     session:    probe_rs::Session,
     capstone:   capstone::Capstone,
@@ -208,7 +208,7 @@ struct DebugServer<'a, R: Reader<Offset = usize>> {
     stack_trace: Option<Vec<StackFrame>>,
 }
 
-impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
+impl<'a, R: Reader<Offset = usize>> Debugger<'a, R> {
     pub fn run(&mut self,
                sender: &mut Sender<Command>,
                reciver: &mut Receiver<DebugRequest>,

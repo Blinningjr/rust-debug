@@ -12,7 +12,7 @@ use anyhow::{
 
 
 use super::{
-    debug_handler::{
+    debugger::{
         DebugHandler,
     },
     commands::{

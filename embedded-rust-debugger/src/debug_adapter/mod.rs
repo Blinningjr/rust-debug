@@ -62,7 +62,7 @@ use serde_json::{
 };
 
 use super::{
-    debug_handler::{
+    debugger::{
         DebugHandler,
     },
     commands::{
