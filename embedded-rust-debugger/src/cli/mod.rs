@@ -32,6 +32,7 @@ use probe_rs::{
 use rustyline::Editor;
 
 use crate::debugger::stack_frame::StackFrame;
+use crate::debugger::variable::Variable;
 
 use debugserver_types::Breakpoint;
 
@@ -195,7 +196,7 @@ impl Cli {
             DebugResponse::StackTrace { stack_trace } => self.handle_stack_trace_response(stack_trace),
             DebugResponse::SetProbeNumber => self.handle_set_probe_number_response(),
             DebugResponse::SetChip => self.handle_set_chip_response(),
-            DebugResponse::Variable { name, value } => self.handle_variable_response(name, value),
+            DebugResponse::Variable { variable } => self.handle_variable_response(variable),
             DebugResponse::Registers { registers } => self.handle_registers_response(registers),
             DebugResponse::SetBreakpoint => self.handle_set_breakpoint_response(),
             DebugResponse::SetBreakpoints { breakpoints } => self.handle_set_breakpoints_response(breakpoints),
@@ -325,8 +326,33 @@ impl Cli {
     }
 
 
-    fn handle_variable_response(&self, name: String, value: String) {
-        println!("{} = {}", name, value);
+    fn handle_variable_response(&self, variable: Variable) {
+        println!("{} = {}", match variable.name { Some(name) => name, None => "<unknown>".to_owned(),}, variable.value);
+        match &variable.source {
+            Some(source) => {
+                match source.line {
+                    Some(line) => {
+                        println!("\tline: {}", line);
+                        match source.column {
+                            Some(column) => println!("\tcolumn: {}", column),
+                            None => (),
+                        };
+                    },
+                    None => (),
+                };
+                match &source.file {
+                    Some(file) => {
+                        println!("\tfile: {}", file);
+                        match &source.directory {
+                            Some(dir) => println!("\tdirectory: {}", dir),
+                            None => (),
+                        };
+                    },
+                    None => (),
+                };
+            },
+            None => (),
+        };
     }
 
 

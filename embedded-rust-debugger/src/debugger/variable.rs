@@ -18,6 +18,7 @@ use anyhow::{
     anyhow,
 };
 
+use crate::debugger::source_information::SourceInformation;
 use crate::debugger::evaluate::attributes;
 use crate::debugger::in_range;
 use crate::debugger::evaluate::EvalResult;
@@ -32,7 +33,7 @@ pub struct Variable {
     pub value:  String,
 //    pub type_:  String,
 //    pub locations: Vec<u32>, // u32 or registery number
-//    pub source: Source,
+    pub source: Option<SourceInformation>,
 }
 
 
@@ -41,6 +42,7 @@ pub struct VariableCreator {
     pub section_offset: UnitSectionOffset,
     pub unit_offset: UnitOffset,
     pub name:   Option<String>,
+    pub source: Option<SourceInformation>,
     pub value:  Option<String>,
     pub frame_base: Option<u64>,
     pub pc: u32,
@@ -53,6 +55,7 @@ impl VariableCreator {
                unit_offset: UnitOffset,
                frame_base: Option<u64>,
                pc: u32,
+               cwd: &str,
                ) -> Result<VariableCreator>
     {
         let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
@@ -60,13 +63,17 @@ impl VariableCreator {
         let die = unit.entry(unit_offset)?;
 
         let name = get_var_name(dwarf, &unit, &die)?;
-        println!("name1: {:?}", name);
 
+        let source = match SourceInformation::get_die_source_information(dwarf, &unit, &die, cwd) {
+            Ok(source) => Some(source),
+            Err(_) => None,
+        };
 
         Ok(VariableCreator {
             section_offset: section_offset,
             unit_offset: unit_offset,
             name: name,
+            source: source,
             value: None,
             frame_base: frame_base,
             pc: pc,
@@ -79,6 +86,7 @@ impl VariableCreator {
             Some(val) => Ok(Variable {
                 name: self.name.clone(),
                 value: val.clone(),
+                source: self.source.clone(),
             }),
             None => Err(anyhow!("Variables location not evaluated yet")),
         }

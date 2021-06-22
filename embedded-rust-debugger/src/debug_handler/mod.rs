@@ -514,8 +514,7 @@ impl<'a, R: Reader<Offset = usize>> DebugServer<'a, R> {
                         };
 
                         Ok(Command::Response(DebugResponse::Variable {
-                            name: variable.name.unwrap(),
-                            value: variable.value,
+                            variable: variable,
                         }))
                     },
                     None => {
@@ -834,7 +833,7 @@ fn get_stack_frame<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core: &mut prob
     let mut sfc = StackFrameCreator::new(call_frame, dwarf, cwd)?;
 
     loop {
-        match sfc.continue_creation(dwarf, memory_and_registers)? {
+        match sfc.continue_creation(dwarf, memory_and_registers, cwd)? {
             EvalResult::Complete => break,
             EvalResult::RequiresRegister { register: _ } => panic!("Skip this variable"),
             EvalResult::RequiresMemory { address, num_words: _ } => {

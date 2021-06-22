@@ -1,6 +1,8 @@
 use debugserver_types::Breakpoint;
 use probe_rs::CoreStatus;
+
 use crate::debugger::stack_frame::StackFrame;
+use crate::debugger::variable::Variable;
 
 
 #[derive(Debug, Clone)]
@@ -18,7 +20,7 @@ pub enum DebugResponse {
     StackTrace { stack_trace: Vec<StackFrame> },
     SetProbeNumber,
     SetChip,
-    Variable { name: String, value: String},
+    Variable { variable: Variable },
     Registers { registers: Vec<(String, u32)> },
     SetBreakpoint,
     SetBreakpoints { breakpoints: Vec<Breakpoint> },

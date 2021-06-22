@@ -105,7 +105,7 @@ impl StackFrameCreator {
     }
 
 
-    pub fn continue_creation<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &mut MemoryAndRegisters) -> Result<EvalResult> {
+    pub fn continue_creation<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &mut MemoryAndRegisters, cwd: &str) -> Result<EvalResult> {
         let pc = self.call_frame.code_location as u32;
 
         memory_and_registers.stash_registers();
@@ -152,7 +152,7 @@ impl StackFrameCreator {
 
 
         while self.dies_to_check.len() > 0 {
-            match self.evaluate_variable(dwarf, memory_and_registers, pc) {
+            match self.evaluate_variable(dwarf, memory_and_registers, pc, cwd) {
                 Ok(result) => {
                     match result {
                         EvalResult::Complete => continue,
@@ -174,8 +174,8 @@ impl StackFrameCreator {
     }
 
 
-    fn evaluate_variable<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &mut MemoryAndRegisters, pc: u32) -> Result<EvalResult> {
-        let mut vc = VariableCreator::new(dwarf, self.section_offset, self.dies_to_check[0], self.frame_base, pc)?;
+    fn evaluate_variable<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &mut MemoryAndRegisters, pc: u32, cwd: &str) -> Result<EvalResult> {
+        let mut vc = VariableCreator::new(dwarf, self.section_offset, self.dies_to_check[0], self.frame_base, pc, cwd)?;
 
         let result = vc.continue_create(dwarf, memory_and_registers)?;
         match result {
