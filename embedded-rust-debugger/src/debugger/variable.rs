@@ -64,7 +64,7 @@ impl VariableCreator {
 
         let name = get_var_name(dwarf, &unit, &die)?;
 
-        let source = match SourceInformation::get_die_source_information(dwarf, &unit, &die, cwd) {
+        let source = match find_variable_source_information(dwarf, &unit, &die, cwd) {
             Ok(source) => Some(source),
             Err(_) => None,
         };
@@ -244,6 +244,29 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
 
                 return Err(anyhow!("Could not find this variables type die"));
             },
+        }
+    } else {
+        return Err(anyhow!("This die is not a variable"));
+    }
+}
+
+
+pub fn find_variable_source_information<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>, unit: &Unit<R>, die: &DebuggingInformationEntry<R>, cwd: &str) -> Result<SourceInformation>
+{
+    if is_variable_die(die) {
+        if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            match die_offset {
+                UnitRef(offset) => {
+                    let ao_die = unit.entry(offset)?;
+                    return find_variable_source_information(dwarf, unit, &ao_die, cwd);
+                },
+                _ => {
+                    println!("{:?}", die_offset);
+                    unimplemented!();
+                },
+            };
+        } else {
+            return SourceInformation::get_die_source_information(dwarf, unit, die, cwd);
         }
     } else {
         return Err(anyhow!("This die is not a variable"));
