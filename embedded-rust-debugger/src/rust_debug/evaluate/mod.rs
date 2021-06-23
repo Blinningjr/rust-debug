@@ -77,29 +77,24 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
 {
     let mut evaluator = evaluate::Evaluator::new(&dwarf, pieces.clone(), type_unit, type_die);
     loop {
-        match evaluator.evaluate(&dwarf) {
+        match evaluator.evaluate(&dwarf, memory_and_registers) {
             evaluate::EvaluatorResult::Complete => break,
             evaluate::EvaluatorResult::RequireReg(reg) => { 
                 println!("read reg: {:?}", reg);
-                match memory_and_registers.get_register_value(&reg) {
-                    Some(data) => evaluator.add_register(reg, *data),
-                    None => return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
-                        register: reg,
-                    })),
-                };
+                return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
+                    register: reg,
+                }));
             },
             evaluate::EvaluatorResult::RequireData {address, num_words} => {
                 println!("address: {:?}, num_words: {:?}", address, num_words);
-                match memory_and_registers.get_address_value(&address) {
-                    Some(data) => evaluator.add_address(address, *data),
-                    None => return Ok(EvaluatorResult::Requires(EvalResult::RequiresMemory {
-                        address: address,
-                        num_words: num_words,
-                    })),
-                }; 
+                return Ok(EvaluatorResult::Requires(EvalResult::RequiresMemory {
+                    address: address,
+                    num_words: num_words,
+                }));
             },
         };
     }
+
     let value = evaluator.get_value();
 
 //      println!("Value: {:#?}", value);

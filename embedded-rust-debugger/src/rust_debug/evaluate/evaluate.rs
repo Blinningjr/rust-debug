@@ -7,6 +7,8 @@ use super::{
     },
 };
 
+use crate::rust_debug::MemoryAndRegisters;
+
 
 use gimli::{
     Reader,
@@ -99,8 +101,6 @@ pub struct Evaluator<R: Reader<Offset = usize>> {
     piece_index:    usize,
     stack:          Vec<EvaluatorState<R>>,
     result:         Option<super::value::EvaluatorValue<R>>,
-    registers:      std::collections::HashMap<u16, u32>,
-    addresses:      std::collections::HashMap<u32, u32>,
 }
 
 
@@ -126,21 +126,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             piece_index:    0,
             stack:          stack,
             result:         None,
-            registers:      std::collections::HashMap::new(),
-            addresses:      std::collections::HashMap::new(),
         }
     }
 
-    pub fn add_address(&mut self, address: u32, value: u32) {
-        self.addresses.insert(address, value);
-    }
 
-    pub fn add_register(&mut self, register: u16, value: u32) {
-        self.registers.insert(register, value);
-    }
-
-
-    pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>) -> EvaluatorResult {
+    pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> EvaluatorResult {
         // If the value has already been evaluated then don't evaluated it again.
         if self.result.is_some() {
             return EvaluatorResult::Complete;
@@ -148,7 +138,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // If the stack is empty then the first piece will be evaluated.
         if self.stack.len() == 0 {
-            match self.eval_piece(self.pieces[0].clone(), Some(4), 0, Some(DwAte(1))).unwrap() {
+            match self.eval_piece(memory_and_registers, self.pieces[0].clone(), Some(4), 0, Some(DwAte(1))).unwrap() {
                 ReturnResult::Value(val) => {
                     self.result = Some(val);
                     return EvaluatorResult::Complete;
@@ -199,7 +189,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             println!("die tag {:?}", die.tag().static_string());
 
             // Continue evaluating the value of the current state.
-            match self.eval_type(dwarf, &unit, die, data_offset, result, false).unwrap().unwrap() {
+            match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset, result, false).unwrap().unwrap() {
                 ReturnResult::Value(val) => result = Some(val),
                 ReturnResult::Required(req) => return req,
             };
@@ -250,6 +240,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluates the value of a type.
      */
     pub fn eval_type(&mut self,
+                     memory_and_registers: &MemoryAndRegisters,
                      dwarf:         &gimli::Dwarf<R>,
                      unit:          &gimli::Unit<R>,
                      die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -259,17 +250,17 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                      ) -> Result<Option<ReturnResult<R>>>
     { 
         match die.tag() {
-            gimli::DW_TAG_base_type                 => self.eval_basetype(dwarf, unit, die, data_offset, create_state),
-            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_array_type                => self.eval_array_type(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_structure_type            => self.eval_structured_type(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_union_type                => self.eval_union_type(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_member                    => self.eval_member(dwarf, unit, die, data_offset, old_result, create_state),
-            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_base_type                 => self.eval_basetype(memory_and_registers, dwarf, unit, die, data_offset, create_state),
+            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_array_type                => self.eval_array_type(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_structure_type            => self.eval_structured_type(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_union_type                => self.eval_union_type(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_member                    => self.eval_member(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_string_type               => unimplemented!(),
             gimli::DW_TAG_generic_subrange          => unimplemented!(),
             gimli::DW_TAG_template_type_parameter   => unimplemented!(),
-            gimli::DW_TAG_variant_part              => self.eval_variant_part(dwarf, unit, die, data_offset, old_result, create_state),
+            gimli::DW_TAG_variant_part              => self.eval_variant_part(memory_and_registers, dwarf, unit, die, data_offset, old_result, create_state),
             gimli::DW_TAG_subroutine_type           => unimplemented!(),
             gimli::DW_TAG_subprogram                => unimplemented!(),
             _ => unimplemented!(),
@@ -281,6 +272,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a piece.
      */
     pub fn eval_piece(&mut self,
+                      memory_and_registers: &MemoryAndRegisters,
                       piece:        Piece<R>,
                       byte_size:    Option<u64>,
                       data_offset:  u64,            // TODO: Maby use data offset to know which part to mask?
@@ -289,8 +281,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     {
         return match piece.location {
             Location::Empty                                         => Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
-            Location::Register        { register }                  => self.eval_register(register, byte_size, encoding),
-            Location::Address         { address }                   => self.eval_address(address, byte_size, data_offset, encoding.unwrap()),
+            Location::Register        { register }                  => self.eval_register(memory_and_registers, register, byte_size, encoding),
+            Location::Address         { address }                   => self.eval_address(memory_and_registers, address, byte_size, data_offset, encoding.unwrap()),
             Location::Value           { value }                     => self.eval_gimli_value(value, byte_size, encoding),
             Location::Bytes           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(value))),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
@@ -321,12 +313,13 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a register.
      */
     pub fn eval_register(&mut self,
+                         memory_and_registers: &MemoryAndRegisters,
                          register:  gimli::Register,
                          byte_size: Option<u64>,
                          encoding:  Option<DwAte>,
                          ) -> Option<ReturnResult<R>>
     {
-        match self.registers.get(&register.0) {
+        match memory_and_registers.get_register_value(&register.0) {
             Some(val) => { // TODO: Mask the important bits?
                 match encoding {
                     Some(dwate) => Some(ReturnResult::Value( // NOTE: Don't know if this is correct.
@@ -348,6 +341,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a address.
      */
     pub fn eval_address(&mut self,
+                        memory_and_registers: &MemoryAndRegisters,
                         mut address:    u64,
                         byte_size:      Option<u64>,
                         data_offset:    u64,
@@ -376,7 +370,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let mut data: Vec<u32> = Vec::new();
         for i in 0..num_words_to_read {
-            match self.addresses.get(&((address + (i as u64) * 4) as u32)) {
+            match memory_and_registers.get_address_value(&((address + (i as u64) * 4) as u32)) {
                 Some(val) => data.push(*val),
                 None    => return Some(ReturnResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 4) as u32, num_words: 1 })),
             }
@@ -405,6 +399,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluates the value of a piece and decides if the piece should be discarded or kept.
      */
     pub fn handle_eval_piece(&mut self,
+                             memory_and_registers: &MemoryAndRegisters,
                              byte_size:         Option<u64>,
                              mut data_offset:   u64,
                              encoding:          Option<DwAte>
@@ -419,7 +414,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         }
  
         // Evaluate the value of the piece.
-        let res = self.eval_piece(self.pieces[self.piece_index].clone(),
+        let res = self.eval_piece(memory_and_registers,
+                                  self.pieces[self.piece_index].clone(),
                                   byte_size,
                                   data_offset,
                                   encoding);
@@ -455,6 +451,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a base type.
      */
     pub fn eval_basetype(&mut self,
+                         memory_and_registers: &MemoryAndRegisters,
                          dwarf:         &gimli::Dwarf<R>,
                          unit:          &gimli::Unit<R>,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -488,7 +485,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // Evaluate the value.
         println!("bt name: {:?}", attributes::name_attribute(dwarf, die));
-        match self.handle_eval_piece(byte_size,
+        match self.handle_eval_piece(memory_and_registers,
+                                     byte_size,
                                      data_offset, // TODO
                                      encoding)?.unwrap()
         {
@@ -505,6 +503,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a pointer type.
      */
     pub fn eval_pointer_type(&mut self,
+                             memory_and_registers: &MemoryAndRegisters,
                              dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -539,7 +538,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let address_class = attributes::address_class_attribute(die);
         match address_class.unwrap().0 {
             0 => {
-                let res = self.handle_eval_piece(Some(4),
+                let res = self.handle_eval_piece(memory_and_registers,
+                                                 Some(4),
                                                  data_offset,
                                                  Some(DwAte(1)));
                 self.stack.pop();
@@ -554,6 +554,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a array type.
      */
     pub fn eval_array_type(&mut self,
+                           memory_and_registers: &MemoryAndRegisters,
                            dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -598,8 +599,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     },
                     None    => {
                         let result = match dimension_die.tag() {
-                            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(dwarf, unit, &dimension_die, data_offset, old_result.clone())?.unwrap(),
-                            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
+                            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset, old_result.clone())?.unwrap(),
+                            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset, old_result.clone(), true)?.unwrap(),
                             _ => unimplemented!(),
                         };
                         match result {
@@ -630,7 +631,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Evaluate all the values in the array.
         let start = partial_array.values.len();
         for _i in start..count {
-            match self.eval_type(dwarf, &type_unit, type_die, data_offset, None, true)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
+            match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset, None, true)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
                 ReturnResult::Value(val) => partial_array.values.push(val),
                 ReturnResult::Required(req) => {
                     self.stack[current_state].partial_value = super::value::PartialValue::Array(partial_array);
@@ -648,6 +649,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a structure type.
      */
     pub fn eval_structured_type(&mut self,
+                                memory_and_registers: &MemoryAndRegisters,
                                 dwarf:          &gimli::Dwarf<R>,
                                 unit:           &gimli::Unit<R>,
                                 die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -692,7 +694,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     let members = match old_result {
                         Some(val) => vec!(val),
                         None => {
-                            match self.eval_variant_part(dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
+                            match self.eval_variant_part(memory_and_registers, dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
                                 ReturnResult::Value(val) => vec!(val),
                                 ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                             }
@@ -726,7 +728,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let start = partial_struct.members.len();
         for i in start..member_dies.len() {
             let m_die = &member_dies[i].1;
-            let member = match self.eval_member(dwarf, unit, m_die, data_offset, None, true)?.unwrap() {
+            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset, None, true)?.unwrap() {
                 ReturnResult::Value(val) => val,
                 ReturnResult::Required(req) => {
                     self.stack[current_state].partial_value = super::value::PartialValue::Struct(partial_struct);
@@ -748,6 +750,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a union type.
      */
     pub fn eval_union_type(&mut self,
+                           memory_and_registers: &MemoryAndRegisters,
                            dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -806,7 +809,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let start = partial_union.members.len();
         for i in start..member_dies.len() {
             let m_die = &member_dies[i].1;
-            let member = match self.eval_member(dwarf, unit, m_die, data_offset, None, true)?.unwrap() {
+            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset, None, true)?.unwrap() {
                 ReturnResult::Value(val) => val,
                 ReturnResult::Required(req) => {
                     self.stack[current_state].partial_value = super::value::PartialValue::Union(partial_union);
@@ -829,6 +832,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a member.
      */
     pub fn eval_member(&mut self,
+                       memory_and_registers: &MemoryAndRegisters,
                        dwarf:           &gimli::Dwarf<R>,
                        unit:            &gimli::Unit<R>,
                        die:             &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -876,7 +880,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the value.
-        let value = match self.eval_type(dwarf, &type_unit, type_die, new_data_offset, old_result, true)?.unwrap() {
+        let value = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, new_data_offset, old_result, true)?.unwrap() {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
         };
@@ -893,6 +897,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a enumeration type.
      */
     pub fn eval_enumeration_type(&mut self,
+                                 memory_and_registers: &MemoryAndRegisters,
                                  dwarf:         &gimli::Dwarf<R>,
                                  unit:          &gimli::Unit<R>,
                                  die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -924,7 +929,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             Some(val)   => val,
             // Evaluate the type value.
             None        => {
-                match self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)?.unwrap() {
+                match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset, old_result, true)?.unwrap() {
                     ReturnResult::Value(val) => val,
                     ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                 }
@@ -971,6 +976,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a subrange type.
      */
     pub fn eval_subrange_type(&mut self,
+                              memory_and_registers: &MemoryAndRegisters,
                               dwarf:        &gimli::Dwarf<R>,
                               unit:          &gimli::Unit<R>,
                               die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -1004,7 +1010,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the type attribute value.
-        self.eval_type(dwarf, &type_unit, type_die, data_offset, old_result, true)
+        self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset, old_result, true)
     }
 
 
@@ -1012,6 +1018,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a variant part.
      */
     pub fn eval_variant_part(&mut self,
+                             memory_and_registers: &MemoryAndRegisters,
                              dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -1062,7 +1069,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         let member = &unit.entry(die_offset).unwrap();
 
                         // Evaluate the DW_TAG_member value.
-                        match self.eval_member(dwarf, unit, member, data_offset, None, true)?.unwrap() {
+                        match self.eval_member(memory_and_registers, dwarf, unit, member, data_offset, None, true)?.unwrap() {
                             ReturnResult::Value(val) => val,
                             ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                         }
@@ -1098,7 +1105,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             if discr_value == variant % (variants.len() as u64) { // NOTE: Don't know if using modulus here is correct, but it seems to be correct.
 
                 // Evaluate the value of the variant.
-                match self.eval_variant(dwarf, unit, v, data_offset, old_result)?.unwrap() {
+                match self.eval_variant(memory_and_registers, dwarf, unit, v, data_offset, old_result)?.unwrap() {
                     ReturnResult::Value(val) => {
                         self.stack.pop();
                         return Ok(Some(ReturnResult::Value(val)));
@@ -1119,6 +1126,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      * Evaluate the value of a variant.
      */
     pub fn eval_variant(&mut self,
+                        memory_and_registers: &MemoryAndRegisters,
                         dwarf:          &gimli::Dwarf<R>,
                         unit:           &gimli::Unit<R>,
                         die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -1146,7 +1154,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         Some(val)   => val, // Use the already evaluated value.
                         None        => {
                             // Evaluate the value of the member.
-                            match self.eval_member(dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
+                            match self.eval_member(memory_and_registers, dwarf, unit, &c_die, data_offset, None, true)?.unwrap() {
                                 ReturnResult::Value(val) => val,
                                 ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
                             }
