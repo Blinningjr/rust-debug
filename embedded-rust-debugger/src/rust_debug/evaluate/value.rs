@@ -4,42 +4,6 @@ use gimli::{
     Reader,
 };
 
-
-#[derive(Debug, Clone)]
-pub enum PartialValue<R: Reader<Offset = usize>> {
-    Array(Box<PartialArrayValue<R>>),
-    Struct(Box<PartialStructValue<R>>),
-    Union(Box<PartialUnionValue<R>>),
-    VariantPart(PartialVariantPartValue),
-    NotEvaluated,
-}
-
-#[derive(Debug, Clone)]
-pub struct PartialArrayValue<R: Reader<Offset = usize>> {
-    pub count: Option<usize>,
-    pub values:  Vec<EvaluatorValue<R>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PartialStructValue<R: Reader<Offset = usize>> {
-    pub name:       String,
-    pub members:    Vec<EvaluatorValue<R>>,
-}
-
-
-#[derive(Debug, Clone)]
-pub struct PartialUnionValue<R: Reader<Offset = usize>> {
-    pub name:       String,
-    pub members:    Vec<EvaluatorValue<R>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PartialVariantPartValue {
-    pub variant: Option<u64>,
-}
-
-
-
 #[derive(Debug, Clone)]
 pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     Value(BaseValue),
