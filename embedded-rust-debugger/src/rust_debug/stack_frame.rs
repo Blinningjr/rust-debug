@@ -332,7 +332,7 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
             };
 
             match value {
-                EvaluatorValue::Value(BaseValue::Address32(v)) => return Ok(FrameBaseResult::Complete(v as u64)),
+                EvaluatorValue::Value(BaseValue::Address32(v), _) => return Ok(FrameBaseResult::Complete(v as u64)),
                 v  => {
                     println!("{:?}", v);
                     unimplemented!()

@@ -272,7 +272,7 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
         EvaluatorResult::Requires(req) => return Ok(req),
     };
 
-    if let EvaluatorValue::Value(BaseValue::U64(val)) = value {
+    if let EvaluatorValue::Value(BaseValue::U64(val), _) = value {
         *result = eval.resume_with_parameter_ref(val)?;
     } else {
         panic!("here");

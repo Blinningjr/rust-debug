@@ -6,7 +6,7 @@ use gimli::{
 
 #[derive(Debug, Clone)]
 pub enum EvaluatorValue<R: Reader<Offset = usize>> {
-    Value(BaseValue),
+    Value(BaseValue, Vec<u8>),
     Bytes(R),
     
     Array(Box<ArrayValue<R>>),
@@ -25,7 +25,7 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
 impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
-            EvaluatorValue::Value           (val)   => val.fmt(f),
+            EvaluatorValue::Value           (val, bytes)   => write!(f, "{}, {:?}", val, bytes),
             EvaluatorValue::Bytes           (byt)   => write!(f, "{:?}", byt),
             EvaluatorValue::Array           (arr)   => arr.fmt(f),
             EvaluatorValue::Struct          (stu)   => stu.fmt(f),
@@ -43,7 +43,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
 impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     pub fn to_value(self) -> Option<BaseValue> {
         match self {
-            EvaluatorValue::Value    (val)  => Some(val),
+            EvaluatorValue::Value    (val, _)  => Some(val),
             EvaluatorValue::Member   (val)  => val.value.to_value(),
             EvaluatorValue::OptimizedOut    => Some(BaseValue::U32(0)), // TODO: Check if this is correct. Think gdb does this.
             _                               => panic!("{:#?}", self), // None,

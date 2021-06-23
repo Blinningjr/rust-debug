@@ -5,6 +5,7 @@ use super::{
         EvaluatorValue,
     },
 };
+use std::convert::TryInto;
 
 use crate::rust_debug::MemoryAndRegisters;
 
@@ -71,6 +72,14 @@ pub enum ReturnResult<R: Reader<Offset = usize>> {
 }
 
 
+pub enum PieceResult<R: Reader<Offset = usize>> {
+    Value(Vec<u8>),
+    Bytes(R),
+    OptimizedOut,
+    Required(EvaluatorResult),
+}
+
+
 /*
  * Evaluates the value of a type given Dwarf pieces.
  */
@@ -114,10 +123,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if self.result.is_some() {
             return EvaluatorResult::Complete;
         }
-
+ 
         // If the stack is empty then the first piece will be evaluated.
         if self.stack.is_none() {
-            match self.eval_piece(memory_and_registers, self.pieces[0].clone(), Some(4), 0, Some(DwAte(1))).unwrap() {
+
+            let result = self.handle_eval_piece(memory_and_registers, Some(4), 0, Some(DwAte(1))).unwrap().unwrap();
+            match result {
                 ReturnResult::Value(val) => {
                     self.result = Some(val);
                     return EvaluatorResult::Complete;
@@ -244,38 +255,44 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn eval_piece(&mut self,
                       memory_and_registers: &MemoryAndRegisters,
                       piece:        Piece<R>,
-                      byte_size:    Option<u64>,
+                      byte_size:    u64,
                       data_offset:  u64,
-                      encoding:     Option<DwAte>
-                      ) -> Option<ReturnResult<R>>
+                      ) -> PieceResult<R>
     {
-        return match piece.location {
-            Location::Empty                                         => Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
-            Location::Register        { register }                  => self.eval_register(memory_and_registers, register, byte_size, encoding),
-            Location::Address         { address }                   => self.eval_address(memory_and_registers, address, byte_size, data_offset, encoding.unwrap()),
-            Location::Value           { value }                     => self.eval_gimli_value(value, byte_size, encoding),
-            Location::Bytes           { value }                     => Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(value))),
+        match piece.location {
+            Location::Empty                                         => PieceResult::OptimizedOut,
+            Location::Register        { ref register }                  => self.eval_register(memory_and_registers, register, &piece),
+            Location::Address         { address }                   => self.eval_address(memory_and_registers, address, byte_size, data_offset, &piece),
+            Location::Value           { value }                     => self.eval_gimli_value(value, &piece),
+            Location::Bytes           { value }                     => PieceResult::Bytes(value.clone()),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
-        };
+        }
     }
+
 
     pub fn eval_gimli_value(&mut self,
                          value:     gimli::Value,
-                         byte_size: Option<u64>,
-                         encoding:  Option<DwAte>,
-                         ) -> Option<ReturnResult<R>>
+                         piece:     &Piece<R>,
+                         ) -> PieceResult<R>
     {
-        match (value, encoding) {
-            (gimli::Value::Generic(val), Some(dwate)) => { // NOTE: Don't know if this is correct.
-                let values = vec!((val >> 32) as u32, val as u32);
-                Some(ReturnResult::Value(
-                        EvaluatorValue::Value(
-                            eval_base_type(&values, dwate, match byte_size {Some(v) => v, None => 8,}))))
-            },
-            _ => Some(ReturnResult::Value(
-                    EvaluatorValue::Value(
-                        super::value::convert_from_gimli_value(value)))),
-        }
+        let mut bytes = vec!();
+        match value {
+            gimli::Value::Generic(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::I8(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::U8(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::I16(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::U16(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::I32(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::U32(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::I64(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::U64(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::F32(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+            gimli::Value::F64(val) => bytes.extend_from_slice(&val.to_le_bytes()),
+        };
+
+        bytes = trim_piece_bytes(bytes, piece, 4);
+
+        return PieceResult::Value(bytes);
     }
 
 
@@ -284,25 +301,21 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      */
     pub fn eval_register(&mut self,
                          memory_and_registers: &MemoryAndRegisters,
-                         register:  gimli::Register,
-                         byte_size: Option<u64>,
-                         encoding:  Option<DwAte>,
-                         ) -> Option<ReturnResult<R>>
+                         register:  &gimli::Register,
+                         piece:     &Piece<R>,
+                         ) -> PieceResult<R>
     {
         match memory_and_registers.get_register_value(&register.0) {
             Some(val) => { // TODO: Mask the important bits?
-                match encoding {
-                    Some(dwate) => Some(ReturnResult::Value( // NOTE: Don't know if this is correct.
-                            super::value::EvaluatorValue::Value(
-                                eval_base_type(&[*val], dwate, match byte_size {Some(v) => v, None => 4,})))),
-                    None => Some(ReturnResult::Value(
-                            super::value::EvaluatorValue::Value(
-                                BaseValue::U32(*val)))),
-                }
+                let mut bytes = vec!();
+                bytes.extend_from_slice(&val.to_le_bytes());
+                
+                bytes = trim_piece_bytes(bytes, piece, 4);
+
+                return PieceResult::Value(bytes);
             },
-            None    => Some(ReturnResult::Required(
-                    EvaluatorResult::RequireReg(
-                        register.0))),
+            None    => PieceResult::Required(
+                    EvaluatorResult::RequireReg(register.0)),
         }
     }
 
@@ -313,10 +326,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     pub fn eval_address(&mut self,
                         memory_and_registers: &MemoryAndRegisters,
                         mut address:    u64,
-                        byte_size:      Option<u64>,
+                        byte_size:      u64,
                         data_offset:    u64,
-                        encoding:       DwAte
-                        ) -> Option<ReturnResult<R>>
+                        piece:     &Piece<R>,
+                        ) -> PieceResult<R>
     {
         //println!("\nAddress: {:#10x}", address);
         //println!("data_offset: {}", data_offset);
@@ -330,9 +343,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         address -= mem_offset; 
  
-        let num_words = match byte_size {
-            Some(val)   => (val + 4 - 1 )/4,
-            None        => 1,
+        let num_words = match piece.size_in_bits {
+            Some(val)   => (val + 32 - 1 )/32,
+            None        => (byte_size + 4 - 1 )/4,
         } as usize;
         
         let num_words_to_read = num_words + ((mem_offset + 4 - 1 )/4) as usize;
@@ -341,26 +354,22 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         for i in 0..num_words_to_read {
             match memory_and_registers.get_address_value(&((address + (i as u64) * 4) as u32)) {
                 Some(val) => data.push(*val),
-                None    => return Some(ReturnResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 4) as u32, num_words: 1 })),
+                None    => return PieceResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 4) as u32, num_words: 1 }),
             }
         }
 
-        if mem_offset == 0 {
-            return Some(ReturnResult::Value(
-                    super::value::EvaluatorValue::Value(
-                        eval_base_type(&data, encoding, byte_size.unwrap()))))
+        let mut bytes = vec!();
+        for word in data {
+            bytes.extend_from_slice(&word.to_le_bytes());
         }
 
-        let mut shifted_data: Vec<u32> = Vec::new();
-        for i in 0..num_words {
-            let low_bytes = data[i] >> (mem_offset * 8);
-            let high_bytes = data[i + 1] << ((4 - mem_offset) * 8);
-            shifted_data.push(high_bytes + low_bytes);
+        for _ in 0..mem_offset {
+            bytes.remove(0); 
         }
 
-        Some(ReturnResult::Value(
-                super::value::EvaluatorValue::Value(
-                    eval_base_type(&shifted_data, encoding, byte_size.unwrap()))))
+        bytes = trim_piece_bytes(bytes, piece, byte_size as usize);
+
+        PieceResult::Value(bytes)
     }
 
 
@@ -377,43 +386,67 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         if self.pieces.len() <= self.piece_index {
             return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)));
         }
-        
+
+        // TODO: confirm
         if self.pieces.len() > 1 { // NOTE: Is this correct?
             data_offset = 0;
         }
- 
-        // Evaluate the value of the piece.
-        let res = self.eval_piece(memory_and_registers,
-                                  self.pieces[self.piece_index].clone(),
-                                  byte_size,
-                                  data_offset,
-                                  encoding);
 
-        // Pops piece if the value was evaluated.
-        match res.unwrap() {
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
-            ReturnResult::Value(value) => {
-                match self.pieces[self.piece_index].size_in_bits {
-                    Some(val)   => {
-                        let bytes: i32 = match byte_size {
-                            Some(val)   => (val*8) as i32,
-                            None        => 32,
-                        };
-
-                        if (val as i32) - bytes < 1 {
-                            self.pieces[self.piece_index].size_in_bits = Some(0);
-                            self.piece_index += 1;
-                        } else {
-                            self.pieces[self.piece_index].size_in_bits = Some(val - bytes as u64);
-                        }
-                    },
-                    None        => (),
-                }
-
-                return Ok(Some(ReturnResult::Value(value)));
-            },
-        };
+        if byte_size.is_none() {
+            panic!("byte_size needed");
+        }
+        let result = self.get_bytes(memory_and_registers, byte_size.unwrap(), data_offset)?;
+        return match result {
+            PieceResult::Value(bytes) => Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encoding.unwrap()), bytes.clone())))),
+            PieceResult::Bytes(bytes) => Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(bytes)))),
+            PieceResult::OptimizedOut => Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut))),
+            PieceResult::Required(required) => Ok(Some(ReturnResult::Required(required))),
+        }
     }
+
+
+    fn get_bytes(&mut self,
+                 memory_and_registers:  &MemoryAndRegisters,
+                 byte_size:             u64,
+                 mut data_offset:       u64,
+                 ) -> Result<PieceResult<R>>
+    {
+        // TODO: confirm
+        if self.pieces.len() > 1 { // NOTE: Is this correct?
+            data_offset = 0;
+        }
+
+        let mut bytes = vec!();
+        while  bytes.len() < byte_size.try_into()? {
+
+            if self.pieces.len() <= self.piece_index {
+                unimplemented!();
+                //return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)));
+            }
+            let piece = self.pieces[self.piece_index].clone();
+            let result = self.eval_piece(memory_and_registers,
+                                         piece,
+                                         byte_size,
+                                         data_offset);
+            let new_bytes = match result {
+                PieceResult::Value(val) => val,
+                _ => return Ok(result),
+            };
+
+            bytes.extend_from_slice(&new_bytes);
+            if self.pieces[self.piece_index].size_in_bits.is_some() {
+                self.piece_index += 1;
+            }
+        }
+
+        while bytes.len() > byte_size as usize {
+            bytes.pop();
+        }
+        
+        return Ok(PieceResult::Value(bytes));
+    }
+
+
 
 
     /*
@@ -485,7 +518,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                                  Some(4),
                                                  data_offset,
                                                  Some(DwAte(1)));
-                return res;        
+                return res;
             },
             _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
         };
@@ -766,6 +799,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // Go through the children and find the correct enumerator value.
         let children = get_children(unit, die);
+
+        let clen = children.len() as u64;
+
         for c in children {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
@@ -773,7 +809,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     let const_value = attributes::const_value_attribute(&c_die).unwrap();
 
                     // Check if it is the correct one.
-                    if const_value == value {
+                    if const_value == value % clen {
 
                         // Get the name of the enum type and the enum variant.
                         let name = attributes::name_attribute(dwarf, die).unwrap(); 
@@ -813,7 +849,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // If the die has a count attribute then that is the value.
         match attributes::count_attribute(die) { // NOTE: This could be replace with lower and upper bound
-            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val))))),
+            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), vec!())))),
             None        => (),
         };
 
@@ -1118,4 +1154,85 @@ pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
     
     eval_base_type(data, encoding, byte_size)
 }
+
+
+fn trim_piece_bytes<R: Reader<Offset = usize>>(mut bytes: Vec<u8>, piece: &Piece<R>, byte_size: usize) -> Vec<u8> {
+    let piece_byte_size = match piece.size_in_bits {
+        Some(size) => ((size + 8 - 1) / 8) as usize,
+        None => byte_size,
+    };
+
+    let piece_byte_offset = match piece.bit_offset {
+        Some(offset) => {
+            if offset % 8 == 0 {
+                panic!("Expected the offset to be in bytes, got {} bits", offset);
+            }
+            ((offset + 8 - 1) / 8) as usize
+        },
+        None => 0, 
+    };
+
+    for _ in 0..piece_byte_offset {
+        bytes.pop();
+    }
+
+    while bytes.len() > piece_byte_size {// TODO: Cheack that this follows the ABI.
+        bytes.remove(0);
+    }
+
+    return bytes;
+}
+
+
+/*
+ * Evaluates the value of a base type.
+ */
+pub fn new_eval_base_type(data:         Vec<u8>,
+                          encoding:     DwAte,
+                          ) -> BaseValue
+{
+    if data.len() == 0 {
+        panic!("expected byte size to be larger then 0");
+    }
+
+    match (encoding, data.len()) {  // Source: DWARF 4 page 168-169 and 77
+        (DwAte(1), 4) => BaseValue::Address32(u32::from_le_bytes(data.try_into().unwrap())),    // DW_ATE_address = 1 // TODO: Different size addresses?
+        (DwAte(2), 1) => BaseValue::Bool((u8::from_le_bytes(data.try_into().unwrap())) == 1),   // DW_ATE_boolean = 2 // TODO: Use modulus?
+        
+//        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing
+
+        (DwAte(4), 4) => BaseValue::F32(f32::from_le_bytes(data.try_into().unwrap())),   // DW_ATE_float = 4
+        (DwAte(4), 8) => BaseValue::F64(f64::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
+
+        (DwAte(5), 1) => BaseValue::I8(i8::from_le_bytes(data.try_into().unwrap())),       // (DW_ATE_signed = 5, 8)
+        (DwAte(5), 2) => BaseValue::I16(i16::from_le_bytes(data.try_into().unwrap())),     // (DW_ATE_signed = 5, 16)
+        (DwAte(5), 4) => BaseValue::I32(i32::from_le_bytes(data.try_into().unwrap())),     // (DW_ATE_signed = 5, 32)
+        (DwAte(5), 8) => BaseValue::I64(i64::from_le_bytes(data.try_into().unwrap())),     // (DW_ATE_signed = 5, 64)
+        
+//        (DwAte(6), _) => ,     // DW_ATE_signed_char = 6 // TODO: Add type
+
+        (DwAte(7), 1) => BaseValue::U8(u8::from_le_bytes(data.try_into().unwrap())),       // (DW_ATE_unsigned = 7, 8)
+        (DwAte(7), 2) => BaseValue::U16(u16::from_le_bytes(data.try_into().unwrap())),     // (DW_ATE_unsigned = 7, 16)
+        (DwAte(7), 4) => BaseValue::U32(u32::from_le_bytes(data.try_into().unwrap())),     // (DW_ATE_unsigned = 7, 32)
+        (DwAte(7), 8) => BaseValue::U64(u64::from_le_bytes(data.try_into().unwrap())),            // (DW_ATE_unsigned = 7, 64)
+        
+//        (DwAte(8), _) => ,     // DW_ATE_unsigned_char = 8 // TODO: Add type
+//        (DwAte(9), _) => ,     // DW_ATE_imaginary_float = 9 // NOTE: Seems like a C++ thing
+//        (DwAte(10), _) => ,     // DW_ATE_packed_decimal = 10 // TODO: Add type
+//        (DwAte(11), _) => ,     // DW_ATE_numeric_string = 11 // TODO: Add type
+//        (DwAte(12), _) => ,     // DW_ATE_edited = 12 // TODO: Add type
+//        (DwAte(13), _) => ,     // DW_ATE_signed_fixed = 13 // TODO: Add type
+//        (DwAte(14), _) => ,     // DW_ATE_unsigned_fixed = 14 // TODO: Add type
+//        (DwAte(15), _) => ,     // DW_ATE_decimal_float = 15 // TODO: Add type
+//        (DwAte(16), _) => ,     // DW_ATE_UTF = 16 // TODO: Add type
+//        (DwAte(128), _) => ,     // DW_ATE_lo_user = 128 // TODO: Add type
+//        (DwAte(255), _) => ,     // DW_ATE_hi_user = 255 // TODO: Add type
+
+        _ => {
+            println!("{:?}, {:?}", encoding, data.len());
+            unimplemented!()
+        },
+    }
+}
+
 
