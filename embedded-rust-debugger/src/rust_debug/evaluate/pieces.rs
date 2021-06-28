@@ -191,13 +191,13 @@ fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
     println!("address: {:?}, size: {:?}, space: {:?}", address, size, space);
     match memory_and_registers.get_address_value(&(address as u32)) { //TODO handle size and space
         Some(data) => {
-            let value = parse_base_type(unit, &[*data], base_type);
+            let value = parse_base_type(unit, &[data], base_type);
             *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
             Ok(EvalResult::Complete)
         },
         None => Ok(EvalResult::RequiresMemory {
             address: address as u32,
-            num_words:  (size as usize + 4 - 1)/4, 
+            num_words:  4,  // TODO
         }),
     }
 }

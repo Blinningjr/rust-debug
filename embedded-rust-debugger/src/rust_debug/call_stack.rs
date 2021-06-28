@@ -148,7 +148,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
                     }) as u32;
 
                     let value = match memory_and_registers.get_address_value(&address) {
-                        Some(val) => *val,
+                        Some(val) => val,
                         None => return Ok(UnwindResult::RequiresAddress {
                             address: address,
                         }),

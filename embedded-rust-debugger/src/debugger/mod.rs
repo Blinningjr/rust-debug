@@ -839,9 +839,9 @@ pub fn get_current_stacktrace<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
         match csu.unwind(debug_frame, memory_and_registers)? {
             UnwindResult::Complete => break,
             UnwindResult::RequiresAddress { address } => {
-                let mut buff = vec![0u32; 1];
-                core.read_32(address, &mut buff)?;
-                memory_and_registers.add_to_memory(address, buff[0]);
+                let mut buff = vec![0u8; 4];
+                core.read_8(address, &mut buff)?;
+                memory_and_registers.add_to_memory(address, buff);
             },
         }
     }
@@ -866,10 +866,10 @@ fn get_stack_frame<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>, core: &mut prob
         match sfc.continue_creation(dwarf, memory_and_registers, cwd)? {
             EvalResult::Complete => break,
             EvalResult::RequiresRegister { register: _ } => panic!("Skip this variable"),
-            EvalResult::RequiresMemory { address, num_words: _ } => {
-                let mut buff = vec![0u32; 1];
-                core.read_32(address, &mut buff)?;
-                memory_and_registers.add_to_memory(address, buff[0]);
+            EvalResult::RequiresMemory { address, num_words } => {
+                let mut buff = vec![0u8; num_words];
+                core.read_8(address, &mut buff)?;
+                memory_and_registers.add_to_memory(address, buff);
             },
         }
     }

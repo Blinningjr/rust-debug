@@ -336,40 +336,62 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         //address += (data_offset/4) * 4;
         address += data_offset;
         //println!("Address: {:#10x}", address);
-        
-        let mem_offset = address%4;
 
-        println!("Address: {:#10x}, mem_offset: {:?}, byte_size: {:?}\n", address, mem_offset, byte_size);
+        println!("Address: {:#10x}, byte_size: {:?}\n", address, byte_size);
 
-        address -= mem_offset; 
- 
-        let num_words = match piece.size_in_bits {
-            Some(val)   => (val + 32 - 1 )/32,
-            None        => (byte_size + 4 - 1 )/4,
+        let num_bytes = match piece.size_in_bits {
+            Some(val) => (val + 8 - 1)/8,
+            None => byte_size,
         } as usize;
-        
-        let num_words_to_read = num_words + ((mem_offset + 4 - 1 )/4) as usize;
 
-        let mut data: Vec<u32> = Vec::new();
-        for i in 0..num_words_to_read {
-            match memory_and_registers.get_address_value(&((address + (i as u64) * 4) as u32)) {
-                Some(val) => data.push(*val),
-                None    => return PieceResult::Required(EvaluatorResult::RequireData{ address: (address + (i as u64) * 4) as u32, num_words: 1 }),
-            }
-        }
+        let bytes = match memory_and_registers.get_addresses(&(address as u32), num_bytes) {
+            Some(val) => val,
+            None => return PieceResult::Required(EvaluatorResult::RequireData {
+                address: address as u32,
+                num_words: num_bytes,
+            }),
+        };
 
-        let mut bytes = vec!();
-        for word in data {
-            bytes.extend_from_slice(&word.to_le_bytes());
-        }
-
-        for _ in 0..mem_offset {
-            bytes.remove(0); 
-        }
-
-        bytes = trim_piece_bytes(bytes, piece, byte_size as usize);
+        //bytes = trim_piece_bytes(bytes, piece, byte_size as usize);
 
         PieceResult::Value(bytes)
+        
+        //let mem_offset = address%4;
+
+        //println!("Address: {:#10x}, mem_offset: {:?}, byte_size: {:?}\n", address, mem_offset, byte_size);
+
+        //address -= mem_offset; 
+ 
+        //let num_words = match piece.size_in_bits {
+        //    Some(val)   => (val + 32 - 1 )/32,
+        //    None        => (byte_size + 4 - 1 )/4,
+        //} as usize;
+        //
+        //let num_words_to_read = num_words + ((mem_offset + 4 - 1 )/4) as usize;
+
+        //let mut data: Vec<u32> = Vec::new();
+        //for i in 0..num_words_to_read {
+        //    match memory_and_registers.get_address_value(&((address + (i as u64) * 4) as u32)) {
+        //        Some(val) => data.push(val),
+        //        None    => return PieceResult::Required(EvaluatorResult::RequireData{
+        //            address: (address + (i as u64) * 4) as u32,
+        //            num_words: num_words_to_read * 4,
+        //        }),
+        //    }
+        //}
+
+        //let mut bytes = vec!();
+        //for word in data {
+        //    bytes.extend_from_slice(&word.to_le_bytes());
+        //}
+
+        //for _ in 0..mem_offset {
+        //    bytes.remove(0); 
+        //}
+
+        //bytes = trim_piece_bytes(bytes, piece, byte_size as usize);
+
+        //PieceResult::Value(bytes)
     }
 
 
