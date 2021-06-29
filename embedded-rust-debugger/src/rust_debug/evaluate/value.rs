@@ -45,7 +45,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         match self {
             EvaluatorValue::Value    (val, _)  => Some(val),
             EvaluatorValue::Member   (val)  => val.value.to_value(),
-            EvaluatorValue::OptimizedOut    => Some(BaseValue::U32(0)), // TODO: Check if this is correct. Think gdb does this.
+            EvaluatorValue::OptimizedOut    => None,
             _                               => panic!("{:#?}", self), // None,
         }
     }
@@ -79,7 +79,6 @@ fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> 
 }
 
 
-
 #[derive(Debug, Clone)]
 pub struct ArrayValue<R: Reader<Offset = usize>> {
     pub values:  Vec<EvaluatorValue<R>>,
@@ -90,6 +89,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for ArrayValue<R> {
         write!(f, "[ {} ]", format_values(&self.values))
     }
 }
+
 
 #[derive(Debug, Clone)]
 pub struct StructValue<R: Reader<Offset = usize>> {
@@ -103,6 +103,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for StructValue<R> {
     }
 }
 
+
 #[derive(Debug, Clone)]
 pub struct EnumValue<R: Reader<Offset = usize>> {
     pub name:   String,
@@ -115,6 +116,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EnumValue<R> {
     }
 }
 
+
 #[derive(Debug, Clone)]
 pub struct UnionValue<R: Reader<Offset = usize>> {
     pub name:       String,
@@ -126,6 +128,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for UnionValue<R> {
         write!(f, "{} ( {} )", self.name, format_values(&self.members))
     }
 }
+
 
 #[derive(Debug, Clone)]
 pub struct MemberValue<R: Reader<Offset = usize>> {
@@ -220,5 +223,4 @@ pub fn convert_from_gimli_value(value: gimli::Value) -> BaseValue {
         gimli::Value::F64      (val)   => BaseValue::F64(val),
     }
 }
-
 

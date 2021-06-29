@@ -19,7 +19,7 @@ use gimli::{
 
 
 use anyhow::{
-    anyhow,
+    bail,
     Result,
 };
 
@@ -116,66 +116,69 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
-    pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> EvaluatorResult {
+    pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> Result<EvaluatorResult> {
         self.piece_index = 0;
 
         // If the value has already been evaluated then don't evaluated it again.
         if self.result.is_some() {
-            return EvaluatorResult::Complete;
+            return Ok(EvaluatorResult::Complete);
         }
- 
-        // If the stack is empty then the first piece will be evaluated.
-        if self.stack.is_none() {
 
-            let result = self.handle_eval_piece(memory_and_registers, Some(4), 0, Some(DwAte(1))).unwrap().unwrap();
-            match result {
-                ReturnResult::Value(val) => {
-                    self.result = Some(val);
-                    return EvaluatorResult::Complete;
-                },
-                ReturnResult::Required(req) => return req,
-            };
-        } 
-
-
-        // Get the current state.
-        let (unit_offset, die_offset, data_offset) = {
-            let state = self.stack.as_ref().unwrap();
-            (state.unit_offset, state.die_offset, state.data_offset)
+        // Check if a type die was given and if it was then get the needed information.
+        // Otherwise just evaluate the first piece into a u32.
+        let (unit_offset, die_offset, data_offset) = match &self.stack {
+            Some(state) => {
+                // Get the current state information.
+                (state.unit_offset, state.die_offset, state.data_offset)
+            },
+            None => {
+                // If the stack is empty then the first piece will be evaluated.
+                let result = self.handle_eval_piece(memory_and_registers, Some(4), 0, Some(DwAte(1)))?;
+                match result {
+                    ReturnResult::Value(val) => {
+                        self.result = Some(val);
+                        return Ok(EvaluatorResult::Complete);
+                    },
+                    ReturnResult::Required(req) => return Ok(req),
+                };
+            },
         };
 
         
         // Get the unit of the current state.
         let unit = match unit_offset {
             gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
-                let header = dwarf.debug_info.header_from_offset(offset).unwrap();
-                dwarf.unit(header).unwrap()
+                let header = dwarf.debug_info.header_from_offset(offset)?;
+                dwarf.unit(header)?
             },
             gimli::UnitSectionOffset::DebugTypesOffset(_offset) => {
                 let mut iter = dwarf.debug_types.units();
                 let mut result = None;
-                while let Some(header) = iter.next().unwrap() {
+                while let Some(header) = iter.next()? {
                     if header.offset() == unit_offset {
-                        result = Some(dwarf.unit(header).unwrap());
+                        result = Some(dwarf.unit(header)?);
                         break;
                     }
                 }
-                result.unwrap()
+                match result {
+                    Some(val) => val,
+                    None => bail!("Could not find unit form offset"),
+                }
             },
         };
 
         // Get the die of the current state.
-        let die = &unit.entry(die_offset).unwrap();
+        let die = &unit.entry(die_offset)?;
         println!("die tag {:?}", die.tag().static_string());
 
 
         // Continue evaluating the value of the current state.
-        match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset).unwrap().unwrap() {
+        match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset)?.unwrap() {
         ReturnResult::Value(val) => {
                 self.result = Some(val);
-                EvaluatorResult::Complete
+                Ok(EvaluatorResult::Complete)
             },
-            ReturnResult::Required(req) => req,
+            ReturnResult::Required(req) => Ok(req),
         } 
     }
 
@@ -197,7 +200,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          die:   &gimli::DebuggingInformationEntry<'_, '_, R>,
                          ) -> Result<(gimli::Unit<R>, gimli::UnitOffset)>
     {
-        let (unit_offset, die_offset) = attributes::type_attribute(dwarf, unit, die).unwrap();
+        let (unit_offset, die_offset) = match attributes::type_attribute(dwarf, unit, die) {
+            Some(val) => val,
+            None => bail!("Die dosen't have the required DW_AT_type attribute"),
+        };
         let unit = match unit_offset {
             gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
                 let header = dwarf.debug_info.header_from_offset(offset)?;
@@ -212,14 +218,17 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         break;
                     }
                 }
-                result.unwrap()
+                match result {
+                    Some(val) => val,
+                    None => bail!("Could not get unit from unit offset"),
+                }
             },
         };
        
         Ok((unit, die_offset))
     }
 
-/*
+    /*
      * Evaluates the value of a type.
      */
     pub fn eval_type(&mut self,
@@ -403,10 +412,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              byte_size:         Option<u64>,
                              mut data_offset:   u64,
                              encoding:          Option<DwAte>
-                             ) -> Result<Option<ReturnResult<R>>>
+                             ) -> Result<ReturnResult<R>>
     {
         if self.pieces.len() <= self.piece_index {
-            return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)));
+            return Ok(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut));
         }
 
         // TODO: confirm
@@ -419,10 +428,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         }
         let result = self.get_bytes(memory_and_registers, byte_size.unwrap(), data_offset)?;
         return match result {
-            PieceResult::Value(bytes) => Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encoding.unwrap()), bytes.clone())))),
-            PieceResult::Bytes(bytes) => Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Bytes(bytes)))),
-            PieceResult::OptimizedOut => Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut))),
-            PieceResult::Required(required) => Ok(Some(ReturnResult::Required(required))),
+            PieceResult::Value(bytes) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encoding.unwrap()), bytes.clone()))),
+            PieceResult::Bytes(bytes) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Bytes(bytes))),
+            PieceResult::OptimizedOut => Ok(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
+            PieceResult::Required(required) => Ok(ReturnResult::Required(required)),
         }
     }
 
@@ -505,7 +514,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match self.handle_eval_piece(memory_and_registers,
                                      byte_size,
                                      data_offset, // TODO
-                                     encoding)?.unwrap()
+                                     encoding)?
         {
             ReturnResult::Value(val) => {
                 return Ok(Some(ReturnResult::Value(val)));
@@ -533,14 +542,17 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         self.check_alignment(die, data_offset)?;
 
         // Evaluate the pointer type value.
-        let address_class = attributes::address_class_attribute(die);
-        match address_class.unwrap().0 {
+        let address_class = match attributes::address_class_attribute(die) {
+            Some(val) => val,
+            None => bail!("Die is missing required attribute DW_AT_address_class"),
+        };
+        match address_class.0 {
             0 => {
                 let res = self.handle_eval_piece(memory_and_registers,
                                                  Some(4),
                                                  data_offset,
-                                                 Some(DwAte(1)));
-                return res;
+                                                 Some(DwAte(1)))?;
+                return Ok(Some(res));
             },
             _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
         };
@@ -581,7 +593,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
         
         // Evaluate the length of the array.
-        let count = super::value::get_udata(value.to_value().unwrap()) as usize;
+        let count = super::value::get_udata(match value.to_value() {
+            Some(val) => val,
+            None => return Ok(Some(ReturnResult::Value(EvaluatorValue::OptimizedOut))), // TODO: Maybe need to remove the following pieces that is related to this structure.
+        }) as usize;
 
 
         // Get type attribute unit and die.
@@ -817,7 +832,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Get the value as a unsigned int.
-        let value = super::value::get_udata(type_result.to_value().unwrap());
+        let value = super::value::get_udata(match type_result.to_value() {
+            Some(val) => val,
+            None => return Ok(Some(ReturnResult::Value(EvaluatorValue::OptimizedOut))), // TODO: Maybe need to remove the following pieces that is related to this structure.
+        });
 
         // Go through the children and find the correct enumerator value.
         let children = get_children(unit, die);
@@ -923,7 +941,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // The value should be a unsigned int thus convert the value to a u64.
-        let variant = super::value::get_udata(value.to_value().unwrap());
+        let variant = super::value::get_udata(match value.to_value() {
+            Some(val) => val,
+            None => return Ok(Some(ReturnResult::Value(EvaluatorValue::OptimizedOut))), // TODO: Maybe need to remove the following pieces that is related to this structure.
+        });
 
 
         // Find the DW_TAG_member die and all the DW_TAG_variant dies.
@@ -1036,7 +1057,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
                         if addr % alignment != 0 {
                             panic!("address not aligned");
-                            return Err(anyhow!("Address not aligned"));
+                            bail!("Address not aligned");
                         }
                     },
                     _ => (),
