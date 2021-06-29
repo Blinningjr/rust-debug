@@ -1,14 +1,16 @@
 use std::fmt;
 
+use crate::rust_debug::evaluate::value_information::ValueInformation;
+
 use gimli::{
     Reader,
 };
 
 #[derive(Debug, Clone)]
 pub enum EvaluatorValue<R: Reader<Offset = usize>> {
-    Value(BaseValue, Vec<u8>),
+    Value(BaseValue, ValueInformation),
     Bytes(R),
-    
+
     Array(Box<ArrayValue<R>>),
     Struct(Box<StructValue<R>>),
     Enum(Box<EnumValue<R>>),
@@ -25,7 +27,7 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
 impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
-            EvaluatorValue::Value           (val, bytes)   => write!(f, "{}, {:?}", val, bytes),
+            EvaluatorValue::Value           (val, _)   => val.fmt(f),
             EvaluatorValue::Bytes           (byt)   => write!(f, "{:?}", byt),
             EvaluatorValue::Array           (arr)   => arr.fmt(f),
             EvaluatorValue::Struct          (stu)   => stu.fmt(f),
@@ -186,7 +188,6 @@ impl fmt::Display for BaseValue {
         };
     }
 }
-
 
 
 pub fn convert_to_gimli_value(value: BaseValue) -> gimli::Value {

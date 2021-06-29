@@ -9,6 +9,8 @@ use std::convert::TryInto;
 
 use crate::rust_debug::MemoryAndRegisters;
 
+use crate::rust_debug::evaluate::value_information::ValueInformation;
+use crate::rust_debug::evaluate::value_information::ValuePiece;
 
 use gimli::{
     Reader,
@@ -73,7 +75,7 @@ pub enum ReturnResult<R: Reader<Offset = usize>> {
 
 
 pub enum PieceResult<R: Reader<Offset = usize>> {
-    Value(Vec<u8>),
+    Value(Vec<u8>, Vec<ValuePiece>),
     Bytes(R),
     OptimizedOut,
     Required(EvaluatorResult),
@@ -270,7 +272,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     {
         match piece.location {
             Location::Empty                                         => PieceResult::OptimizedOut,
-            Location::Register        { ref register }                  => self.eval_register(memory_and_registers, register, &piece),
+            Location::Register        { ref register }              => self.eval_register(memory_and_registers, register, &piece),
             Location::Address         { address }                   => self.eval_address(memory_and_registers, address, byte_size, data_offset, &piece),
             Location::Value           { value }                     => self.eval_gimli_value(value, &piece),
             Location::Bytes           { value }                     => PieceResult::Bytes(value.clone()),
@@ -300,8 +302,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         bytes = trim_piece_bytes(bytes, piece, 4);
+        let byte_size = bytes.len();
 
-        return PieceResult::Value(bytes);
+        return PieceResult::Value(bytes, vec!(ValuePiece::Dwarf { byte_size: byte_size }));
     }
 
 
@@ -320,8 +323,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 bytes.extend_from_slice(&val.to_le_bytes());
                 
                 bytes = trim_piece_bytes(bytes, piece, 4);
+                let byte_size = bytes.len();
 
-                return PieceResult::Value(bytes);
+                return PieceResult::Value(bytes, vec!(ValuePiece::Register { register: register.0, byte_size: byte_size }));
             },
             None    => PieceResult::Required(
                     EvaluatorResult::RequireReg(register.0)),
@@ -361,46 +365,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             }),
         };
 
-        //bytes = trim_piece_bytes(bytes, piece, byte_size as usize);
-
-        PieceResult::Value(bytes)
-        
-        //let mem_offset = address%4;
-
-        //println!("Address: {:#10x}, mem_offset: {:?}, byte_size: {:?}\n", address, mem_offset, byte_size);
-
-        //address -= mem_offset; 
- 
-        //let num_words = match piece.size_in_bits {
-        //    Some(val)   => (val + 32 - 1 )/32,
-        //    None        => (byte_size + 4 - 1 )/4,
-        //} as usize;
-        //
-        //let num_words_to_read = num_words + ((mem_offset + 4 - 1 )/4) as usize;
-
-        //let mut data: Vec<u32> = Vec::new();
-        //for i in 0..num_words_to_read {
-        //    match memory_and_registers.get_address_value(&((address + (i as u64) * 4) as u32)) {
-        //        Some(val) => data.push(val),
-        //        None    => return PieceResult::Required(EvaluatorResult::RequireData{
-        //            address: (address + (i as u64) * 4) as u32,
-        //            num_words: num_words_to_read * 4,
-        //        }),
-        //    }
-        //}
-
-        //let mut bytes = vec!();
-        //for word in data {
-        //    bytes.extend_from_slice(&word.to_le_bytes());
-        //}
-
-        //for _ in 0..mem_offset {
-        //    bytes.remove(0); 
-        //}
-
-        //bytes = trim_piece_bytes(bytes, piece, byte_size as usize);
-
-        //PieceResult::Value(bytes)
+        PieceResult::Value(bytes, vec!(ValuePiece::Memory { address: address as u32, byte_size: num_bytes }))    
     }
 
 
@@ -428,7 +393,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         }
         let result = self.get_bytes(memory_and_registers, byte_size.unwrap(), data_offset)?;
         return match result {
-            PieceResult::Value(bytes) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encoding.unwrap()), bytes.clone()))),
+            PieceResult::Value(bytes, value_pieces) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encoding.unwrap()), ValueInformation::new(Some(bytes.clone()), value_pieces)))),
             PieceResult::Bytes(bytes) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Bytes(bytes))),
             PieceResult::OptimizedOut => Ok(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
             PieceResult::Required(required) => Ok(ReturnResult::Required(required)),
@@ -448,6 +413,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         }
 
         let mut bytes = vec!();
+        let mut value_pieces = vec!();
         while  bytes.len() < byte_size.try_into()? {
 
             if self.pieces.len() <= self.piece_index {
@@ -459,22 +425,23 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                          piece,
                                          byte_size,
                                          data_offset);
-            let new_bytes = match result {
-                PieceResult::Value(val) => val,
+            let (new_bytes, value_piece) = match result {
+                PieceResult::Value(bytes, pieces) => (bytes, pieces),
                 _ => return Ok(result),
             };
 
             bytes.extend_from_slice(&new_bytes);
+            value_pieces.extend_from_slice(&value_piece);
             if self.pieces[self.piece_index].size_in_bits.is_some() {
                 self.piece_index += 1;
             }
         }
 
-        while bytes.len() > byte_size as usize {
-            bytes.pop();
-        }
+//        while bytes.len() > byte_size as usize {
+//            bytes.pop();    // TODO: Think this loop can be removed
+//        }
         
-        return Ok(PieceResult::Value(bytes));
+        return Ok(PieceResult::Value(bytes, value_pieces));
     }
 
 
@@ -889,7 +856,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // If the die has a count attribute then that is the value.
         match attributes::count_attribute(die) { // NOTE: This could be replace with lower and upper bound
-            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), vec!())))),
+            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), ValueInformation::new(None, vec!(ValuePiece::Dwarf { byte_size: 0 })))))),
             None        => (),
         };
 

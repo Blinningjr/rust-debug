@@ -2,6 +2,7 @@ pub mod value;
 pub mod evaluate;
 pub mod attributes;
 pub mod pieces;
+pub mod value_information;
 
 
 use pieces::EvalPieceResult;
