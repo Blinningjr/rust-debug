@@ -18,6 +18,7 @@ use anyhow::{
     anyhow,
 };
 
+use crate::rust_debug::evaluate::value_information::ValueInformation;
 use crate::rust_debug::source_information::SourceInformation;
 use crate::rust_debug::evaluate::attributes;
 use crate::rust_debug::in_range;
@@ -34,6 +35,7 @@ pub struct Variable {
 //    pub type_:  String,
 //    pub locations: Vec<u32>, // u32 or registery number
     pub source: Option<SourceInformation>,
+    pub location: Vec<ValueInformation>,
 }
 
 
@@ -46,6 +48,8 @@ pub struct VariableCreator {
     pub value:  Option<String>,
     pub frame_base: Option<u64>,
     pub pc: u32,
+
+    pub var_info: Option<Vec<ValueInformation>>,
 }
 
 
@@ -77,6 +81,7 @@ impl VariableCreator {
             value: None,
             frame_base: frame_base,
             pc: pc,
+            var_info: None,
         })
     }
 
@@ -87,6 +92,7 @@ impl VariableCreator {
                 name: self.name.clone(),
                 value: val.clone(),
                 source: self.source.clone(),
+                location: self.var_info.clone().unwrap(),
             }),
             None => Err(anyhow!("Variables location not evaluated yet")),
         }
@@ -130,6 +136,7 @@ impl VariableCreator {
                  memory_and_registers)? {
             EvaluatorResult::Complete(val) => {
                 self.value = Some(val.to_string()); 
+                self.var_info = Some(val.get_variable_information());
                 Ok(EvalResult::Complete)
             },
             EvaluatorResult::Requires(req) => Ok(req),

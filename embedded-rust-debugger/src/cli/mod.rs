@@ -354,6 +354,7 @@ impl Cli {
             },
             None => (),
         };
+        println!("Location: {:?}", variable.location);
     }
 
 

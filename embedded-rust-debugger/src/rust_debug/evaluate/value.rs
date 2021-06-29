@@ -49,6 +49,39 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             EvaluatorValue::Member   (val)  => val.value.to_value(),
             EvaluatorValue::OptimizedOut    => None,
             _                               => panic!("{:#?}", self), // None,
+        } }
+
+    pub fn get_variable_information(self) -> Vec<ValueInformation> {
+        match self {
+            EvaluatorValue::Value (_, var_info) => vec!(var_info),
+            EvaluatorValue::Array (arr) => {
+                let mut info = vec!();
+                for val in arr.values {
+                    info.append(&mut val.get_variable_information());
+                }
+                info
+            },
+            EvaluatorValue::Struct (st) => {
+                let mut info = vec!();
+                for val in st.members {
+                    info.append(&mut val.get_variable_information());
+                }
+                info
+            },
+            EvaluatorValue::Enum (en) => {
+                en.value.get_variable_information()
+            },
+            EvaluatorValue::Union (un) => {
+                let mut info = vec!();
+                for val in un.members {
+                    info.append(&mut val.get_variable_information());
+                }
+                info
+            },
+            EvaluatorValue::Member (me) => {
+                me.value.get_variable_information()
+            },
+            _ => vec!(),
         }
     }
 }
