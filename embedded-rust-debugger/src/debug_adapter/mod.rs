@@ -43,6 +43,8 @@ use debugserver_types::{
     DisconnectArguments,
     SetBreakpointsArguments,
     SetBreakpointsResponseBody,
+
+    EvaluateResponseBody,
 };
 
 use std::io::{
@@ -254,6 +256,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             "variables"                 => self.handle_variables_dap_request(&request),
             "next"                      => self.handle_next_dap_request(&request),
             "stepOut"                   => unimplemented!(), // TODO
+            "evaluate"                  => self.handle_evaluate_dap_request(&request),
             _ => panic!("command: {}", request.command),
         };
     
@@ -711,6 +714,33 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
         
         let response = Response {
             body:           None,
+            command:        request.command.clone(),
+            message:        None,
+            request_seq:    request.seq,
+            seq:            self.seq,
+            success:        true,
+            type_:          "response".to_string(),
+        };
+        
+        self.seq = send_data(&mut self.writer, &to_vec(&response)?, self.seq)?;
+
+        Ok(false)
+    }
+
+
+    fn handle_evaluate_dap_request(&mut self, request: &Request) -> Result<bool> {
+        
+        let body = EvaluateResponseBody {
+            result: "This feature is not yet implemented".to_owned(),
+            variables_reference: 0.0,
+            type_: None,
+            indexed_variables: None,
+            named_variables: None,
+            presentation_hint: None,
+        };
+
+        let response = Response {
+            body:           Some(json!(body)),
             command:        request.command.clone(),
             message:        None,
             request_seq:    request.seq,
