@@ -255,7 +255,8 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
             "source"                    => unimplemented!(), // TODO
             "variables"                 => self.handle_variables_dap_request(&request),
             "next"                      => self.handle_next_dap_request(&request),
-            "stepOut"                   => unimplemented!(), // TODO
+            "stepIn"                    => self.handle_next_dap_request(&request), // TODO
+            "stepOut"                   => self.handle_next_dap_request(&request), // TODO
             "evaluate"                  => self.handle_evaluate_dap_request(&request),
             _ => panic!("command: {}", request.command),
         };
