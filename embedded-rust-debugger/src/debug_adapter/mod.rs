@@ -624,7 +624,7 @@ impl<R: Read, W: Write> DebugAdapter<R, W> {
                     name: match &var.name {Some(name) => name.clone(), None => "<unknown>".to_string(),},
                     named_variables: None,
                     presentation_hint: None,
-                    type_: None,
+                    type_: var.type_.clone(),
                     value: var.value.clone(),
                     variables_reference: 0, // i64,
                 });

@@ -32,7 +32,7 @@ use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 pub struct Variable {
     pub name:   Option<String>,
     pub value:  String,
-//    pub type_:  String,
+    pub type_:  Option<String>,
 //    pub locations: Vec<u32>, // u32 or registery number
     pub source: Option<SourceInformation>,
     pub location: Vec<ValueInformation>,
@@ -46,6 +46,7 @@ pub struct VariableCreator {
     pub name:   Option<String>,
     pub source: Option<SourceInformation>,
     pub value:  Option<String>,
+    pub type_:  Option<String>,
     pub frame_base: Option<u64>,
     pub pc: u32,
 
@@ -79,6 +80,7 @@ impl VariableCreator {
             name: name,
             source: source,
             value: None,
+            type_: None,
             frame_base: frame_base,
             pc: pc,
             var_info: None,
@@ -91,6 +93,7 @@ impl VariableCreator {
             Some(val) => Ok(Variable {
                 name: self.name.clone(),
                 value: val.clone(),
+                type_: self.type_.clone(),
                 source: self.source.clone(),
                 location: self.var_info.clone().unwrap(),
             }),
@@ -136,6 +139,7 @@ impl VariableCreator {
                  memory_and_registers)? {
             EvaluatorResult::Complete(val) => {
                 self.value = Some(val.to_string()); 
+                self.type_ = Some(val.get_type()); 
                 self.var_info = Some(val.get_variable_information());
                 Ok(EvalResult::Complete)
             },

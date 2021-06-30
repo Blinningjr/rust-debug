@@ -51,6 +51,21 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             _                               => panic!("{:#?}", self), // None,
         } }
 
+
+    pub fn get_type(&self) -> String {
+        match self {
+            EvaluatorValue::Value   (val, _)    => val.get_type(),
+            EvaluatorValue::Array   (arr)       => arr.get_type(),
+            EvaluatorValue::Struct  (stu)       => stu.get_type(),
+            EvaluatorValue::Enum    (enu)       => enu.get_type(),
+            EvaluatorValue::Union   (uni)       => uni.get_type(),
+            EvaluatorValue::Member  (mem)       => mem.get_type(),
+            EvaluatorValue::Name    (nam)       => nam.to_string(),
+            _                                   => "<unknown>".to_owned(),
+        }
+    }
+
+
     pub fn get_variable_information(self) -> Vec<ValueInformation> {
         match self {
             EvaluatorValue::Value (_, var_info) => vec!(var_info),
@@ -98,6 +113,7 @@ pub fn get_udata(value: BaseValue) -> u64 {
     }
 }
 
+
 fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
     let len = values.len(); 
     if len == 0 {
@@ -114,6 +130,22 @@ fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> 
 }
 
 
+fn format_types<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
+    let len = values.len(); 
+    if len == 0 {
+        return "".to_string();
+    } else if len == 1 {
+        return format!("{}", values[0].get_type());
+    }
+
+    let mut res = format!("{}", values[0].get_type());
+    for i in 1..len {
+        res = format!("{}, {}", res, values[i].get_type());
+    }
+    return res;
+}
+
+
 #[derive(Debug, Clone)]
 pub struct ArrayValue<R: Reader<Offset = usize>> {
     pub values:  Vec<EvaluatorValue<R>>,
@@ -122,6 +154,12 @@ pub struct ArrayValue<R: Reader<Offset = usize>> {
 impl<R: Reader<Offset = usize>> fmt::Display for ArrayValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ {} ]", format_values(&self.values))
+    }
+}
+
+impl<R: Reader<Offset = usize>> ArrayValue<R> {
+    pub fn get_type(&self) -> String {
+        format!("[ {} ]", format_types(&self.values))
     }
 }
 
@@ -138,6 +176,12 @@ impl<R: Reader<Offset = usize>> fmt::Display for StructValue<R> {
     }
 }
 
+impl<R: Reader<Offset = usize>> StructValue<R> {
+    pub fn get_type(&self) -> String {
+        format!("{} {{ {} }}", self.name, format_types(&self.members))
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct EnumValue<R: Reader<Offset = usize>> {
@@ -151,6 +195,13 @@ impl<R: Reader<Offset = usize>> fmt::Display for EnumValue<R> {
     }
 }
 
+impl<R: Reader<Offset = usize>> EnumValue<R> {
+    pub fn get_type(&self) -> String {
+        format!("{}::{}", self.name, self.value.get_type())
+    }
+}
+
+
 
 #[derive(Debug, Clone)]
 pub struct UnionValue<R: Reader<Offset = usize>> {
@@ -161,6 +212,12 @@ pub struct UnionValue<R: Reader<Offset = usize>> {
 impl<R: Reader<Offset = usize>> fmt::Display for UnionValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} ( {} )", self.name, format_values(&self.members))
+    }
+}
+
+impl<R: Reader<Offset = usize>> UnionValue<R> {
+    pub fn get_type(&self) -> String {
+        format!("{} ( {} )", self.name, format_types(&self.members))
     }
 }
 
@@ -177,6 +234,15 @@ impl<R: Reader<Offset = usize>> fmt::Display for MemberValue<R> {
             Some(name)  => write!(f, "{}::{}", name, self.value),
             None        => write!(f, "{}", self.value),
         };
+    }
+}
+
+impl<R: Reader<Offset = usize>> MemberValue<R> {
+    pub fn get_type(&self) -> String {
+        match &self.name {
+            Some(name)  => format!("{}::{}", name, self.value.get_type()),
+            None        => format!("{}", self.value.get_type()),
+        }
     }
 }
 
@@ -205,20 +271,40 @@ pub enum BaseValue {
 impl fmt::Display for BaseValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
-            BaseValue::Bool         (val)   => write!(f, "Bool {}", val),
-            BaseValue::Generic      (val)   => write!(f, "Generic {}", val),
-            BaseValue::I8           (val)   => write!(f, "I8 {}", val),
-            BaseValue::U8           (val)   => write!(f, "U8 {}", val),
-            BaseValue::I16          (val)   => write!(f, "I16 {}", val),
-            BaseValue::U16          (val)   => write!(f, "U16 {}", val),
-            BaseValue::I32          (val)   => write!(f, "I32 {}", val),
-            BaseValue::U32          (val)   => write!(f, "U32 {}", val),
-            BaseValue::I64          (val)   => write!(f, "I64 {}", val),
-            BaseValue::U64          (val)   => write!(f, "U64 {}", val),
-            BaseValue::F32          (val)   => write!(f, "F32 {}", val),
-            BaseValue::F64          (val)   => write!(f, "F64 {}", val),
+            BaseValue::Bool         (val)   => write!(f, "{}", val),
+            BaseValue::Generic      (val)   => write!(f, "{}", val),
+            BaseValue::I8           (val)   => write!(f, "{}", val),
+            BaseValue::U8           (val)   => write!(f, "{}", val),
+            BaseValue::I16          (val)   => write!(f, "{}", val),
+            BaseValue::U16          (val)   => write!(f, "{}", val),
+            BaseValue::I32          (val)   => write!(f, "{}", val),
+            BaseValue::U32          (val)   => write!(f, "{}", val),
+            BaseValue::I64          (val)   => write!(f, "{}", val),
+            BaseValue::U64          (val)   => write!(f, "{}", val),
+            BaseValue::F32          (val)   => write!(f, "{}", val),
+            BaseValue::F64          (val)   => write!(f, "{}", val),
             BaseValue::Address32    (val)   => write!(f, "'Address' {:#10x}", val),
         };
+    }
+}
+
+impl BaseValue {
+    pub fn get_type(&self) -> String {
+        match self {
+            BaseValue::Bool         (_)   => "bool".to_owned(),
+            BaseValue::Generic      (_)   => "<unknown>".to_owned(),
+            BaseValue::I8           (_)   => "i8".to_owned(),
+            BaseValue::U8           (_)   => "u8".to_owned(),
+            BaseValue::I16          (_)   => "i16".to_owned(),
+            BaseValue::U16          (_)   => "u16".to_owned(),
+            BaseValue::I32          (_)   => "i32".to_owned(),
+            BaseValue::U32          (_)   => "u32".to_owned(),
+            BaseValue::I64          (_)   => "i64".to_owned(),
+            BaseValue::U64          (_)   => "u64".to_owned(),
+            BaseValue::F32          (_)   => "f32".to_owned(),
+            BaseValue::F64          (_)   => "f63".to_owned(),
+            BaseValue::Address32    (_)   => "<32 bit address>".to_owned(),
+        }
     }
 }
 
