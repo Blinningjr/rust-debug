@@ -141,7 +141,6 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
                 },
                 SameValue => self.registers[i],
                 Offset(offset) => {
-                    println!("reg: {:?}, offset: {:?}", i, offset);
                     let address = (offset + match cfa {
                         Some(val) => i64::from(val),
                         None => return Err(anyhow!("Expected CFA to have a value")),

@@ -10,7 +10,6 @@ use crate::rust_debug::variable::Variable;
 use crate::rust_debug::MemoryAndRegisters;
 use crate::rust_debug::evaluate::evaluate;
 use crate::rust_debug::evaluate::value::BaseValue;
-use crate::rust_debug::evaluate::attributes::name_attribute;
 
 use crate::get_current_unit;
 
@@ -246,11 +245,8 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
         }; 
     }
 
-    for d in &dies {
-        println!("die name: {:?}", name_attribute(dwarf, d));
-    }
     if dies.len() != 1 {
-        panic!("panic here");
+        unreachable!();
     }
     return Ok((unit.header.offset(), dies[0].offset()));
 }
@@ -334,8 +330,7 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
             match value {
                 EvaluatorValue::Value(BaseValue::Address32(v), _) => return Ok(FrameBaseResult::Complete(v as u64)),
                 v  => {
-                    println!("{:?}", v);
-                    unimplemented!()
+                    panic!("Unimplemeted for {:?}", v);
                 },
             };
         } else {

@@ -74,9 +74,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
     let mut eval    = expr.evaluation(unit.encoding());
     let mut result  = eval.evaluate()?;
 
-    println!("fb: {:?}, pc: {:?}", frame_base, pc);
     loop {
-        //println!("{:#?}", result);
         let resolved = match result {
             Complete => break,
             RequiresMemory{address, size, space, base_type} =>
@@ -139,7 +137,6 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
     }
 
     let pieces = eval.result();
-    println!("{:#?}", pieces);
     Ok(EvalPieceResult::Complete(pieces))
 }
 
@@ -188,7 +185,6 @@ fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
                                                    ) -> Result<EvalResult>
                                                    where R: Reader<Offset = usize>
 {
-    println!("address: {:?}, size: {:?}, space: {:?}", address, size, space);
     match memory_and_registers.get_address_value(&(address as u32)) { //TODO handle size and space
         Some(data) => {
             let value = parse_base_type(unit, &[data], base_type);
@@ -217,7 +213,6 @@ fn resolve_requires_reg<R: Reader<Offset = usize>>(
                         ) -> Result<EvalResult>
                         where R: Reader<Offset = usize>
 {
-    println!("req reg: {:?}", reg.0);
     match memory_and_registers.get_register_value(&reg.0) {
         Some(data) => {
             let value   = parse_base_type(unit, &[*data], base_type);

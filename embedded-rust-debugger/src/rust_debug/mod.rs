@@ -165,7 +165,6 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                 }
             },
             _ => {
-                println!("{:?}", die_offset);
                 unimplemented!();
             },
         };

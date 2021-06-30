@@ -173,7 +173,6 @@ fn get_var_name<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                     }
                 },
                 _ => {
-                    println!("{:?}", offset);
                     unimplemented!();
                 },
             };
@@ -216,8 +215,7 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
             },
             None => return Ok(VariableLocation::NoLocation),
             Some(v) => {
-                println!("{:?}", v);
-                unimplemented!();
+                panic!("Unimplemented for {:?}", v);
             },
         }
     } else {
@@ -243,7 +241,6 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
                             }
                         },
                         _ => {
-                            println!("{:?}", die_offset);
                             unimplemented!();
                         },
                     };        
@@ -268,7 +265,6 @@ pub fn find_variable_source_information<R: Reader<Offset = usize>>(dwarf: &Dwarf
                     return find_variable_source_information(dwarf, unit, &ao_die, cwd);
                 },
                 _ => {
-                    println!("{:?}", die_offset);
                     unimplemented!();
                 },
             };

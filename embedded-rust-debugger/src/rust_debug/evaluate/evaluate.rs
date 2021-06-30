@@ -171,8 +171,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // Get the die of the current state.
         let die = &unit.entry(die_offset)?;
-        println!("die tag {:?}", die.tag().static_string());
-
 
         // Continue evaluating the value of the current state.
         match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset)?.unwrap() {
@@ -242,7 +240,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                      ) -> Result<Option<ReturnResult<R>>>
     { 
         match die.tag() {
-            gimli::DW_TAG_base_type                 => self.eval_basetype(memory_and_registers, dwarf, die, data_offset),
+            gimli::DW_TAG_base_type                 => self.eval_basetype(memory_and_registers, die, data_offset),
             gimli::DW_TAG_pointer_type              => self.eval_pointer_type(memory_and_registers, die, data_offset),
             gimli::DW_TAG_array_type                => self.eval_array_type(memory_and_registers, dwarf, unit, die, data_offset),
             gimli::DW_TAG_structure_type            => self.eval_structured_type(memory_and_registers, dwarf, unit, die, data_offset),
@@ -344,13 +342,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         piece:     &Piece<R>,
                         ) -> PieceResult<R>
     {
-        //println!("\nAddress: {:#10x}", address);
-        //println!("data_offset: {}", data_offset);
-        //address += (data_offset/4) * 4;
         address += data_offset;
-        //println!("Address: {:#10x}", address);
-
-        println!("Address: {:#10x}, byte_size: {:?}\n", address, byte_size);
 
         let num_bytes = match piece.size_in_bits {
             Some(val) => (val + 8 - 1)/8,
@@ -452,7 +444,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
      */
     pub fn eval_basetype(&mut self,
                          memory_and_registers: &MemoryAndRegisters,
-                         dwarf:         &gimli::Dwarf<R>,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                          data_offset:   u64,
                          ) -> Result<Option<ReturnResult<R>>>
@@ -477,7 +468,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         };
 
         // Evaluate the value.
-        println!("bt name: {:?}", attributes::name_attribute(dwarf, die));
         match self.handle_eval_piece(memory_and_registers,
                                      byte_size,
                                      data_offset, // TODO
@@ -1023,7 +1013,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         addr -= addr%4; // TODO: Is this correct?
 
                         if addr % alignment != 0 {
-                            panic!("address not aligned");
                             bail!("Address not aligned");
                         }
                     },
@@ -1072,9 +1061,6 @@ pub fn eval_base_type(data:         &[u32],
     }
 
     let value = slize_as_u64(data);
-//    println!("\n\nencoding: {:?}, byte_size: {:?}", encoding, byte_size);
-//    println!("data: {:?}", data);
-//    println!("value: {:?}\n", value);
     match (encoding, byte_size) {  // Source: DWARF 4 page 168-169 and 77
         (DwAte(1), 4) => BaseValue::Address32(value as u32),    // DW_ATE_address = 1 // TODO: Different size addresses?
         (DwAte(2), 1) => BaseValue::Bool((value as u8) == 1),   // DW_ATE_boolean = 2 // TODO: Use modulus?
@@ -1109,7 +1095,6 @@ pub fn eval_base_type(data:         &[u32],
 //        (DwAte(255), _) => ,     // DW_ATE_hi_user = 255 // TODO: Add type
 
         _ => {
-            println!("{:?}, {:?}", encoding, byte_size);
             unimplemented!()
         },
     }
@@ -1149,7 +1134,6 @@ pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
 
     // I think that the die returned must be a base type tag.
     if die.tag() != gimli::DW_TAG_base_type {
-        println!("{:?}", die.tag().static_string());
         panic!("die tag not base type");
     }
 
@@ -1239,7 +1223,6 @@ pub fn new_eval_base_type(data:         Vec<u8>,
 //        (DwAte(255), _) => ,     // DW_ATE_hi_user = 255 // TODO: Add type
 
         _ => {
-            println!("{:?}, {:?}", encoding, data.len());
             unimplemented!()
         },
     }

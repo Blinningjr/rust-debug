@@ -81,13 +81,11 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
         match evaluator.evaluate(&dwarf, memory_and_registers).unwrap() {
             evaluate::EvaluatorResult::Complete => break,
             evaluate::EvaluatorResult::RequireReg(reg) => { 
-                println!("read reg: {:?}", reg);
                 return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
                     register: reg,
                 }));
             },
             evaluate::EvaluatorResult::RequireData {address, num_words} => {
-                println!("address: {:?}, num_words: {:?}", address, num_words);
                 return Ok(EvaluatorResult::Requires(EvalResult::RequiresMemory {
                     address: address,
                     num_words: num_words,
@@ -98,7 +96,6 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
 
     let value = evaluator.get_value();
 
-//      println!("Value: {:#?}", value);
     Ok(EvaluatorResult::Complete(value.unwrap()))
 }
 
