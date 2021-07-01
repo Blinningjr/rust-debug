@@ -173,7 +173,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let die = &unit.entry(die_offset)?;
 
         // Continue evaluating the value of the current state.
-        match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset)?.unwrap() {
+        match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset)? {
         ReturnResult::Value(val) => {
                 self.result = Some(val);
                 Ok(EvaluatorResult::Complete)
@@ -237,7 +237,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                      unit:          &gimli::Unit<R>,
                      die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                      data_offset:   u64,
-                     ) -> Result<Option<ReturnResult<R>>>
+                     ) -> Result<ReturnResult<R>>
     { 
         match die.tag() {
             gimli::DW_TAG_base_type                 => self.eval_basetype(memory_and_registers, die, data_offset),
@@ -446,7 +446,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          memory_and_registers: &MemoryAndRegisters,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                          data_offset:   u64,
-                         ) -> Result<Option<ReturnResult<R>>>
+                         ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_base_type.
         match die.tag() {
@@ -462,7 +462,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match byte_size {
             // If the byte size is 0 then the value is optimized out.
             Some(0) => {
-                return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize)));
+                return Ok(ReturnResult::Value(super::value::EvaluatorValue::ZeroSize));
             },
             _       => (),
         };
@@ -474,9 +474,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                      encoding)?
         {
             ReturnResult::Value(val) => {
-                return Ok(Some(ReturnResult::Value(val)));
+                return Ok(ReturnResult::Value(val));
             },
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
     }
 
@@ -488,7 +488,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              memory_and_registers: &MemoryAndRegisters,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                              data_offset:   u64,
-                             ) -> Result<Option<ReturnResult<R>>>
+                             ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_array_type.
         match die.tag() {
@@ -509,7 +509,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                                  Some(4),
                                                  data_offset,
                                                  Some(DwAte(1)))?;
-                return Ok(Some(res));
+                return Ok(res);
             },
             _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
         };
@@ -525,7 +525,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
                            data_offset: u64,
-                           ) -> Result<Option<ReturnResult<R>>>
+                           ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_array_type.
         match die.tag() {
@@ -540,19 +540,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let result = match dimension_die.tag() {
             gimli::DW_TAG_subrange_type     => self.eval_subrange_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?.unwrap(),
-            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?.unwrap(),
+            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?,
             _ => unimplemented!(),
         };
 
         let value = match result {
             ReturnResult::Value(val) => val,
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
         
         // Evaluate the length of the array.
         let count = super::value::get_udata(match value.to_value() {
             Some(val) => val,
-            None => return Ok(Some(ReturnResult::Value(EvaluatorValue::OptimizedOut))), // TODO: Maybe need to remove the following pieces that is related to this structure.
+            None => return Ok(ReturnResult::Value(EvaluatorValue::OptimizedOut)), // TODO: Maybe need to remove the following pieces that is related to this structure.
         }) as usize;
 
 
@@ -564,15 +564,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Evaluate all the values in the array.
         let mut values = vec!();
         for _i in 0..count {
-            match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)?.unwrap() { // TODO: Fix so that it can read multiple of the same type.
+            match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)? { // TODO: Fix so that it can read multiple of the same type.
                 ReturnResult::Value(val) => values.push(val),
                 ReturnResult::Required(req) => {
-                    return Ok(Some(ReturnResult::Required(req)));
+                    return Ok(ReturnResult::Required(req));
                 },
             };
         }
         
-        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::ArrayValue {values: values})))))
+        Ok(ReturnResult::Value(super::value::EvaluatorValue::Array(Box::new(super::value::ArrayValue {values: values}))))
     }
 
 
@@ -585,7 +585,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                 unit:           &gimli::Unit<R>,
                                 die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
                                 data_offset:    u64,
-                                ) -> Result<Option<ReturnResult<R>>>
+                                ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_structure_type.
         match die.tag() {
@@ -608,16 +608,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 gimli::DW_TAG_variant_part => {
 
                     // Get the value.
-                    let members = match self.eval_variant_part(memory_and_registers, dwarf, unit, &c_die, data_offset)?.unwrap() {
+                    let members = match self.eval_variant_part(memory_and_registers, dwarf, unit, &c_die, data_offset)? {
                         ReturnResult::Value(val) => vec!(val),
-                        ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                        ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
                     };
 
 
-                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
+                    return Ok(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
                         name:       name,
                         members:    members,
-                    })))));
+                    }))));
                 },
                 gimli::DW_TAG_member => {
                     let data_member_location = attributes::data_member_location_attribute(&c_die).unwrap();
@@ -636,20 +636,20 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let mut members = vec!();
         for i in 0..member_dies.len() {
             let m_die = &member_dies[i].1;
-            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset)?.unwrap() {
+            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset)? {
                 ReturnResult::Value(val) => val,
                 ReturnResult::Required(req) => {
-                    return Ok(Some(ReturnResult::Required(req)));
+                    return Ok(ReturnResult::Required(req));
                 },
             };
             members.push(member);
         }
 
 
-        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
+        return Ok(ReturnResult::Value(super::value::EvaluatorValue::Struct(Box::new(super::value::StructValue {
             name:       name,
             members:    members,
-        })))));
+        }))));
     }
 
 
@@ -662,7 +662,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
                            data_offset: u64,
-                           ) -> Result<Option<ReturnResult<R>>>
+                           ) -> Result<ReturnResult<R>>
     { 
         // Make sure that the die has the tag DW_TAG_union_type.
         match die.tag() {
@@ -697,20 +697,20 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let mut members = vec!();
         for i in 0..member_dies.len() {
             let m_die = &member_dies[i].1;
-            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset)?.unwrap() {
+            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset)? {
                 ReturnResult::Value(val) => val,
                 ReturnResult::Required(req) => {
-                    return Ok(Some(ReturnResult::Required(req)));
+                    return Ok(ReturnResult::Required(req));
                 },
             };
             members.push(member);
         }
 
 
-        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Union(Box::new(super::value::UnionValue {
+        return Ok(ReturnResult::Value(super::value::EvaluatorValue::Union(Box::new(super::value::UnionValue {
             name:       name,
             members:    members,
-        })))));
+        }))));
     }
 
 
@@ -723,7 +723,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                        unit:            &gimli::Unit<R>,
                        die:             &gimli::DebuggingInformationEntry<'_, '_, R>,
                        data_offset:     u64,
-                       ) -> Result<Option<ReturnResult<R>>>
+                       ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_member
         match die.tag() {
@@ -747,15 +747,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the value.
-        let value = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, new_data_offset)?.unwrap() {
+        let value = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, new_data_offset)? {
             ReturnResult::Value(val) => val,
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
 
-        Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue {
+        Ok(ReturnResult::Value(super::value::EvaluatorValue::Member(Box::new(super::value::MemberValue {
             name:   name,
             value:  value
-        })))))
+        }))))
     }
 
 
@@ -768,7 +768,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                  unit:          &gimli::Unit<R>,
                                  die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                                  data_offset:   u64,
-                                 ) -> Result<Option<ReturnResult<R>>>
+                                 ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_enumeration_type
         match die.tag() {
@@ -783,15 +783,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Get type value.
-        let type_result = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)?.unwrap() {
+        let type_result = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)? {
             ReturnResult::Value(val) => val,
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
 
         // Get the value as a unsigned int.
         let value = super::value::get_udata(match type_result.to_value() {
             Some(val) => val,
-            None => return Ok(Some(ReturnResult::Value(EvaluatorValue::OptimizedOut))), // TODO: Maybe need to remove the following pieces that is related to this structure.
+            None => return Ok(ReturnResult::Value(EvaluatorValue::OptimizedOut)), // TODO: Maybe need to remove the following pieces that is related to this structure.
         });
 
         // Go through the children and find the correct enumerator value.
@@ -812,10 +812,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         let name = attributes::name_attribute(dwarf, die).unwrap(); 
                         let e_name = attributes::name_attribute(dwarf, &c_die).unwrap(); 
 
-                        return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
+                        return Ok(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                             name:   name,
                             value:  super::value::EvaluatorValue::Name(e_name),
-                        })))));
+                        }))));
                     }
                 },
                 gimli::DW_TAG_subprogram => (),
@@ -850,16 +850,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None        => (),
         };
 
-
         // Get the type unit and die.
         let (type_unit, die_offset) = match self.get_type_info(dwarf, unit, die) {
             Ok(val) => val,
-            Err(_) => return Ok(None),
+            Err(_) => return Ok(None), // TODO: Throw error?
         };
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the type attribute value.
-        self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)
+        Ok(Some(self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)?))
     }
 
 
@@ -872,7 +871,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                              unit:          &gimli::Unit<R>,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                              data_offset:   u64,
-                             ) -> Result<Option<ReturnResult<R>>>
+                             ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has tag DW_TAG_variant_part
         match die.tag() {
@@ -892,15 +891,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let member = &unit.entry(die_offset).unwrap();
 
         // Evaluate the DW_TAG_member value.
-        let value = match self.eval_member(memory_and_registers, dwarf, unit, member, data_offset)?.unwrap() {
+        let value = match self.eval_member(memory_and_registers, dwarf, unit, member, data_offset)? {
             ReturnResult::Value(val) => val,
-            ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+            ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
 
         // The value should be a unsigned int thus convert the value to a u64.
         let variant = super::value::get_udata(match value.to_value() {
             Some(val) => val,
-            None => return Ok(Some(ReturnResult::Value(EvaluatorValue::OptimizedOut))), // TODO: Maybe need to remove the following pieces that is related to this structure.
+            None => return Ok(ReturnResult::Value(EvaluatorValue::OptimizedOut)), // TODO: Maybe need to remove the following pieces that is related to this structure.
         });
 
 
@@ -925,12 +924,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             if discr_value == variant % (variants.len() as u64) { // NOTE: Don't know if using modulus here is correct, but it seems to be correct.
 
                 // Evaluate the value of the variant.
-                match self.eval_variant(memory_and_registers, dwarf, unit, v, data_offset)?.unwrap() {
+                match self.eval_variant(memory_and_registers, dwarf, unit, v, data_offset)? {
                     ReturnResult::Value(val) => {
-                        return Ok(Some(ReturnResult::Value(val)));
+                        return Ok(ReturnResult::Value(val));
                     },
                     ReturnResult::Required(req) =>{
-                        return Ok(Some(ReturnResult::Required(req)));
+                        return Ok(ReturnResult::Required(req));
                     }, 
                 };
             }
@@ -949,7 +948,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         unit:           &gimli::Unit<R>,
                         die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
                         data_offset:    u64,
-                        ) -> Result<Option<ReturnResult<R>>>
+                        ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die is of type DW_TAG_variant
         match die.tag() {
@@ -967,24 +966,24 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 gimli::DW_TAG_member => {
 
                     // Evaluate the value of the member.
-                    let value = match self.eval_member(memory_and_registers, dwarf, unit, &c_die, data_offset)?.unwrap() {
+                    let value = match self.eval_member(memory_and_registers, dwarf, unit, &c_die, data_offset)? {
                         ReturnResult::Value(val) => val,
-                        ReturnResult::Required(req) => return Ok(Some(ReturnResult::Required(req))),
+                        ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
                     };
 
                     // Get the name of the die.
                     let name = attributes::name_attribute(dwarf, &c_die).unwrap();
 
-                    return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
+                    return Ok(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                         name:   name,
                         value:  value,
-                    })))));
+                    }))));
                 },
                 _ => (),
             };
         }
 
-        unimplemented!(); // Unreachable
+        unreachable!();
     }
 
     /*
