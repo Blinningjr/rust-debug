@@ -53,6 +53,7 @@ use super::evaluate::{
 
 use anyhow::{
     Result,
+    bail,
     anyhow,
 };
 
@@ -96,7 +97,10 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                                      memory_and_registers)?,
 
             RequiresFrameBase => {
-                result = eval.resume_with_frame_base(frame_base.unwrap())?;
+                result = eval.resume_with_frame_base(match frame_base {
+                    Some(val) => val,
+                    None => bail!("Requires frame base"),
+                })?;
                 EvalResult::Complete
             }, // TODO: Check and test if correct.
 
@@ -243,7 +247,12 @@ fn resolve_requires_entry_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
         EvaluatorResult::Requires(req) => return Ok(req),
     };
 
-    *result = eval.resume_with_entry_value(convert_to_gimli_value(entry_value.to_value().unwrap()))?;
+    *result = eval.resume_with_entry_value(
+        convert_to_gimli_value(
+            match entry_value.to_value() {
+                Some(val) => val,
+                None => bail!("Optimised Out"),
+            }))?;
 
     Ok(EvalResult::Complete)
 }
@@ -261,7 +270,15 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
                         where R: Reader<Offset = usize>
 {
     let die     = unit.entry(unit_offset)?;
-    let expr    = die.attr_value(gimli::DW_AT_call_value)?.unwrap().exprloc_value().unwrap();
+    let call_value = match die.attr_value(gimli::DW_AT_call_value)? {
+        Some(val) => val,
+        None => bail!("Could not find required paramter"),
+    };
+
+    let expr    = match call_value.exprloc_value() {
+        Some(val) => val,
+        None => bail!("Could not find required paramter"),
+    };
     let value   = match evaluate(dwarf, unit, pc, expr, frame_base, Some(unit), Some(&die), memory_and_registers)? {
         EvaluatorResult::Complete(val) => val,
         EvaluatorResult::Requires(req) => return Ok(req),
@@ -270,8 +287,7 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
     if let EvaluatorValue::Value(BaseValue::U64(val), _) = value {
         *result = eval.resume_with_parameter_ref(val)?;
     } else {
-        panic!("here");
-        //return Err(anyhow!("could not find parameter"));
+        bail!("Could not find required paramter");
     }
 
     Ok(EvalResult::Complete)
@@ -335,7 +351,11 @@ fn help_at_location<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                     where R: Reader<Offset = usize>
 {
     let die = unit.entry(unit_offset)?;
-    if let Some(expr) = die.attr_value(gimli::DW_AT_location)?.unwrap().exprloc_value() {
+    let location = match die.attr_value(gimli::DW_AT_location)? {
+        Some(val) => val,
+        None => bail!("Could not find location attribute"),
+    };
+    if let Some(expr) = location.exprloc_value() {
        
         let val = match call_evaluate(dwarf, &unit, pc, expr, frame_base, &unit, &die, memory_and_registers)? {
             EvaluatorResult::Complete(val) => val,
@@ -346,11 +366,11 @@ fn help_at_location<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
            *result =  eval.resume_with_at_location(b)?;
            return Ok(EvalResult::Complete);
         } else {
-            return Err(anyhow!("Error expected bytes"));
+            bail!("Error expected bytes");
         }
     }
     else {
-        return Err(anyhow!("die has no at location"));
+        bail!("die has no at location");
     }
 }
 

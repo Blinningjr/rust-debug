@@ -15,6 +15,7 @@ use gimli::{
 
 use anyhow::{
     Result,
+    bail,
     anyhow,
 };
 
@@ -63,7 +64,10 @@ impl VariableCreator {
                cwd: &str,
                ) -> Result<VariableCreator>
     {
-        let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
+        let header = dwarf.debug_info.header_from_offset(match section_offset.as_debug_info_offset() {
+            Some(val) => val,
+            None => bail!("Could not convert section offset into debug info offset"),
+        })?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(unit_offset)?;
 
@@ -89,21 +93,24 @@ impl VariableCreator {
 
 
     pub fn get_variable(&self) -> Result<Variable> {
-        match &self.value {
-            Some(val) => Ok(Variable {
+        match (&self.value, &self.var_info) {
+            (Some(val), Some(var_info)) => Ok(Variable {
                 name: self.name.clone(),
                 value: val.clone(),
                 type_: self.type_.clone(),
                 source: self.source.clone(),
-                location: self.var_info.clone().unwrap(),
+                location: var_info.clone(),
             }),
-            None => Err(anyhow!("Variables location not evaluated yet")),
+            _ => Err(anyhow!("Variable has not been evaluated yet")),
         }
     }
 
 
     pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> Result<EvalResult> {
-        let header = dwarf.debug_info.header_from_offset(self.section_offset.as_debug_info_offset().unwrap())?;
+        let header = dwarf.debug_info.header_from_offset(match self.section_offset.as_debug_info_offset() {
+            Some(val) => val,
+            None => bail!("Could not convert the section offset into debug info offset"),
+        })?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(self.unit_offset)?;
 
@@ -124,7 +131,10 @@ impl VariableCreator {
 
         let (type_section_offset, type_unit_offset) = find_variable_type_die(dwarf, &unit, &die)?;
 
-        let header = dwarf.debug_info.header_from_offset(type_section_offset.as_debug_info_offset().unwrap())?;
+        let header = dwarf.debug_info.header_from_offset(match type_section_offset.as_debug_info_offset() {
+            Some(val) => val,
+            None => bail!("Could not convert the section offset into debug info offset"),
+        })?;
         let type_unit = gimli::Unit::new(dwarf, header)?;
         let type_die = unit.entry(type_unit_offset)?;
 

@@ -78,7 +78,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
 {
     let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
     loop {
-        match evaluator.evaluate(&dwarf, memory_and_registers).unwrap() {
+        match evaluator.evaluate(&dwarf, memory_and_registers)? {
             evaluate::EvaluatorResult::Complete => break,
             evaluate::EvaluatorResult::RequireReg(reg) => { 
                 return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
@@ -94,8 +94,11 @@ pub fn evaluate_value<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
         };
     }
 
-    let value = evaluator.get_value();
+    let value = match evaluator.get_value() {
+        Some(val) => val,
+        None => unreachable!(),
+    };
 
-    Ok(EvaluatorResult::Complete(value.unwrap()))
+    Ok(EvaluatorResult::Complete(value))
 }
 

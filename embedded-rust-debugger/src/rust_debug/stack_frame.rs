@@ -26,6 +26,7 @@ use gimli::{
 
 use anyhow::{
     Result,
+    bail,
     anyhow,
 };
 
@@ -78,7 +79,11 @@ impl StackFrameCreator {
                                           ) -> Result<StackFrameCreator>
     {
         let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
-        let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
+        let header = dwarf.debug_info.header_from_offset(
+            match section_offset.as_debug_info_offset() {
+                Some(val) => val,
+                None => bail!("Could not convert section offset to debug info offset"),
+            })?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let mut tree = unit.entries_tree(Some(unit_offset))?;
         let node = tree.root()?;
@@ -117,7 +122,11 @@ impl StackFrameCreator {
         }
 
         if self.frame_base.is_none() {
-            let header = match dwarf.debug_info.header_from_offset(self.section_offset.as_debug_info_offset().unwrap()) {
+            let header = match dwarf.debug_info.header_from_offset(
+                match self.section_offset.as_debug_info_offset() {
+                    Some(val) => val,
+                    None => bail!("Could not convert section offset to debug info offset"),
+                }) {
                 Ok(val) => val,
                 Err(err) => {
                     memory_and_registers.pop_stashed_registers();
@@ -213,7 +222,7 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
     let mut res = None; 
     let mut dies = vec!();
 
-    assert!(cursor.next_dfs().unwrap().is_some());
+    assert!(cursor.next_dfs()?.is_some());
     while let Some((delta_depth, current)) = cursor.next_dfs()? {
         // Update depth value, and break out of the loop when we
         // return to the original starting position.
@@ -288,7 +297,11 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwa
     }
 
 
-    let header = dwarf.debug_info.header_from_offset(section_offset.as_debug_info_offset().unwrap())?;
+    let header = dwarf.debug_info.header_from_offset(
+        match section_offset.as_debug_info_offset() {
+            Some(val) => val,
+            None => bail!("Could not convert section offset to debug info offset"),
+        })?;
     let unit = gimli::Unit::new(dwarf, header)?;
     let mut tree = unit.entries_tree(Some(unit_offset))?;
     let node = tree.root()?;

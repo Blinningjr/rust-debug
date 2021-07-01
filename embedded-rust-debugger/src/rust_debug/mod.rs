@@ -147,7 +147,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
                 let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
                 let mut iter = dwarf.debug_info.units();
                 while let Ok(Some(header)) = iter.next() {
-                    let unit = dwarf.unit(header).unwrap();
+                    let unit = dwarf.unit(header)?;
                     if let Some(offset) = offset.to_unit_offset(&unit) {
                         let die = unit.entry(offset)?;
                         return evaluate::evaluate(dwarf, nunit, pc, expr, frame_base, Some(&unit), Some(&die), memory_and_registers);
