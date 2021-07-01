@@ -202,7 +202,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     {
         let (unit_offset, die_offset) = match attributes::type_attribute(dwarf, unit, die)? {
             Some(val) => val,
-            None => bail!("Die dosen't have the required DW_AT_type attribute"),
+            None => bail!("Die doesn't have the required DW_AT_type attribute"),
         };
         let unit = match unit_offset {
             gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
@@ -458,7 +458,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_base_type.
         match die.tag() {
             gimli::DW_TAG_base_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_base_type die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -500,7 +500,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_array_type.
         match die.tag() {
             gimli::DW_TAG_pointer_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_pointer_type die, this should never happen"),
         };        
  
         self.check_alignment(die, data_offset)?;
@@ -518,7 +518,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                                                  Some(DwAte(1)))?;
                 return Ok(res);
             },
-            _ => panic!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
+            _ => bail!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
         };
     }
 
@@ -537,7 +537,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_array_type.
         match die.tag() {
             gimli::DW_TAG_array_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_array_type die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -597,7 +597,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_structure_type.
         match die.tag() {
             gimli::DW_TAG_structure_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_structure_type die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -632,7 +632,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 gimli::DW_TAG_member => {
                     let data_member_location = match attributes::data_member_location_attribute(&c_die) {
                         Some(val) => val,
-                        None => bail!("Expacted member die to have attribute DW_AT_data_member_location"),
+                        None => bail!("Expected member die to have attribute DW_AT_data_member_location"),
                     };
                     member_dies.push((data_member_location, c_die))
                 },
@@ -680,7 +680,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_union_type.
         match die.tag() {
             gimli::DW_TAG_union_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_union_type die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -688,7 +688,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let name = match attributes::name_attribute(dwarf, die) {
             Some(val) => val,
-            None => bail!("Expected untion type die to have a name attribute"),
+            None => bail!("Expected union type die to have a name attribute"),
         };
 
         // Get all children of type DW_TAG_member.
@@ -747,7 +747,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_member
         match die.tag() {
             gimli::DW_TAG_member => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_member die, this should never happen"),
         };
 
         // Get the name of the member.
@@ -792,7 +792,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_enumeration_type
         match die.tag() {
             gimli::DW_TAG_enumeration_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_enumeration_type die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -833,12 +833,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         // Get the name of the enum type and the enum variant.
                         let name = match attributes::name_attribute(dwarf, die) {
                             Some(val) => val,
-                            None => bail!("Expeceted enumeration type die to have attribute DW_AT_name"),
+                            None => bail!("Expected enumeration type die to have attribute DW_AT_name"),
                         };
 
                         let e_name = match attributes::name_attribute(dwarf, &c_die) {
                             Some(val) => val,
-                            None => bail!("Expeceted enumerator die to have attribute DW_AT_name"),
+                            None => bail!("Expected enumerator die to have attribute DW_AT_name"),
                         };
 
                         return Ok(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
@@ -870,7 +870,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has the tag DW_TAG_subrange_type
         match die.tag() {
             gimli::DW_TAG_subrange_type => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_subrange_type die, this should never happen"),
         };
 
         // If the die has a count attribute then that is the value.
@@ -905,7 +905,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die has tag DW_TAG_variant_part
         match die.tag() {
             gimli::DW_TAG_variant_part => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_variant_part die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -988,7 +988,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Make sure that the die is of type DW_TAG_variant
         match die.tag() {
             gimli::DW_TAG_variant => (),
-            _ => panic!("Wrong implementation"),
+            _ => bail!("Expected DW_TAG_variant die, this should never happen"),
         };
 
         self.check_alignment(die, data_offset)?;
@@ -1141,7 +1141,7 @@ pub fn eval_base_type(data:         &[u32],
 /*
  * Helper function that turns slice into a u64
  */
-pub fn slize_as_u64(data: &[u32]) -> u64
+pub fn slize_as_u64(data: &[u32]) -> u64 // TODO: Remove this funciton.
 {
     // TODO: Take account to what endian it is
     // TODO: Check and test if correct
@@ -1195,9 +1195,9 @@ fn trim_piece_bytes<R: Reader<Offset = usize>>(mut bytes: Vec<u8>, piece: &Piece
 
     let piece_byte_offset = match piece.bit_offset {
         Some(offset) => {
-            if offset % 8 == 0 {
-                panic!("Expected the offset to be in bytes, got {} bits", offset);
-            }
+            //if offset % 8 == 0 {
+            //    panic!("Expected the offset to be in bytes, got {} bits", offset);
+            //}
             ((offset + 8 - 1) / 8) as usize
         },
         None => 0, 
@@ -1207,7 +1207,7 @@ fn trim_piece_bytes<R: Reader<Offset = usize>>(mut bytes: Vec<u8>, piece: &Piece
         bytes.pop();
     }
 
-    while bytes.len() > piece_byte_size {// TODO: Cheack that this follows the ABI.
+    while bytes.len() > piece_byte_size {// TODO: Check that this follows the ABI.
         bytes.remove(0);
     }
 

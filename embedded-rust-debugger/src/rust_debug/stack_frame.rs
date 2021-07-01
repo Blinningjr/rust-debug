@@ -151,7 +151,7 @@ impl StackFrameCreator {
 
             self.frame_base = match evaluate_frame_base(dwarf, &unit, pc, &die, memory_and_registers) {
                 Ok(FrameBaseResult::Complete(val)) => Some(val),
-                Ok(FrameBaseResult::Requires(req)) => panic!("{:?}", req),
+                Ok(FrameBaseResult::Requires(req)) => return Ok(req),
                 Err(err) => {
                     memory_and_registers.pop_stashed_registers();
                     return Err(err);
@@ -342,8 +342,8 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
 
             match value {
                 EvaluatorValue::Value(BaseValue::Address32(v), _) => return Ok(FrameBaseResult::Complete(v as u64)),
-                v  => {
-                    panic!("Unimplemeted for {:?}", v);
+                _  => {
+                    unreachable!();
                 },
             };
         } else {

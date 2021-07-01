@@ -229,7 +229,7 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
             },
             None => return Ok(VariableLocation::NoLocation),
             Some(v) => {
-                panic!("Unimplemented for {:?}", v);
+                bail!("Unimplemented for {:?}", v);
             },
         }
     } else {

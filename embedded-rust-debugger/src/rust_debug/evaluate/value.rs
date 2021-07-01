@@ -47,8 +47,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         match self {
             EvaluatorValue::Value    (val, _)  => Some(val),
             EvaluatorValue::Member   (val)  => val.value.to_value(),
+            EvaluatorValue::OutOfRange      => None,
             EvaluatorValue::OptimizedOut    => None,
-            _                               => panic!("{:#?}", self), // None,
+            EvaluatorValue::ZeroSize        => None,
+            _                               => None, // TODO: Find a better solution then this.
         } }
 
 
