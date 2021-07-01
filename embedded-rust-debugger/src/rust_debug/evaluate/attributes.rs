@@ -17,6 +17,8 @@ use gimli::{
     Unit,
 };
 
+use anyhow::Result;
+
 
 pub fn name_attribute<R: Reader<Offset = usize>>(dwarf: &gimli::Dwarf<R>,
                       die: &DebuggingInformationEntry<R>
@@ -71,24 +73,24 @@ pub fn data_member_location_attribute<R: Reader<Offset = usize>>(die: &Debugging
 pub fn type_attribute<R: Reader<Offset = usize>>(dwarf:    &gimli::Dwarf<R>,
                       unit:      &Unit<R>,
                       die: &DebuggingInformationEntry<R>
-                      ) -> Option<(gimli::UnitSectionOffset, gimli::UnitOffset)>
+                      ) -> Result<Option<(gimli::UnitSectionOffset, gimli::UnitOffset)>>
 {
-    match die.attr_value(gimli::DW_AT_type).ok()? {
+    match die.attr_value(gimli::DW_AT_type)? {
         Some(gimli::AttributeValue::UnitRef(offset)) => {
-            return Some((unit.header.offset(), offset));
+            return Ok(Some((unit.header.offset(), offset)));
         },
         Some(gimli::AttributeValue::DebugInfoRef(di_offset)) => {
             let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
             let mut iter = dwarf.debug_info.units();
             while let Ok(Some(header)) = iter.next() {
-                let unit = dwarf.unit(header).unwrap();
+                let unit = dwarf.unit(header)?;
                 if let Some(offset) = offset.to_unit_offset(&unit) {
-                    return Some((unit.header.offset(), offset));
+                    return Ok(Some((unit.header.offset(), offset)));
                 }
             }
-            return None;
+            return Ok(None);
         },
-        _ => return None,
+        _ => return Ok(None),
     };
 }
 

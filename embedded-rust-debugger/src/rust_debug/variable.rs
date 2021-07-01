@@ -244,7 +244,7 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(dwarf:    & Dwarf<R>,
                           ) -> Result<(UnitSectionOffset, UnitOffset)>
 {
     if is_variable_die(die) {
-        match attributes::type_attribute(dwarf, unit, die) {
+        match attributes::type_attribute(dwarf, unit, die)? {
             Some(result) => return Ok(result),
             None => {
                 if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {

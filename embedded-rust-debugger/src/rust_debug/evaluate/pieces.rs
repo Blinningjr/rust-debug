@@ -191,7 +191,7 @@ fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
 {
     match memory_and_registers.get_address_value(&(address as u32)) { //TODO handle size and space
         Some(data) => {
-            let value = parse_base_type(unit, &[data], base_type);
+            let value = parse_base_type(unit, &[data], base_type)?;
             *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
             Ok(EvalResult::Complete)
         },
@@ -219,7 +219,7 @@ fn resolve_requires_reg<R: Reader<Offset = usize>>(
 {
     match memory_and_registers.get_register_value(&reg.0) {
         Some(data) => {
-            let value   = parse_base_type(unit, &[*data], base_type);
+            let value   = parse_base_type(unit, &[*data], base_type)?;
             *result     = eval.resume_with_register(convert_to_gimli_value(value))?;
 
             Ok(EvalResult::Complete)
@@ -332,7 +332,7 @@ fn resolve_requires_base_type<R: Reader<Offset = usize>>(
 {
     // TODO: Check and test if correct
 
-    *result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)).value_type())?;
+    *result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)?).value_type())?;
 
     Ok(EvalResult::Complete)
 }

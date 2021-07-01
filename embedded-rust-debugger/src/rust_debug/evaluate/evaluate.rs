@@ -200,7 +200,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                          die:   &gimli::DebuggingInformationEntry<'_, '_, R>,
                          ) -> Result<(gimli::Unit<R>, gimli::UnitOffset)>
     {
-        let (unit_offset, die_offset) = match attributes::type_attribute(dwarf, unit, die) {
+        let (unit_offset, die_offset) = match attributes::type_attribute(dwarf, unit, die)? {
             Some(val) => val,
             None => bail!("Die dosen't have the required DW_AT_type attribute"),
         };
@@ -380,12 +380,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             data_offset = 0;
         }
 
-        if byte_size.is_none() {
-            panic!("byte_size needed");
-        }
-        let result = self.get_bytes(memory_and_registers, byte_size.unwrap(), data_offset)?;
+        let num_bytes = match byte_size {
+            Some(val) => val,
+            None => bail!("Requires byte size"),
+        };
+
+        let encode = match encoding {
+            Some(val) => val,
+            None => bail!("Requires encoding"),
+        };
+
+        let result = self.get_bytes(memory_and_registers, num_bytes, data_offset)?;
         return match result {
-            PieceResult::Value(bytes, value_pieces) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encoding.unwrap()), ValueInformation::new(Some(bytes.clone()), value_pieces)))),
+            PieceResult::Value(bytes, value_pieces) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encode), ValueInformation::new(Some(bytes.clone()), value_pieces)))),
             PieceResult::Bytes(bytes) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Bytes(bytes))),
             PieceResult::OptimizedOut => Ok(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
             PieceResult::Required(required) => Ok(ReturnResult::Required(required)),
@@ -535,11 +542,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         self.check_alignment(die, data_offset)?;
 
-        let children = get_children(unit, die);
+        let children = get_children(unit, die)?;
         let dimension_die = unit.entry(children[0])?;
 
         let result = match dimension_die.tag() {
-            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?.unwrap(),
+            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?,
             gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?,
             _ => unimplemented!(),
         };
@@ -596,10 +603,13 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         self.check_alignment(die, data_offset)?;
 
 
-        let name = attributes::name_attribute(dwarf, die).unwrap();
+        let name = match attributes::name_attribute(dwarf, die) {
+            Some(val) => val,
+            None => bail!("Expected the structure type die to have a name attribute"),
+        };
 
         // Get all the DW_TAG_member dies.
-        let children = get_children(unit, die);
+        let children = get_children(unit, die)?;
         let mut member_dies = Vec::new();
         for c in &children {
             let c_die = unit.entry(*c)?;
@@ -620,7 +630,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     }))));
                 },
                 gimli::DW_TAG_member => {
-                    let data_member_location = attributes::data_member_location_attribute(&c_die).unwrap();
+                    let data_member_location = match attributes::data_member_location_attribute(&c_die) {
+                        Some(val) => val,
+                        None => bail!("Expacted member die to have attribute DW_AT_data_member_location"),
+                    };
                     member_dies.push((data_member_location, c_die))
                 },
                 _ => continue,
@@ -673,16 +686,22 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         self.check_alignment(die, data_offset)?;
 
 
-        let name = attributes::name_attribute(dwarf, die).unwrap();
+        let name = match attributes::name_attribute(dwarf, die) {
+            Some(val) => val,
+            None => bail!("Expected untion type die to have a name attribute"),
+        };
 
         // Get all children of type DW_TAG_member.
-        let children = get_children(unit, die);
+        let children = get_children(unit, die)?;
         let mut member_dies = vec!();
         for c in children {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
                 gimli::DW_TAG_member => {
-                    let data_member_location = attributes::data_member_location_attribute(&c_die).unwrap();
+                    let data_member_location = match attributes::data_member_location_attribute(&c_die) {
+                        Some(val) => val,
+                        None => bail!("Expected member die to have attribute DW_AT_data_member_location"),
+                    };
                     member_dies.push((data_member_location, c_die))
                 },
                 _ => continue,
@@ -795,7 +814,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         });
 
         // Go through the children and find the correct enumerator value.
-        let children = get_children(unit, die);
+        let children = get_children(unit, die)?;
 
         let clen = children.len() as u64;
 
@@ -803,14 +822,24 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
                 gimli::DW_TAG_enumerator  => {
-                    let const_value = attributes::const_value_attribute(&c_die).unwrap();
+                    let const_value = match attributes::const_value_attribute(&c_die) {
+                        Some(val) => val,
+                        None => bail!("Expected enumeration type die to have attribute DW_AT_const_value"),
+                    };
 
                     // Check if it is the correct one.
                     if const_value == value % clen {
 
                         // Get the name of the enum type and the enum variant.
-                        let name = attributes::name_attribute(dwarf, die).unwrap(); 
-                        let e_name = attributes::name_attribute(dwarf, &c_die).unwrap(); 
+                        let name = match attributes::name_attribute(dwarf, die) {
+                            Some(val) => val,
+                            None => bail!("Expeceted enumeration type die to have attribute DW_AT_name"),
+                        };
+
+                        let e_name = match attributes::name_attribute(dwarf, &c_die) {
+                            Some(val) => val,
+                            None => bail!("Expeceted enumerator die to have attribute DW_AT_name"),
+                        };
 
                         return Ok(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                             name:   name,
@@ -836,7 +865,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                               unit:          &gimli::Unit<R>,
                               die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                               data_offset:   u64,
-                              ) -> Result<Option<ReturnResult<R>>>
+                              ) -> Result<ReturnResult<R>>
     {
         // Make sure that the die has the tag DW_TAG_subrange_type
         match die.tag() {
@@ -846,19 +875,19 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // If the die has a count attribute then that is the value.
         match attributes::count_attribute(die) { // NOTE: This could be replace with lower and upper bound
-            Some(val)   => return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), ValueInformation::new(None, vec!(ValuePiece::Dwarf { byte_size: 0 })))))),
+            Some(val)   => return Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), ValueInformation::new(None, vec!(ValuePiece::Dwarf { byte_size: 0 }))))),
             None        => (),
         };
 
         // Get the type unit and die.
         let (type_unit, die_offset) = match self.get_type_info(dwarf, unit, die) {
             Ok(val) => val,
-            Err(_) => return Ok(None), // TODO: Throw error?
+            Err(_) => bail!("Expected subrange type die to have type information"),
         };
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the type attribute value.
-        Ok(Some(self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)?))
+        Ok(self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)?)
     }
 
 
@@ -887,8 +916,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // this type if needed.
 
         // Get member die.
-        let die_offset = attributes::discr_attribute(die).unwrap();
-        let member = &unit.entry(die_offset).unwrap();
+        let die_offset = match attributes::discr_attribute(die) {
+            Some(val) => val,
+            None => bail!("Expected variant part die to have attribute DW_AT_discr"),
+        };
+        let member = &unit.entry(die_offset)?;
 
         // Evaluate the DW_TAG_member value.
         let value = match self.eval_member(memory_and_registers, dwarf, unit, member, data_offset)? {
@@ -905,7 +937,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // Find the DW_TAG_member die and all the DW_TAG_variant dies.
         let mut variants = vec!();
-        let children = get_children(unit, die);
+        let children = get_children(unit, die)?;
         for c in &children {
             let c_die = unit.entry(*c)?;
             match c_die.tag() {
@@ -918,7 +950,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         for v in &variants {
             // Find the right variant type and evaluate it.
-            let discr_value = attributes::discr_value_attribute(v).unwrap();
+            let discr_value = match attributes::discr_value_attribute(v) {
+                Some(val) => val,
+                None => bail!("Expected variant die to have attribute DW_AT_discr_value"),
+            };
 
             // Check if it is the correct variant.
             if discr_value == variant % (variants.len() as u64) { // NOTE: Don't know if using modulus here is correct, but it seems to be correct.
@@ -959,7 +994,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         self.check_alignment(die, data_offset)?;
 
         // Find the child die of type DW_TAG_member
-        let children = get_children(unit, die);
+        let children = get_children(unit, die)?;
         for c in children {
             let c_die = unit.entry(c)?;
             match c_die.tag() {
@@ -972,7 +1007,10 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     };
 
                     // Get the name of the die.
-                    let name = attributes::name_attribute(dwarf, &c_die).unwrap();
+                    let name = match attributes::name_attribute(dwarf, &c_die) {
+                        Some(val) => val,
+                        None => bail!("Expected member die to have attribute DW_AT_name"),
+                    };
 
                     return Ok(ReturnResult::Value(super::value::EvaluatorValue::Enum(Box::new(super::value::EnumValue {
                         name:   name,
@@ -1032,18 +1070,18 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
  */
 fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
                                            die: &gimli::DebuggingInformationEntry<'_, '_, R>
-                                           ) -> Vec<gimli::UnitOffset>
+                                           ) -> Result<Vec<gimli::UnitOffset>>
 {
     let mut result = Vec::new();
-    let mut tree = unit.entries_tree(Some(die.offset())).unwrap();
-    let node = tree.root().unwrap();
+    let mut tree = unit.entries_tree(Some(die.offset()))?;
+    let node = tree.root()?;
 
     let mut children = node.children();
-    while let Some(child) = children.next().unwrap() { 
+    while let Some(child) = children.next()? { 
         result.push(child.entry().offset());
     }
     
-    result
+    Ok(result)
 }
 
 
@@ -1123,29 +1161,29 @@ pub fn slize_as_u64(data: &[u32]) -> u64
 pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
                       data:         &[u32],
                       base_type:    gimli::UnitOffset<usize>
-                      ) -> BaseValue
+                      ) -> Result<BaseValue>
                       where R: Reader<Offset = usize>
 {
     if base_type.0 == 0 {
-        return BaseValue::Generic(slize_as_u64(data));
+        return Ok(BaseValue::Generic(slize_as_u64(data)));
     }
-    let die = unit.entry(base_type).unwrap();
+    let die = unit.entry(base_type)?;
 
     // I think that the die returned must be a base type tag.
     if die.tag() != gimli::DW_TAG_base_type {
-        panic!("die tag not base type");
+        bail!("Requires at the die has tag DW_TAG_base_type");
     }
 
-    let encoding = match die.attr_value(gimli::DW_AT_encoding) {
-        Ok(Some(gimli::AttributeValue::Encoding(dwate))) => dwate,
-        _ => panic!("expected Encoding"),
+    let encoding = match die.attr_value(gimli::DW_AT_encoding)? {
+        Some(gimli::AttributeValue::Encoding(dwate)) => dwate,
+        _ => bail!("Expected base type die to have attribute DW_AT_encoding"),
     };
-    let byte_size = match die.attr_value(gimli::DW_AT_byte_size) {
-        Ok(Some(gimli::AttributeValue::Udata(v))) => v,
-        _ => panic!("expected Udata"),
+    let byte_size = match die.attr_value(gimli::DW_AT_byte_size)? {
+        Some(gimli::AttributeValue::Udata(v)) => v,
+        _ => bail!("Expected base type die to have attribute DW_AT_byte_size"),
     };
     
-    eval_base_type(data, encoding, byte_size)
+    Ok(eval_base_type(data, encoding, byte_size))
 }
 
 
