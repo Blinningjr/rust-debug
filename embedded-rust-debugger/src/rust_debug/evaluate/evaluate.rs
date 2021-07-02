@@ -1088,84 +1088,23 @@ fn get_children<R: Reader<Offset = usize>>(unit: &gimli::Unit<R>,
 /*
  * Evaluates the value of a base type.
  */
-pub fn eval_base_type(data:         &[u32],
-                      encoding:     DwAte,
-                      byte_size:    u64
-                      ) -> BaseValue
-{
-    if byte_size == 0 {
-        panic!("expected byte size to be larger then 0");
-    }
-
-    let value = slize_as_u64(data);
-    match (encoding, byte_size) {  // Source: DWARF 4 page 168-169 and 77
-        (DwAte(1), 4) => BaseValue::Address32(value as u32),    // DW_ATE_address = 1 // TODO: Different size addresses?
-        (DwAte(2), 1) => BaseValue::Bool((value as u8) == 1),   // DW_ATE_boolean = 2 // TODO: Use modulus?
-        
-//        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing
-
-        (DwAte(4), 4) => BaseValue::F32(f32::from_bits(value as u32)),   // DW_ATE_float = 4
-        (DwAte(4), 8) => BaseValue::F64(f64::from_bits(value)), // DW_ATE_float = 4
-
-        (DwAte(5), 1) => BaseValue::I8(value as i8),       // (DW_ATE_signed = 5, 8)
-        (DwAte(5), 2) => BaseValue::I16(value as i16),     // (DW_ATE_signed = 5, 16)
-        (DwAte(5), 4) => BaseValue::I32(value as i32),     // (DW_ATE_signed = 5, 32)
-        (DwAte(5), 8) => BaseValue::I64(value as i64),     // (DW_ATE_signed = 5, 64)
-        
-//        (DwAte(6), _) => ,     // DW_ATE_signed_char = 6 // TODO: Add type
-
-        (DwAte(7), 1) => BaseValue::U8(value as u8),       // (DW_ATE_unsigned = 7, 8)
-        (DwAte(7), 2) => BaseValue::U16(value as u16),     // (DW_ATE_unsigned = 7, 16)
-        (DwAte(7), 4) => BaseValue::U32(value as u32),     // (DW_ATE_unsigned = 7, 32)
-        (DwAte(7), 8) => BaseValue::U64(value),            // (DW_ATE_unsigned = 7, 64)
-        
-//        (DwAte(8), _) => ,     // DW_ATE_unsigned_char = 8 // TODO: Add type
-//        (DwAte(9), _) => ,     // DW_ATE_imaginary_float = 9 // NOTE: Seems like a C++ thing
-//        (DwAte(10), _) => ,     // DW_ATE_packed_decimal = 10 // TODO: Add type
-//        (DwAte(11), _) => ,     // DW_ATE_numeric_string = 11 // TODO: Add type
-//        (DwAte(12), _) => ,     // DW_ATE_edited = 12 // TODO: Add type
-//        (DwAte(13), _) => ,     // DW_ATE_signed_fixed = 13 // TODO: Add type
-//        (DwAte(14), _) => ,     // DW_ATE_unsigned_fixed = 14 // TODO: Add type
-//        (DwAte(15), _) => ,     // DW_ATE_decimal_float = 15 // TODO: Add type
-//        (DwAte(16), _) => ,     // DW_ATE_UTF = 16 // TODO: Add type
-//        (DwAte(128), _) => ,     // DW_ATE_lo_user = 128 // TODO: Add type
-//        (DwAte(255), _) => ,     // DW_ATE_hi_user = 255 // TODO: Add type
-
-        _ => {
-            unimplemented!()
-        },
-    }
-}
-
-
-/*
- * Helper function that turns slice into a u64
- */
-pub fn slize_as_u64(data: &[u32]) -> u64 // TODO: Remove this funciton.
-{
-    // TODO: Take account to what endian it is
-    // TODO: Check and test if correct
-    if data.len() < 2 {
-        return data[0] as u64;
-    }
-    if data.len() > 2 {
-        panic!("To big value");
-    }
-    return ((data[1] as u64)<< 32) + (data[0] as u64);
-}
-
-
-/*
- * Evaluates the value of a base type.
- */
 pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
-                      data:         &[u32],
+                      data:         Vec<u8>,
                       base_type:    gimli::UnitOffset<usize>
                       ) -> Result<BaseValue>
                       where R: Reader<Offset = usize>
 {
     if base_type.0 == 0 {
-        return Ok(BaseValue::Generic(slize_as_u64(data)));
+        // NOTE: length can't be more then one word
+        let value = match data.len() {
+            0 => 0,
+            1 => u8::from_le_bytes(data.try_into().unwrap()) as u64,
+            2 => u16::from_le_bytes(data.try_into().unwrap()) as u64,
+            4 => u32::from_le_bytes(data.try_into().unwrap()) as u64,
+            8 => u64::from_le_bytes(data.try_into().unwrap()),
+            _ => unreachable!(),
+        };
+        return Ok(BaseValue::Generic(value));
     }
     let die = unit.entry(base_type)?;
 
@@ -1178,12 +1117,8 @@ pub fn parse_base_type<R>(unit:         &gimli::Unit<R>,
         Some(gimli::AttributeValue::Encoding(dwate)) => dwate,
         _ => bail!("Expected base type die to have attribute DW_AT_encoding"),
     };
-    let byte_size = match die.attr_value(gimli::DW_AT_byte_size)? {
-        Some(gimli::AttributeValue::Udata(v)) => v,
-        _ => bail!("Expected base type die to have attribute DW_AT_byte_size"),
-    };
-    
-    Ok(eval_base_type(data, encoding, byte_size))
+
+    Ok(new_eval_base_type(data, encoding))
 }
 
 

@@ -182,22 +182,22 @@ fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
                                                    eval:       &mut Evaluation<R>,
                                                    result:     &mut EvaluationResult<R>,
                                                    address:    u64,
-                                                   size:       u8, // TODO: Handle size
-                                                   space:      Option<u64>, // TODO: Handle space
+                                                   size:       u8, // number of bytes
+                                                   _space:      Option<u64>, // TODO: Handle space
                                                    base_type:  UnitOffset<usize>,
                                                    memory_and_registers: &MemoryAndRegisters,
                                                    ) -> Result<EvalResult>
                                                    where R: Reader<Offset = usize>
 {
-    match memory_and_registers.get_address_value(&(address as u32)) { //TODO handle size and space
+    match memory_and_registers.get_addresses(&(address as u32), size as usize) {
         Some(data) => {
-            let value = parse_base_type(unit, &[data], base_type)?;
+            let value = parse_base_type(unit, data, base_type)?;
             *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
             Ok(EvalResult::Complete)
         },
         None => Ok(EvalResult::RequiresMemory {
             address: address as u32,
-            num_words:  4,  // TODO
+            num_words:  size,
         }),
     }
 }
@@ -219,7 +219,8 @@ fn resolve_requires_reg<R: Reader<Offset = usize>>(
 {
     match memory_and_registers.get_register_value(&reg.0) {
         Some(data) => {
-            let value   = parse_base_type(unit, &[*data], base_type)?;
+            let bytes = data.to_le_bytes().to_vec();
+            let value   = parse_base_type(unit, bytes, base_type)?;
             *result     = eval.resume_with_register(convert_to_gimli_value(value))?;
 
             Ok(EvalResult::Complete)
@@ -324,17 +325,19 @@ fn resolve_requires_indexed_address<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
 
 fn resolve_requires_base_type<R: Reader<Offset = usize>>(
                         unit:       &Unit<R>,
-                        eval:       &mut Evaluation<R>,
-                        result:     &mut EvaluationResult<R>,
+                        _eval:       &mut Evaluation<R>,
+                        _result:     &mut EvaluationResult<R>,
                         unit_offset: UnitOffset,
                         ) -> Result<EvalResult>
                         where R: Reader<Offset = usize>
 {
-    // TODO: Check and test if correct
-
-    *result = eval.resume_with_base_type(convert_to_gimli_value(parse_base_type(unit, &[0], unit_offset)?).value_type())?;
-
-    Ok(EvalResult::Complete)
+    let die = unit.entry(unit_offset)?;
+    let mut attrs = die.attrs();
+    while let Some(attr) = attrs.next().unwrap() {
+        println!("Attribute name = {:?}", attr.name());
+        println!("Attribute value = {:?}", attr.value());
+    }
+    unimplemented!();
 }
 
 
