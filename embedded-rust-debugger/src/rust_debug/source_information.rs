@@ -80,3 +80,95 @@ impl SourceInformation {
     }
 }
 
+
+// Good source: DWARF section 6.2
+pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
+                     cwd: &str,
+                     path: &str,
+                     line: u64,
+                     column: Option<u64>
+                     ) -> Result<Option<u64>>
+{
+    let mut locations = vec!();
+
+    let mut units = dwarf.units();
+    while let Some(unit_header) = units.next()? {
+        let unit = dwarf.unit(unit_header)?; 
+
+        if let Some(ref line_program) = unit.line_program {
+            let lp_header = line_program.header();
+            
+            for file_entry in lp_header.file_names() {
+
+                let directory = match file_entry.directory(lp_header) {
+                    Some(dir_av) => {
+                        let dir_raw = dwarf.attr_string(&unit, dir_av)?;
+                        dir_raw.to_string()?.to_string()
+                    },
+                    None => continue,
+                };
+                
+                let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?;
+                let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+
+                if !file_path.starts_with("/") { // TODO: Find a better solution
+                    file_path = format!("{}/{}", cwd, file_path); 
+                }
+
+                if path == &file_path {
+                    let mut rows = line_program.clone().rows();
+                    while let Some((header, row)) = rows.next_row()? {
+
+                        let file_entry = match row.file(header) {
+                            Some(v) => v,
+                            None => continue,
+                        };
+
+                        let directory = match file_entry.directory(header) {
+                            Some(dir_av) => {
+                                let dir_raw = dwarf.attr_string(&unit, dir_av)?;
+                                dir_raw.to_string()?.to_string()
+                            },
+                            None => continue,
+                        };
+                        
+                        let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?;
+                        let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+                        if !file_path.starts_with("/") { // TODO: Find a better solution
+                            file_path = format!("{}/{}", cwd, file_path); 
+                        }
+
+                        if path == &file_path {
+                            if let Some(l) = row.line() {
+                                if line == l {
+                                    locations.push((row.column(), row.address()));
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+    match locations.len() {
+        0 => return Ok(None),
+        len => {
+            let search = match column {
+                Some(v) => gimli::ColumnType::Column(v),
+                None    => gimli::ColumnType::LeftEdge,
+            };
+
+            let mut res = locations[0];
+            for i in 1..len {
+                if locations[i].0 <= search && locations[i].0 > res.0 {
+                    res = locations[i];
+                }
+            }
+
+            return Ok(Some(res.1));
+        },
+    };
+}
+

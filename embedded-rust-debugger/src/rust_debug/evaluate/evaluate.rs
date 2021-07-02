@@ -7,7 +7,7 @@ use super::{
 };
 use std::convert::TryInto;
 
-use crate::rust_debug::MemoryAndRegisters;
+use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 
 use crate::rust_debug::evaluate::value_information::ValueInformation;
 use crate::rust_debug::evaluate::value_information::ValuePiece;

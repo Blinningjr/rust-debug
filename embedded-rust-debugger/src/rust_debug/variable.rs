@@ -22,7 +22,7 @@ use anyhow::{
 use crate::rust_debug::evaluate::value_information::ValueInformation;
 use crate::rust_debug::source_information::SourceInformation;
 use crate::rust_debug::evaluate::attributes;
-use crate::rust_debug::in_range;
+use crate::rust_debug::utils::in_range;
 use crate::rust_debug::evaluate::EvalResult;
 use crate::rust_debug::evaluate::EvaluatorResult;
 use crate::rust_debug::evaluate::evaluate;

@@ -9,15 +9,16 @@ use pieces::EvalPieceResult;
 use crate::rust_debug::evaluate::pieces::evaluate_pieces;
 use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 
-use super::{
-    call_evaluate,
-};
 
 use gimli::{
     Dwarf,
     Unit,
     Expression,
     Reader,
+    DebuggingInformationEntry,
+    AttributeValue::{
+        UnitRef,
+    },
 };
 
 pub use value::{
@@ -32,6 +33,7 @@ pub use value::{
 };
 
 use anyhow::{
+    bail,
     Result,
 };
 
@@ -48,6 +50,52 @@ pub enum EvalResult {
 pub enum EvaluatorResult<R: Reader<Offset = usize>> {
     Complete(EvaluatorValue<R>),
     Requires(EvalResult),
+}
+
+
+pub fn call_evaluate<R: Reader<Offset = usize>>(dwarf: & Dwarf<R>,
+                                                nunit:      &Unit<R>,
+                                                pc:         u32,
+                                                expr:       gimli::Expression<R>,
+                                                frame_base: Option<u64>,
+                                                unit:     &Unit<R>,
+                                                die: &DebuggingInformationEntry<R>,
+                                                memory_and_registers: &MemoryAndRegisters,
+                                                ) -> Result<EvaluatorResult<R>>
+{
+    if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
+        match tattr {
+            gimli::AttributeValue::UnitRef(offset) => {
+                let die = unit.entry(offset)?;
+                return evaluate(dwarf, nunit, pc, expr, frame_base, Some(unit), Some(&die), memory_and_registers);
+            },
+            gimli::AttributeValue::DebugInfoRef(di_offset) => {
+                let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                let mut iter = dwarf.debug_info.units();
+                while let Ok(Some(header)) = iter.next() {
+                    let unit = dwarf.unit(header)?;
+                    if let Some(offset) = offset.to_unit_offset(&unit) {
+                        let die = unit.entry(offset)?;
+                        return evaluate(dwarf, nunit, pc, expr, frame_base, Some(&unit), Some(&die), memory_and_registers);
+                    }
+                }
+                bail!("");
+            },
+            _ => bail!(""),
+        };
+    } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+        match die_offset {
+            UnitRef(offset) => {
+                if let Ok(ndie) = unit.entry(offset) {
+                    return call_evaluate(dwarf, nunit, pc, expr, frame_base, unit, &ndie, memory_and_registers);
+                }
+            },
+            _ => {
+                unimplemented!();
+            },
+        };
+    }
+    bail!("");
 }
 
 

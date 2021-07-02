@@ -38,9 +38,7 @@ use crossbeam_channel::{
 use capstone::arch::BuildsCapstone;
 
 
-use super::rust_debug::{
-    find_breakpoint_location,
-};
+use super::rust_debug::source_information::find_breakpoint_location;
 
 use super::{
     read_dwarf,

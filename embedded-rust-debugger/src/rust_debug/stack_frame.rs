@@ -1,13 +1,13 @@
 use crate::rust_debug::call_stack::CallFrame;
-use crate::rust_debug::die_in_range;
-use crate::rust_debug::EvaluatorValue;
+use crate::rust_debug::utils::die_in_range;
+use crate::rust_debug::evaluate::EvaluatorValue;
 use crate::rust_debug::source_information::SourceInformation;
 use crate::rust_debug::evaluate::EvaluatorResult;
 use crate::rust_debug::evaluate::EvalResult;
 use crate::rust_debug::variable::VariableCreator;
 use crate::rust_debug::variable::is_variable_die;
 use crate::rust_debug::variable::Variable;
-use crate::rust_debug::MemoryAndRegisters;
+use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
 use crate::rust_debug::evaluate::evaluate;
 use crate::rust_debug::evaluate::value::BaseValue;
 
