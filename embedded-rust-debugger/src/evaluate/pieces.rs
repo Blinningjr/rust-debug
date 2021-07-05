@@ -1,4 +1,4 @@
-use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
+use crate::memory_and_registers::MemoryAndRegisters;
 
 use super::{
     call_evaluate,

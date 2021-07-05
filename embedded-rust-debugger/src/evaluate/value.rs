@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::rust_debug::evaluate::value_information::ValueInformation;
+use crate::evaluate::value_information::ValueInformation;
 
 use gimli::{
     Reader,
