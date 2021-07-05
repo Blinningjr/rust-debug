@@ -1,13 +1,11 @@
-# Embedded Rust Debugger
-The debugger is currently in a very early state thus its usefulness is very low at the moment.
+# rust-debug
+This is a debugging library for rust code.
+It provides functions for reading and evaluating some of the most common debugging information.
 
-## Use
-Start by cloning the repository, then use it by running.
-```
-cargo run <ELF-FILE>
-```
-
-To see the available commands type `help` in the CLI.
+The goal of this library is to make it easy to retrieve common information from dwarf, like stack information and variable information.
+I noticed when implementing my rust debugger that a lot of other project implemented the same functionality as me.
+So I thought that I could make my solution into a library that others can use.
+The library is far from finished but it works well enough that I can make a embedded rust debugger from it.
 
 
 ## License
