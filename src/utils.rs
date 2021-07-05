@@ -5,6 +5,7 @@ use gimli::{
     Dwarf,
     DebuggingInformationEntry,
     Reader,
+    Error,
 };
 
 pub fn in_ranges<R>(pc:     u32,
@@ -46,4 +47,35 @@ pub fn die_in_range<'a, R>(dwarf:   &'a Dwarf<R>,
         Err(_) => None,
     }
 }
+
+
+pub fn get_current_unit<'a, R>(
+        dwarf: &'a Dwarf<R>,
+        pc: u32
+    ) -> Result<Unit<R>, Error>
+        where R: Reader<Offset = usize>
+{
+    // TODO: Maybe return a Vec of units
+    let mut res = None;
+
+    let mut iter = dwarf.units();
+    let mut i = 0;
+    while let Some(header) = iter.next()? {
+        let unit = dwarf.unit(header)?;
+        if Some(true) == in_ranges(pc, &mut dwarf.unit_ranges(&unit)?) {
+            res = Some(unit);
+            i += 1;
+        }
+    }
+
+    if i > 1 {
+        panic!("Found more then one unit in range {}", i);
+    }
+
+    return match res {
+        Some(u) => Ok(u),
+        None => Err(Error::MissingUnitDie),
+    };
+}
+
 

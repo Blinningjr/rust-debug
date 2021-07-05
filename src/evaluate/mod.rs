@@ -6,8 +6,8 @@ pub mod value_information;
 
 
 use pieces::EvalPieceResult;
-use crate::rust_debug::evaluate::pieces::evaluate_pieces;
-use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
+use crate::evaluate::pieces::evaluate_pieces;
+use crate::memory_and_registers::MemoryAndRegisters;
 
 
 use gimli::{

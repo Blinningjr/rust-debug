@@ -7,10 +7,9 @@ use super::{
 };
 use std::convert::TryInto;
 
-use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
-
-use crate::rust_debug::evaluate::value_information::ValueInformation;
-use crate::rust_debug::evaluate::value_information::ValuePiece;
+use crate::memory_and_registers::MemoryAndRegisters;
+use crate::evaluate::value_information::ValueInformation;
+use crate::evaluate::value_information::ValuePiece;
 
 use gimli::{
     Reader,

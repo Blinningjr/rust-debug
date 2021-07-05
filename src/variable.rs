@@ -19,14 +19,14 @@ use anyhow::{
     anyhow,
 };
 
-use crate::rust_debug::evaluate::value_information::ValueInformation;
-use crate::rust_debug::source_information::SourceInformation;
-use crate::rust_debug::evaluate::attributes;
-use crate::rust_debug::utils::in_range;
-use crate::rust_debug::evaluate::EvalResult;
-use crate::rust_debug::evaluate::EvaluatorResult;
-use crate::rust_debug::evaluate::evaluate;
-use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
+use crate::evaluate::value_information::ValueInformation;
+use crate::source_information::SourceInformation;
+use crate::evaluate::attributes;
+use crate::utils::in_range;
+use crate::evaluate::EvalResult;
+use crate::evaluate::EvaluatorResult;
+use crate::evaluate::evaluate;
+use crate::memory_and_registers::MemoryAndRegisters;
 
 
 #[derive(Debug, Clone)]

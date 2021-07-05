@@ -1,17 +1,16 @@
-use crate::rust_debug::call_stack::CallFrame;
-use crate::rust_debug::utils::die_in_range;
-use crate::rust_debug::evaluate::EvaluatorValue;
-use crate::rust_debug::source_information::SourceInformation;
-use crate::rust_debug::evaluate::EvaluatorResult;
-use crate::rust_debug::evaluate::EvalResult;
-use crate::rust_debug::variable::VariableCreator;
-use crate::rust_debug::variable::is_variable_die;
-use crate::rust_debug::variable::Variable;
-use crate::rust_debug::memory_and_registers::MemoryAndRegisters;
-use crate::rust_debug::evaluate::evaluate;
-use crate::rust_debug::evaluate::value::BaseValue;
-
-use crate::get_current_unit;
+use crate::call_stack::CallFrame;
+use crate::utils::die_in_range;
+use crate::utils::get_current_unit;
+use crate::evaluate::EvaluatorValue;
+use crate::source_information::SourceInformation;
+use crate::evaluate::EvaluatorResult;
+use crate::evaluate::EvalResult;
+use crate::variable::VariableCreator;
+use crate::variable::is_variable_die;
+use crate::variable::Variable;
+use crate::memory_and_registers::MemoryAndRegisters;
+use crate::evaluate::evaluate;
+use crate::evaluate::value::BaseValue;
 
 use gimli::{
     Reader,
