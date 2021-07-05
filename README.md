@@ -3,9 +3,13 @@ This is a debugging library for rust code.
 It provides functions for reading and evaluating some of the most common debugging information.
 
 The goal of this library is to make it easy to retrieve common information from dwarf, like stack information and variable information.
-I noticed when implementing my rust debugger that a lot of other project implemented the same functionality as me.
+I noticed when implementing my rust [debugger](https://github.com/Blinningjr/embedded-rust-debugger) that a lot of other project implemented the same functionality as me.
 So I thought that I could make my solution into a library that others can use.
 The library is far from finished but it works well enough that I can make a embedded rust debugger from it.
+
+## Example
+Check out my debugger for embedded rust code I made using this libary.
+[https://github.com/Blinningjr/embedded-rust-debugger](https://github.com/Blinningjr/embedded-rust-debugger)
 
 
 ## License
