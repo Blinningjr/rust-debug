@@ -197,7 +197,7 @@ fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
         },
         None => Ok(EvalResult::RequiresMemory {
             address: address as u32,
-            num_words:  size,
+            num_words:  size as usize,
         }),
     }
 }
