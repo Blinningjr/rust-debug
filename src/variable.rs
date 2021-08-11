@@ -101,6 +101,13 @@ impl VariableCreator {
                 source: self.source.clone(),
                 location: var_info.clone(),
             }),
+            (Some(val), None) => Ok(Variable {
+                name: self.name.clone(),
+                value: val.clone(),
+                type_: self.type_.clone(),
+                source: self.source.clone(),
+                location: vec!(),
+            }),
             _ => Err(anyhow!("Variable has not been evaluated yet")),
         }
     }
