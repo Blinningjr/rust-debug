@@ -10,6 +10,7 @@ use std::convert::TryInto;
 use crate::memory_and_registers::MemoryAndRegisters;
 use crate::evaluate::value_information::ValueInformation;
 use crate::evaluate::value_information::ValuePiece;
+use crate::evaluate::value::convert_from_gimli_value;
 
 use gimli::{
     Reader,
@@ -75,6 +76,7 @@ pub enum ReturnResult<R: Reader<Offset = usize>> {
 
 pub enum PieceResult<R: Reader<Offset = usize>> {
     Value(Vec<u8>, Vec<ValuePiece>),
+    Const(gimli::Value),
     Bytes(R),
     OptimizedOut,
     Required(EvaluatorResult),
@@ -271,7 +273,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             Location::Empty                                         => PieceResult::OptimizedOut,
             Location::Register        { ref register }              => self.eval_register(memory_and_registers, register, &piece),
             Location::Address         { address }                   => self.eval_address(memory_and_registers, address, byte_size, data_offset, &piece),
-            Location::Value           { value }                     => self.eval_gimli_value(value, &piece),
+            Location::Value           { value }                     => self.eval_gimli_value(value),
             Location::Bytes           { value }                     => PieceResult::Bytes(value.clone()),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
         }
@@ -280,28 +282,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
     pub fn eval_gimli_value(&mut self,
                          value:     gimli::Value,
-                         piece:     &Piece<R>,
                          ) -> PieceResult<R>
     {
-        let mut bytes = vec!();
-        match value {
-            gimli::Value::Generic(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::I8(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::U8(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::I16(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::U16(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::I32(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::U32(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::I64(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::U64(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::F32(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-            gimli::Value::F64(val) => bytes.extend_from_slice(&val.to_le_bytes()),
-        };
-
-        bytes = trim_piece_bytes(bytes, piece, 4);
-        let byte_size = bytes.len();
-
-        return PieceResult::Value(bytes, vec!(ValuePiece::Dwarf { byte_size: byte_size }));
+        return PieceResult::Const(value);
     }
 
 
@@ -392,6 +375,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let result = self.get_bytes(memory_and_registers, num_bytes, data_offset)?;
         return match result {
             PieceResult::Value(bytes, value_pieces) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encode), ValueInformation::new(Some(bytes.clone()), value_pieces)))),
+            PieceResult::Const(val) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(
+                        convert_from_gimli_value(val),
+                        ValueInformation {
+                            raw: None,
+                            pieces: vec!(ValuePiece::Dwarf { value: Some(val) }),
+                        }))),
             PieceResult::Bytes(bytes) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Bytes(bytes))),
             PieceResult::OptimizedOut => Ok(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)),
             PieceResult::Required(required) => Ok(ReturnResult::Required(required)),
@@ -874,7 +863,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // If the die has a count attribute then that is the value.
         match attributes::count_attribute(die) { // NOTE: This could be replace with lower and upper bound
-            Some(val)   => return Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), ValueInformation::new(None, vec!(ValuePiece::Dwarf { byte_size: 0 }))))),
+            Some(val)   => return Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(BaseValue::U64(val), ValueInformation::new(None, vec!(ValuePiece::Dwarf { value: None }))))),
             None        => (),
         };
 

@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::evaluate::value_information::ValueInformation;
+use crate::evaluate::value_information::ValuePiece;
 
 use gimli::{
     Reader,
@@ -97,6 +98,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             },
             EvaluatorValue::Member (me) => {
                 me.value.get_variable_information()
+            },
+            EvaluatorValue::OptimizedOut => {
+                vec!(ValueInformation::new(None, vec!(ValuePiece::Dwarf { value: None })))
+            },
+            EvaluatorValue::OutOfRange => {
+                vec!(ValueInformation::new(None, vec!(ValuePiece::Dwarf { value: None })))
             },
             _ => vec!(),
         }

@@ -18,6 +18,6 @@ impl ValueInformation {
 pub enum ValuePiece {
     Register { register: u16, byte_size: usize },
     Memory { address: u32, byte_size: usize },
-    Dwarf { byte_size: usize },
+    Dwarf { value: Option<gimli::Value> },
 }
 
