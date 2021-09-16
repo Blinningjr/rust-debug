@@ -136,12 +136,6 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: &Dwarf<
                     register: reg,
                 }));
             },
-            evaluate::EvaluatorResult::RequireData {address, num_words} => {
-                return Ok(EvaluatorResult::Requires(EvalResult::RequiresMemory {
-                    address: address,
-                    num_words: num_words,
-                }));
-            },
         };
     }
 

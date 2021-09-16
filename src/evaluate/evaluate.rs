@@ -62,7 +62,6 @@ pub enum EvaluatorResult {
     // Evaluator requires the value of a register.
     RequireReg(u16),
     // Evaluator requires the value of a address.
-    RequireData {address: u32, num_words: usize},
 }
 
 
@@ -340,10 +339,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         let bytes = match mem.get_address(&(address as u32), num_bytes) {
             Some(val) => val,
-            None => return PieceResult::Required(EvaluatorResult::RequireData {
-                address: address as u32,
-                num_words: num_bytes,
-            }),
+            None => panic!("Return error"),
         };
 
         PieceResult::Value(bytes, vec!(ValuePiece::Memory { address: address as u32, byte_size: num_bytes }))    
