@@ -7,6 +7,7 @@ use super::{
 };
 use std::convert::TryInto;
 
+use crate::call_stack::MemoryAccess;
 use crate::memory_and_registers::MemoryAndRegisters;
 use crate::evaluate::value_information::ValueInformation;
 use crate::evaluate::value_information::ValuePiece;
@@ -119,7 +120,11 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
-    pub fn evaluate(&mut self, dwarf: &gimli::Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> Result<EvaluatorResult> {
+    pub fn evaluate<T: MemoryAccess>(&mut self,
+                    dwarf: &gimli::Dwarf<R>,
+                    memory_and_registers: &MemoryAndRegisters,
+                    mem:                         &mut T,
+                    ) -> Result<EvaluatorResult> {
         self.piece_index = 0;
 
         // If the value has already been evaluated then don't evaluated it again.
@@ -136,7 +141,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             },
             None => {
                 // If the stack is empty then the first piece will be evaluated.
-                let result = self.handle_eval_piece(memory_and_registers, Some(4), 0, Some(DwAte(1)))?;
+                let result = self.handle_eval_piece(memory_and_registers, mem, Some(4), 0, Some(DwAte(1)))?;
                 match result {
                     ReturnResult::Value(val) => {
                         self.result = Some(val);
@@ -174,7 +179,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let die = &unit.entry(die_offset)?;
 
         // Continue evaluating the value of the current state.
-        match self.eval_type(memory_and_registers, dwarf, &unit, die, data_offset)? {
+        match self.eval_type(memory_and_registers, mem, dwarf, &unit, die, data_offset)? {
         ReturnResult::Value(val) => {
                 self.result = Some(val);
                 Ok(EvaluatorResult::Complete)
@@ -232,8 +237,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluates the value of a type.
      */
-    pub fn eval_type(&mut self,
+    pub fn eval_type<T: MemoryAccess>(&mut self,
                      memory_and_registers: &MemoryAndRegisters,
+                     mem:                         &mut T,
                      dwarf:         &gimli::Dwarf<R>,
                      unit:          &gimli::Unit<R>,
                      die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -241,17 +247,17 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                      ) -> Result<ReturnResult<R>>
     { 
         match die.tag() {
-            gimli::DW_TAG_base_type                 => self.eval_basetype(memory_and_registers, die, data_offset),
-            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(memory_and_registers, die, data_offset),
-            gimli::DW_TAG_array_type                => self.eval_array_type(memory_and_registers, dwarf, unit, die, data_offset),
-            gimli::DW_TAG_structure_type            => self.eval_structured_type(memory_and_registers, dwarf, unit, die, data_offset),
-            gimli::DW_TAG_union_type                => self.eval_union_type(memory_and_registers, dwarf, unit, die, data_offset),
-            gimli::DW_TAG_member                    => self.eval_member(memory_and_registers, dwarf, unit, die, data_offset),
-            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(memory_and_registers, dwarf, unit, die, data_offset),
+            gimli::DW_TAG_base_type                 => self.eval_basetype(memory_and_registers, mem, die, data_offset),
+            gimli::DW_TAG_pointer_type              => self.eval_pointer_type(memory_and_registers, mem, die, data_offset),
+            gimli::DW_TAG_array_type                => self.eval_array_type(memory_and_registers, mem, dwarf, unit, die, data_offset),
+            gimli::DW_TAG_structure_type            => self.eval_structured_type(memory_and_registers, mem, dwarf, unit, die, data_offset),
+            gimli::DW_TAG_union_type                => self.eval_union_type(memory_and_registers, mem, dwarf, unit, die, data_offset),
+            gimli::DW_TAG_member                    => self.eval_member(memory_and_registers, mem, dwarf, unit, die, data_offset),
+            gimli::DW_TAG_enumeration_type          => self.eval_enumeration_type(memory_and_registers, mem, dwarf, unit, die, data_offset),
             gimli::DW_TAG_string_type               => unimplemented!(),
             gimli::DW_TAG_generic_subrange          => unimplemented!(),
             gimli::DW_TAG_template_type_parameter   => unimplemented!(),
-            gimli::DW_TAG_variant_part              => self.eval_variant_part(memory_and_registers, dwarf, unit, die, data_offset),
+            gimli::DW_TAG_variant_part              => self.eval_variant_part(memory_and_registers, mem, dwarf, unit, die, data_offset),
             gimli::DW_TAG_subroutine_type           => unimplemented!(),
             gimli::DW_TAG_subprogram                => unimplemented!(),
             _ => unimplemented!(),
@@ -262,8 +268,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a piece.
      */
-    pub fn eval_piece(&mut self,
+    pub fn eval_piece<T: MemoryAccess>(&mut self,
                       memory_and_registers: &MemoryAndRegisters,
+                      mem:                         &mut T,
                       piece:        Piece<R>,
                       byte_size:    u64,
                       data_offset:  u64,
@@ -272,7 +279,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match piece.location {
             Location::Empty                                         => PieceResult::OptimizedOut,
             Location::Register        { ref register }              => self.eval_register(memory_and_registers, register, &piece),
-            Location::Address         { address }                   => self.eval_address(memory_and_registers, address, byte_size, data_offset, &piece),
+            Location::Address         { address }                   => self.eval_address(mem, address, byte_size, data_offset, &piece),
             Location::Value           { value }                     => self.eval_gimli_value(value),
             Location::Bytes           { value }                     => PieceResult::Bytes(value.clone()),
             Location::ImplicitPointer { value: _, byte_offset: _ }  => unimplemented!(),
@@ -316,8 +323,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a address.
      */
-    pub fn eval_address(&mut self,
-                        memory_and_registers: &MemoryAndRegisters,
+    pub fn eval_address<T: MemoryAccess>(&mut self,
+                mem:                         &mut T,
                         mut address:    u64,
                         byte_size:      u64,
                         data_offset:    u64,
@@ -331,7 +338,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None => byte_size,
         } as usize;
 
-        let bytes = match memory_and_registers.get_addresses(&(address as u32), num_bytes) {
+        let bytes = match mem.get_address(&(address as u32), num_bytes) {
             Some(val) => val,
             None => return PieceResult::Required(EvaluatorResult::RequireData {
                 address: address as u32,
@@ -346,8 +353,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluates the value of a piece and decides if the piece should be discarded or kept.
      */
-    pub fn handle_eval_piece(&mut self,
+    pub fn handle_eval_piece<T: MemoryAccess>(&mut self,
                              memory_and_registers: &MemoryAndRegisters,
+                mem:                         &mut T,
                              byte_size:         Option<u64>,
                              mut data_offset:   u64,
                              encoding:          Option<DwAte>
@@ -372,7 +380,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             None => bail!("Requires encoding"),
         };
 
-        let result = self.get_bytes(memory_and_registers, num_bytes, data_offset)?;
+        let result = self.get_bytes(memory_and_registers, mem, num_bytes, data_offset)?;
         return match result {
             PieceResult::Value(bytes, value_pieces) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(new_eval_base_type(bytes.clone(), encode), ValueInformation::new(Some(bytes.clone()), value_pieces)))),
             PieceResult::Const(val) => Ok(ReturnResult::Value(super::value::EvaluatorValue::Value(
@@ -388,8 +396,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     }
 
 
-    fn get_bytes(&mut self,
+    fn get_bytes<T: MemoryAccess>(&mut self,
                  memory_and_registers:  &MemoryAndRegisters,
+                mem:                         &mut T,
                  byte_size:             u64,
                  mut data_offset:       u64,
                  ) -> Result<PieceResult<R>>
@@ -409,6 +418,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             }
             let piece = self.pieces[self.piece_index].clone();
             let result = self.eval_piece(memory_and_registers,
+                                         mem,
                                          piece,
                                          byte_size,
                                          data_offset);
@@ -437,8 +447,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a base type.
      */
-    pub fn eval_basetype(&mut self,
+    pub fn eval_basetype<T: MemoryAccess>(&mut self,
                          memory_and_registers: &MemoryAndRegisters,
+                         mem:                         &mut T,
                          die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                          data_offset:   u64,
                          ) -> Result<ReturnResult<R>>
@@ -464,6 +475,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // Evaluate the value.
         match self.handle_eval_piece(memory_and_registers,
+                                     mem,
                                      byte_size,
                                      data_offset, // TODO
                                      encoding)?
@@ -479,8 +491,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a pointer type.
      */
-    pub fn eval_pointer_type(&mut self,
+    pub fn eval_pointer_type<T: MemoryAccess>(&mut self,
                              memory_and_registers: &MemoryAndRegisters,
+                mem:                         &mut T,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
                              data_offset:   u64,
                              ) -> Result<ReturnResult<R>>
@@ -501,6 +514,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         match address_class.0 {
             0 => {
                 let res = self.handle_eval_piece(memory_and_registers,
+                                                 mem,
                                                  Some(4),
                                                  data_offset,
                                                  Some(DwAte(1)))?;
@@ -514,8 +528,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a array type.
      */
-    pub fn eval_array_type(&mut self,
+    pub fn eval_array_type<T: MemoryAccess>(&mut self,
                            memory_and_registers: &MemoryAndRegisters,
+                mem:                         &mut T,
                            dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -534,8 +549,8 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let dimension_die = unit.entry(children[0])?;
 
         let result = match dimension_die.tag() {
-            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?,
-            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(memory_and_registers, dwarf, unit, &dimension_die, data_offset)?,
+            gimli::DW_TAG_subrange_type     => self.eval_subrange_type(memory_and_registers, mem, dwarf, unit, &dimension_die, data_offset)?,
+            gimli::DW_TAG_enumeration_type  => self.eval_enumeration_type(memory_and_registers, mem, dwarf, unit, &dimension_die, data_offset)?,
             _ => unimplemented!(),
         };
 
@@ -559,7 +574,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         // Evaluate all the values in the array.
         let mut values = vec!();
         for _i in 0..count {
-            match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)? { // TODO: Fix so that it can read multiple of the same type.
+            match self.eval_type(memory_and_registers, mem, dwarf, &type_unit, type_die, data_offset)? { // TODO: Fix so that it can read multiple of the same type.
                 ReturnResult::Value(val) => values.push(val),
                 ReturnResult::Required(req) => {
                     return Ok(ReturnResult::Required(req));
@@ -574,8 +589,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a structure type.
      */
-    pub fn eval_structured_type(&mut self,
+    pub fn eval_structured_type<T: MemoryAccess>(&mut self,
                                 memory_and_registers: &MemoryAndRegisters,
+                                mem:                         &mut T,
                                 dwarf:          &gimli::Dwarf<R>,
                                 unit:           &gimli::Unit<R>,
                                 die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -606,7 +622,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 gimli::DW_TAG_variant_part => {
 
                     // Get the value.
-                    let members = match self.eval_variant_part(memory_and_registers, dwarf, unit, &c_die, data_offset)? {
+                    let members = match self.eval_variant_part(memory_and_registers, mem, dwarf, unit, &c_die, data_offset)? {
                         ReturnResult::Value(val) => vec!(val),
                         ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
                     };
@@ -637,7 +653,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let mut members = vec!();
         for i in 0..member_dies.len() {
             let m_die = &member_dies[i].1;
-            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset)? {
+            let member = match self.eval_member(memory_and_registers, mem, dwarf, unit, m_die, data_offset)? {
                 ReturnResult::Value(val) => val,
                 ReturnResult::Required(req) => {
                     return Ok(ReturnResult::Required(req));
@@ -657,8 +673,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a union type.
      */
-    pub fn eval_union_type(&mut self,
+    pub fn eval_union_type<T: MemoryAccess>(&mut self,
                            memory_and_registers: &MemoryAndRegisters,
+                           mem:                         &mut T,
                            dwarf:       &gimli::Dwarf<R>,
                            unit:        &gimli::Unit<R>,
                            die:         &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -704,7 +721,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let mut members = vec!();
         for i in 0..member_dies.len() {
             let m_die = &member_dies[i].1;
-            let member = match self.eval_member(memory_and_registers, dwarf, unit, m_die, data_offset)? {
+            let member = match self.eval_member(memory_and_registers, mem, dwarf, unit, m_die, data_offset)? {
                 ReturnResult::Value(val) => val,
                 ReturnResult::Required(req) => {
                     return Ok(ReturnResult::Required(req));
@@ -724,8 +741,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a member.
      */
-    pub fn eval_member(&mut self,
+    pub fn eval_member<T: MemoryAccess>(&mut self,
                        memory_and_registers: &MemoryAndRegisters,
+                        mem:                         &mut T,
                        dwarf:           &gimli::Dwarf<R>,
                        unit:            &gimli::Unit<R>,
                        die:             &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -754,7 +772,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the value.
-        let value = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, new_data_offset)? {
+        let value = match self.eval_type(memory_and_registers, mem, dwarf, &type_unit, type_die, new_data_offset)? {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
@@ -769,8 +787,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a enumeration type.
      */
-    pub fn eval_enumeration_type(&mut self,
+    pub fn eval_enumeration_type<T: MemoryAccess>(&mut self,
                                  memory_and_registers: &MemoryAndRegisters,
+                                mem:                         &mut T,
                                  dwarf:         &gimli::Dwarf<R>,
                                  unit:          &gimli::Unit<R>,
                                  die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -790,7 +809,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Get type value.
-        let type_result = match self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)? {
+        let type_result = match self.eval_type(memory_and_registers, mem, dwarf, &type_unit, type_die, data_offset)? {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
@@ -847,8 +866,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a subrange type.
      */
-    pub fn eval_subrange_type(&mut self,
+    pub fn eval_subrange_type<T: MemoryAccess>(&mut self,
                               memory_and_registers: &MemoryAndRegisters,
+                                mem:                         &mut T,
                               dwarf:        &gimli::Dwarf<R>,
                               unit:          &gimli::Unit<R>,
                               die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -875,15 +895,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let type_die = &type_unit.entry(die_offset)?;
 
         // Evaluate the type attribute value.
-        Ok(self.eval_type(memory_and_registers, dwarf, &type_unit, type_die, data_offset)?)
+        Ok(self.eval_type(memory_and_registers, mem, dwarf, &type_unit, type_die, data_offset)?)
     }
 
 
     /*
      * Evaluate the value of a variant part.
      */
-    pub fn eval_variant_part(&mut self,
+    pub fn eval_variant_part<T: MemoryAccess>(&mut self,
                              memory_and_registers: &MemoryAndRegisters,
+                             mem:                         &mut T,
                              dwarf:         &gimli::Dwarf<R>,
                              unit:          &gimli::Unit<R>,
                              die:           &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -911,7 +932,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         let member = &unit.entry(die_offset)?;
 
         // Evaluate the DW_TAG_member value.
-        let value = match self.eval_member(memory_and_registers, dwarf, unit, member, data_offset)? {
+        let value = match self.eval_member(memory_and_registers, mem, dwarf, unit, member, data_offset)? {
             ReturnResult::Value(val) => val,
             ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
         };
@@ -947,7 +968,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             if discr_value == variant % (variants.len() as u64) { // NOTE: Don't know if using modulus here is correct, but it seems to be correct.
 
                 // Evaluate the value of the variant.
-                match self.eval_variant(memory_and_registers, dwarf, unit, v, data_offset)? {
+                match self.eval_variant(memory_and_registers, mem, dwarf, unit, v, data_offset)? {
                     ReturnResult::Value(val) => {
                         return Ok(ReturnResult::Value(val));
                     },
@@ -965,8 +986,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
     /*
      * Evaluate the value of a variant.
      */
-    pub fn eval_variant(&mut self,
+    pub fn eval_variant<T: MemoryAccess>(&mut self,
                         memory_and_registers: &MemoryAndRegisters,
+                mem:                         &mut T,
                         dwarf:          &gimli::Dwarf<R>,
                         unit:           &gimli::Unit<R>,
                         die:            &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -989,7 +1011,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 gimli::DW_TAG_member => {
 
                     // Evaluate the value of the member.
-                    let value = match self.eval_member(memory_and_registers, dwarf, unit, &c_die, data_offset)? {
+                    let value = match self.eval_member(memory_and_registers, mem, dwarf, unit, &c_die, data_offset)? {
                         ReturnResult::Value(val) => val,
                         ReturnResult::Required(req) => return Ok(ReturnResult::Required(req)),
                     };

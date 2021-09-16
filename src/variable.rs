@@ -19,6 +19,7 @@ use anyhow::{
     anyhow,
 };
 
+use crate::call_stack::MemoryAccess;
 use crate::evaluate::value_information::ValueInformation;
 use crate::source_information::SourceInformation;
 use crate::evaluate::attributes;
@@ -113,7 +114,11 @@ impl VariableCreator {
     }
 
 
-    pub fn continue_create<R: Reader<Offset = usize>>(&mut self, dwarf: &Dwarf<R>, memory_and_registers: &MemoryAndRegisters) -> Result<EvalResult> {
+    pub fn continue_create<R: Reader<Offset = usize>, T: MemoryAccess>(&mut self,
+                                                      dwarf: &Dwarf<R>,
+                                                      memory_and_registers: &MemoryAndRegisters,
+                                                        mem:                         &mut T,
+                                                      ) -> Result<EvalResult> {
         let header = dwarf.debug_info.header_from_offset(match self.section_offset.as_debug_info_offset() {
             Some(val) => val,
             None => bail!("Could not convert the section offset into debug info offset"),
@@ -153,7 +158,8 @@ impl VariableCreator {
                  self.frame_base,
                  Some(&type_unit),
                  Some(&type_die),
-                 memory_and_registers)? {
+                 memory_and_registers,
+                 mem)? {
             EvaluatorResult::Complete(val) => {
                 self.value = Some(val.to_string()); 
                 self.type_ = Some(val.get_type()); 
