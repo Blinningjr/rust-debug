@@ -8,6 +8,8 @@
 
 use gimli::DebugFrame;
 
+use std::convert::TryInto;
+
 use crate::memory_and_registers::MemoryAndRegisters;
 
 use gimli::{
@@ -22,6 +24,13 @@ use anyhow::{
 };
 
 use log::trace;
+
+
+pub trait MemoryAccess {
+    fn get_address(&mut self, address: &u32, num_bytes: usize) -> Option<Vec<u8>>;
+
+    fn get_register(&mut self, register: &u16) -> Option<u32>;
+}
 
 
 #[derive(Debug, Clone)]
@@ -93,9 +102,10 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
     }
 
 
-    pub fn unwind<'b>(&mut self,
+    pub fn unwind<'b, T: MemoryAccess>(&mut self,
                 debug_frame: &'b DebugFrame<R>,
-                memory_and_registers:        &MemoryAndRegisters,
+                memory_and_registers:        &mut MemoryAndRegisters,
+                mem:                         &mut T,
                 ) -> Result<UnwindResult>
     {
         let code_location = match self.code_location {
@@ -148,9 +158,21 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
 
                     let value = match memory_and_registers.get_address_value(&address) {
                         Some(val) => val,
-                        None => return Ok(UnwindResult::RequiresAddress {
-                            address: address,
-                        }),
+                        None => {
+                            let value = match mem.get_address(&address, 4) {
+                                Some(val) => {
+                                    memory_and_registers.add_to_memory(address, val.clone());
+                                    let mut result = vec!();
+                                    for v in val {
+                                        result.push(v);
+                                    }
+                                
+                                    u32::from_le_bytes(result.as_slice().try_into().unwrap())
+                                },
+                                None => panic!("tait not working"),
+                            };
+                            value
+                        },
                     };
 
                     Some(value)
@@ -190,7 +212,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
         // a backtrace, not the next instruction to be executed.
         self.code_location = self.registers[self.link_register as usize].map(|pc| u64::from(pc & !1) - 1);
         
-        self.unwind(debug_frame, memory_and_registers)
+        self.unwind(debug_frame, memory_and_registers, mem)
     }
 
 
