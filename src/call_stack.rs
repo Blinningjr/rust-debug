@@ -156,12 +156,9 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
                         None => return Err(anyhow!("Expected CFA to have a value")),
                     }) as u32;
 
-                    let value = match memory_and_registers.get_address_value(&address) {
-                        Some(val) => val,
-                        None => {
+                    let value = {
                             let value = match mem.get_address(&address, 4) {
                                 Some(val) => {
-                                    memory_and_registers.add_to_memory(address, val.clone());
                                     let mut result = vec!();
                                     for v in val {
                                         result.push(v);
@@ -172,8 +169,9 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
                                 None => panic!("tait not working"),
                             };
                             value
-                        },
+
                     };
+
 
                     Some(value)
                 },

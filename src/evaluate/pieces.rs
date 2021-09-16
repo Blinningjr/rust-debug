@@ -88,7 +88,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwar
                                      size,
                                      space,
                                      base_type,
-                                     memory_and_registers)?,
+                                     mem)?,
 
             RequiresRegister{register, base_type} =>
                 resolve_requires_reg(unit,
@@ -182,18 +182,18 @@ fn resolve_requires_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(dwar
  * Resolves requires memory when evaluating a die.
  * TODO: Check and test if correct.
  */
-fn resolve_requires_mem<R: Reader<Offset = usize>>(unit:       &Unit<R>,
+fn resolve_requires_mem<R: Reader<Offset = usize>, T: MemoryAccess>(unit:       &Unit<R>,
                                                    eval:       &mut Evaluation<R>,
                                                    result:     &mut EvaluationResult<R>,
                                                    address:    u64,
                                                    size:       u8, // number of bytes
                                                    _space:      Option<u64>, // TODO: Handle space
                                                    base_type:  UnitOffset<usize>,
-                                                   memory_and_registers: &MemoryAndRegisters,
+                                                mem:                         &mut T,
                                                    ) -> Result<EvalResult>
                                                    where R: Reader<Offset = usize>
 {
-    match memory_and_registers.get_addresses(&(address as u32), size as usize) {
+    match mem.get_address(&(address as u32), size as usize) {
         Some(data) => {
             let value = parse_base_type(unit, data, base_type)?;
             *result = eval.resume_with_memory(convert_to_gimli_value(value))?;    
