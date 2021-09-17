@@ -8,7 +8,7 @@ use crate::evaluate::EvalResult;
 use crate::variable::VariableCreator;
 use crate::variable::is_variable_die;
 use crate::variable::Variable;
-use crate::memory_and_registers::MemoryAndRegisters;
+use crate::registers::Registers;
 use crate::evaluate::evaluate;
 use crate::evaluate::value::BaseValue;
 use crate::call_stack::MemoryAccess;
@@ -112,16 +112,16 @@ impl StackFrameCreator {
 
     pub fn continue_creation<R: Reader<Offset = usize>, T: MemoryAccess>(&mut self,
                                                         dwarf: &Dwarf<R>,
-                                                        memory_and_registers: &mut MemoryAndRegisters,
+                                                        registers: &mut Registers,
                                                         mem:                         &mut T,
                                                         cwd: &str
                                                         ) -> Result<EvalResult> {
         let pc = self.call_frame.code_location as u32;
 
-        memory_and_registers.stash_registers();
+        registers.stash_registers();
         for i in 0..self.call_frame.registers.len() {
             match self.call_frame.registers[i] {
-                Some(val) => memory_and_registers.add_to_registers(i as u16, val),
+                Some(val) => registers.add_to_registers(i as u16, val),
                 None => (),
             };
         }
@@ -134,14 +134,14 @@ impl StackFrameCreator {
                 }) {
                 Ok(val) => val,
                 Err(err) => {
-                    memory_and_registers.pop_stashed_registers();
+                    registers.pop_stashed_registers();
                     return Err(anyhow!(err));
                 },
             };
             let unit = match gimli::Unit::new(dwarf, header) {
                 Ok(val) => val,
                 Err(err) => {
-                    memory_and_registers.pop_stashed_registers();
+                    registers.pop_stashed_registers();
                     return Err(anyhow!(err));
                 },
             };
@@ -149,16 +149,16 @@ impl StackFrameCreator {
             let die = match unit.entry(self.unit_offset) {
                 Ok(val) => val,
                 Err(err) => {
-                    memory_and_registers.pop_stashed_registers();
+                    registers.pop_stashed_registers();
                     return Err(anyhow!(err));
                 },
             };
 
-            self.frame_base = match evaluate_frame_base(dwarf, &unit, pc, &die, memory_and_registers, mem) {
+            self.frame_base = match evaluate_frame_base(dwarf, &unit, pc, &die, registers, mem) {
                 Ok(FrameBaseResult::Complete(val)) => Some(val),
                 Ok(FrameBaseResult::Requires(req)) => return Ok(req),
                 Err(err) => {
-                    memory_and_registers.pop_stashed_registers();
+                    registers.pop_stashed_registers();
                     return Err(err);
                 },
             };
@@ -166,23 +166,23 @@ impl StackFrameCreator {
 
 
         while self.dies_to_check.len() > 0 {
-            match self.evaluate_variable(dwarf, memory_and_registers, mem, pc, cwd) {
+            match self.evaluate_variable(dwarf, registers, mem, pc, cwd) {
                 Ok(result) => {
                     match result {
                         EvalResult::Complete => continue,
                         _ => {
-                            memory_and_registers.pop_stashed_registers();
+                            registers.pop_stashed_registers();
                             return Ok(result);
                         },
                     };
                 },
                 Err(err) => {
-                    memory_and_registers.pop_stashed_registers();
+                    registers.pop_stashed_registers();
                     return Err(err);
                 },
             };
         } 
-        memory_and_registers.pop_stashed_registers();
+        registers.pop_stashed_registers();
 
         Ok(EvalResult::Complete)
     }
@@ -190,14 +190,14 @@ impl StackFrameCreator {
 
     fn evaluate_variable<R: Reader<Offset = usize>, T: MemoryAccess>(&mut self,
                                                     dwarf: &Dwarf<R>,
-                                                    memory_and_registers: &mut MemoryAndRegisters,
+                                                    registers: &mut Registers,
                                                     mem:                         &mut T,
                                                     pc: u32,
                                                     cwd: &str
                                                     ) -> Result<EvalResult> {
         let mut vc = VariableCreator::new(dwarf, self.section_offset, self.dies_to_check[0], self.frame_base, pc, cwd)?;
 
-        let result = vc.continue_create(dwarf, memory_and_registers, mem)?;
+        let result = vc.continue_create(dwarf, registers, mem)?;
         match result {
             EvalResult::Complete => (), 
             _ => return Ok(result),
@@ -339,14 +339,14 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & 
                                                    unit:       &Unit<R>,
                                                    pc:         u32,
                                                    die:        &DebuggingInformationEntry<'_, '_, R>,
-                                                   memory_and_registers: &mut MemoryAndRegisters,
+                                                   registers: &mut Registers,
                                                     mem:                         &mut T,
                                                    ) -> Result<FrameBaseResult>
 {
     if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
         if let Some(expr) = val.exprloc_value() {
 
-            let result = evaluate(dwarf, unit, pc, expr.clone(), None, None, None, memory_and_registers, mem)?;
+            let result = evaluate(dwarf, unit, pc, expr.clone(), None, None, None, registers, mem)?;
             let value = match result {
                 EvaluatorResult::Complete(val) => val,
                 EvaluatorResult::Requires(req) => return Ok(FrameBaseResult::Requires(req)),

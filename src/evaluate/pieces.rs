@@ -1,4 +1,4 @@
-use crate::memory_and_registers::MemoryAndRegisters;
+use crate::registers::Registers;
 use crate::call_stack::MemoryAccess;
 
 use super::{
@@ -70,7 +70,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwar
                 pc:         u32,
                 expr:       Expression<R>,
                 frame_base: Option<u64>,
-                memory_and_registers: &MemoryAndRegisters,
+                registers: &Registers,
                 mem:                         &mut T,
                 ) -> Result<EvalPieceResult<R>>
 {
@@ -96,7 +96,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwar
                                      &mut result,
                                      register,
                                      base_type,
-                                     memory_and_registers)?,
+                                     registers)?,
 
             RequiresFrameBase => {
                 result = eval.resume_with_frame_base(match frame_base {
@@ -120,15 +120,15 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwar
                                              &mut result,
                                              frame_base,
                                              die_ref,
-                                             memory_and_registers,
+                                             registers,
                                              mem)?,
 
             RequiresEntryValue(ref entry) => {
                 let e = entry.clone();
-                resolve_requires_entry_value(dwarf, unit, &mut eval,&mut result, e, pc, frame_base, memory_and_registers, mem)?
+                resolve_requires_entry_value(dwarf, unit, &mut eval,&mut result, e, pc, frame_base, registers, mem)?
             },
 
-            RequiresParameterRef(unit_offset) => resolve_requires_paramter_ref(dwarf, unit, &mut eval, &mut result, unit_offset, pc, frame_base, memory_and_registers, mem)?,
+            RequiresParameterRef(unit_offset) => resolve_requires_paramter_ref(dwarf, unit, &mut eval, &mut result, unit_offset, pc, frame_base, registers, mem)?,
 
             RequiresRelocatedAddress(num) => resolve_requires_relocated_address(&mut eval, &mut result, num)?,
 
@@ -155,21 +155,21 @@ fn resolve_requires_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(dwar
                                 result:     &mut EvaluationResult<R>,
                                 frame_base: Option<u64>,
                                 die_ref:    DieReference<usize>,
-                                memory_and_registers: &MemoryAndRegisters,
+                                registers: &Registers,
                                 mem:                         &mut T,
                                 ) -> Result<EvalResult>
                                 where R: Reader<Offset = usize>
 { 
     match die_ref {
         DieReference::UnitRef(unit_offset) => {
-            return help_at_location(dwarf, unit, pc, eval, result, frame_base, unit_offset, memory_and_registers, mem);
+            return help_at_location(dwarf, unit, pc, eval, result, frame_base, unit_offset, registers, mem);
         },
 
         DieReference::DebugInfoRef(debug_info_offset) => {
             let unit_header = dwarf.debug_info.header_from_offset(debug_info_offset)?;
             if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                 let new_unit = dwarf.unit(unit_header)?;
-                return help_at_location(dwarf, &new_unit, pc, eval, result, frame_base, unit_offset, memory_and_registers, mem);
+                return help_at_location(dwarf, &new_unit, pc, eval, result, frame_base, unit_offset, registers, mem);
             } else {
                 return Err(anyhow!("Could not find at location"));
             }    
@@ -217,11 +217,11 @@ fn resolve_requires_reg<R: Reader<Offset = usize>>(
                         result:     &mut EvaluationResult<R>,
                         reg:        Register,
                         base_type:  UnitOffset<usize>,
-                        memory_and_registers: &MemoryAndRegisters,
+                        registers: &Registers,
                         ) -> Result<EvalResult>
                         where R: Reader<Offset = usize>
 {
-    match memory_and_registers.get_register_value(&reg.0) {
+    match registers.get_register_value(&reg.0) {
         Some(data) => {
             let bytes = data.to_le_bytes().to_vec();
             let value   = parse_base_type(unit, bytes, base_type)?;
@@ -243,12 +243,12 @@ fn resolve_requires_entry_value<R: Reader<Offset = usize>, T: MemoryAccess>(dwar
                         entry:      gimli::Expression<R>,
                         pc: u32,
                         frame_base: Option<u64>,
-                        memory_and_registers: &MemoryAndRegisters,
+                        registers: &Registers,
                         mem:                         &mut T,
                         ) -> Result<EvalResult>
                         where R: Reader<Offset = usize>
 {
-    let entry_value = match evaluate(dwarf, unit, pc, entry, frame_base, None, None, memory_and_registers, mem)? {
+    let entry_value = match evaluate(dwarf, unit, pc, entry, frame_base, None, None, registers, mem)? {
         EvaluatorResult::Complete(val) => val,
         EvaluatorResult::Requires(req) => return Ok(req),
     };
@@ -271,7 +271,7 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>, T: MemoryAccess>(dwa
                         unit_offset: UnitOffset,
                         pc: u32,
                         frame_base: Option<u64>,
-                        memory_and_registers: &MemoryAndRegisters,
+                        registers: &Registers,
                 mem:                         &mut T,
                         ) -> Result<EvalResult>
                         where R: Reader<Offset = usize>
@@ -286,7 +286,7 @@ fn resolve_requires_paramter_ref<R: Reader<Offset = usize>, T: MemoryAccess>(dwa
         Some(val) => val,
         None => bail!("Could not find required paramter"),
     };
-    let value   = match evaluate(dwarf, unit, pc, expr, frame_base, Some(unit), Some(&die), memory_and_registers, mem)? {
+    let value   = match evaluate(dwarf, unit, pc, expr, frame_base, Some(unit), Some(&die), registers, mem)? {
         EvaluatorResult::Complete(val) => val,
         EvaluatorResult::Requires(req) => return Ok(req),
     };
@@ -355,7 +355,7 @@ fn help_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<R
                     result:         &mut EvaluationResult<R>,
                     frame_base:     Option<u64>,
                     unit_offset:    UnitOffset<usize>,
-                    memory_and_registers: &MemoryAndRegisters,
+                    registers: &Registers,
                 mem:                         &mut T,
                     ) -> Result<EvalResult>
                     where R: Reader<Offset = usize>
@@ -367,7 +367,7 @@ fn help_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<R
     };
     if let Some(expr) = location.exprloc_value() {
        
-        let val = match call_evaluate(dwarf, &unit, pc, expr, frame_base, &unit, &die, memory_and_registers, mem)? {
+        let val = match call_evaluate(dwarf, &unit, pc, expr, frame_base, &unit, &die, registers, mem)? {
             EvaluatorResult::Complete(val) => val,
             EvaluatorResult::Requires(req) => return Ok(req),
         };

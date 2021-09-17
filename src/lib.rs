@@ -1,4 +1,4 @@
-pub mod memory_and_registers;
+pub mod registers;
 pub mod utils;
 pub mod evaluate;
 pub mod call_stack;

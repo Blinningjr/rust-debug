@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 
 #[derive(Debug, Clone)]
-pub struct MemoryAndRegisters {
+pub struct Registers {
     pub registers: HashMap<u16, u32>,
     stashed_registers: Option<HashMap<u16, u32>>,
 }
 
-impl MemoryAndRegisters {
-    pub fn new() -> MemoryAndRegisters {
-        MemoryAndRegisters {
+impl Registers {
+    pub fn new() -> Registers {
+        Registers {
             registers: HashMap::new(),
             stashed_registers: None,
         }

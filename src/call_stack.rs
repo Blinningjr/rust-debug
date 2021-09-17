@@ -10,7 +10,7 @@ use gimli::DebugFrame;
 
 use std::convert::TryInto;
 
-use crate::memory_and_registers::MemoryAndRegisters;
+use crate::registers::Registers;
 
 use gimli::{
     Reader,
@@ -74,11 +74,11 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
     pub fn new(program_counter_register:    usize,
                link_register:               usize,
                stack_pointer_register:      usize,
-               memory_and_registers:        &MemoryAndRegisters,
+               registers:        &Registers,
                ) -> CallStackUnwinder<R>
     {
         let mut regs = [None;16];
-        for (reg, val) in &memory_and_registers.registers {
+        for (reg, val) in &registers.registers {
             regs[*reg as usize] = Some(*val);
         }
         CallStackUnwinder {
@@ -86,7 +86,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
             link_register:              link_register,
             stack_pointer_register:     stack_pointer_register,
 
-            code_location:  memory_and_registers.get_register_value(&(program_counter_register as u16)).map(|v| *v as u64),
+            code_location:  registers.get_register_value(&(program_counter_register as u16)).map(|v| *v as u64),
             registers:      regs,
 
             bases:          gimli::BaseAddresses::default(),
@@ -104,7 +104,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
 
     pub fn unwind<'b, T: MemoryAccess>(&mut self,
                 debug_frame: &'b DebugFrame<R>,
-                memory_and_registers:        &mut MemoryAndRegisters,
+                registers:        &mut Registers,
                 mem:                         &mut T,
                 ) -> Result<UnwindResult>
     {
@@ -133,11 +133,11 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
 
         let cfa = self.unwind_cfa(&unwind_info)?;
 
-        let mut registers = [None; 16];
+        let mut new_registers = [None; 16];
         for i in 0..16 as usize {
             let reg_rule = unwind_info.register(gimli::Register(i as u16));
 
-            registers[i] = match reg_rule {
+            new_registers[i] = match reg_rule {
                 Undefined => {
                     // If the column is empty then it defaults to undefined.
                     // Source: https://github.com/gimli-rs/gimli/blob/00f4ee6a288d2e7f02b6841a5949d839e99d8359/src/read/cfi.rs#L2289-L2311
@@ -200,7 +200,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
             end_address:    unwind_info.end_address(),
         });
 
-        self.registers = registers;
+        self.registers = new_registers;
 
         // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L297-L302
         // Next function is where our current return register is pointing to.
@@ -210,7 +210,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
         // a backtrace, not the next instruction to be executed.
         self.code_location = self.registers[self.link_register as usize].map(|pc| u64::from(pc & !1) - 1);
         
-        self.unwind(debug_frame, memory_and_registers, mem)
+        self.unwind(debug_frame, registers, mem)
     }
 
 

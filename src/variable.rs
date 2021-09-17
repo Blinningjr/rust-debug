@@ -27,7 +27,7 @@ use crate::utils::in_range;
 use crate::evaluate::EvalResult;
 use crate::evaluate::EvaluatorResult;
 use crate::evaluate::evaluate;
-use crate::memory_and_registers::MemoryAndRegisters;
+use crate::registers::Registers;
 
 
 #[derive(Debug, Clone)]
@@ -116,7 +116,7 @@ impl VariableCreator {
 
     pub fn continue_create<R: Reader<Offset = usize>, T: MemoryAccess>(&mut self,
                                                       dwarf: &Dwarf<R>,
-                                                      memory_and_registers: &MemoryAndRegisters,
+                                                      registers: &Registers,
                                                         mem:                         &mut T,
                                                       ) -> Result<EvalResult> {
         let header = dwarf.debug_info.header_from_offset(match self.section_offset.as_debug_info_offset() {
@@ -158,7 +158,7 @@ impl VariableCreator {
                  self.frame_base,
                  Some(&type_unit),
                  Some(&type_die),
-                 memory_and_registers,
+                 registers,
                  mem)? {
             EvaluatorResult::Complete(val) => {
                 self.value = Some(val.to_string()); 
