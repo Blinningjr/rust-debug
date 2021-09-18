@@ -117,7 +117,7 @@ impl StackFrameCreator {
         registers.stash_registers();
         for i in 0..self.call_frame.registers.len() {
             match self.call_frame.registers[i] {
-                Some(val) => registers.add_to_registers(i as u16, val),
+                Some(val) => registers.add_register_value(i as u16, val),
                 None => (),
             };
         }

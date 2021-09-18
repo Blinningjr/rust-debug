@@ -33,9 +33,8 @@ pub struct CallFrame {
     pub end_address: u64,
 }
 
-pub enum UnwindResult {
-    Complete,
-    RequiresAddress { address: u32 },
+pub fn unwind_call_stack() -> Result<Vec<CallFrame>> {
+    unimplemented!();
 }
 
 pub struct CallStackUnwinder<R: Reader<Offset = usize>> {
@@ -94,12 +93,12 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
         debug_frame: &'b DebugFrame<R>,
         registers: &mut Registers,
         mem: &mut T,
-    ) -> Result<UnwindResult> {
+    ) -> Result<()> {
         let code_location = match self.code_location {
             Some(val) => val,
             None => {
                 trace!("Stoped unwinding call stack, because: Reached end of stack");
-                return Ok(UnwindResult::Complete);
+                return Ok(());
             }
         };
 
@@ -112,7 +111,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
             Ok(val) => val,
             Err(err) => {
                 trace!("Stoped unwinding call stack, because: {:?}", err);
-                return Ok(UnwindResult::Complete);
+                return Ok(());
             }
         };
 

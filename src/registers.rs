@@ -4,6 +4,10 @@ use std::collections::HashMap;
 pub struct Registers {
     pub registers: HashMap<u16, u32>,
     stashed_registers: Option<HashMap<u16, u32>>,
+
+    program_counter_register: Option<usize>,
+    link_register: Option<usize>,
+    stack_pointer_register: Option<usize>,
 }
 
 impl Registers {
@@ -11,15 +15,30 @@ impl Registers {
         Registers {
             registers: HashMap::new(),
             stashed_registers: None,
+            program_counter_register: None,
+            link_register: None,
+            stack_pointer_register: None,
         }
     }
 
-    pub fn add_to_registers(&mut self, register: u16, value: u32) {
+    pub fn add_register_value(&mut self, register: u16, value: u32) {
         self.registers.insert(register, value);
     }
 
     pub fn get_register_value(&self, register: &u16) -> Option<&u32> {
         self.registers.get(register)
+    }
+
+    pub fn program_counter_register(&self) -> Option<usize> {
+        self.program_counter_register
+    }
+
+    pub fn link_register(&self) -> Option<usize> {
+        self.link_register
+    }
+
+    pub fn stack_pointer_register(&self) -> Option<usize> {
+        self.stack_pointer_register
     }
 
     pub fn clear(&mut self) {
