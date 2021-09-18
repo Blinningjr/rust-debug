@@ -33,11 +33,27 @@ pub struct CallFrame {
     pub end_address: u64,
 }
 
-pub fn unwind_call_stack() -> Result<Vec<CallFrame>> {
-    unimplemented!();
+pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
+    mut registers: Registers,
+    memory: &mut M,
+    debug_frame: &'a DebugFrame<R>,
+) -> Result<Vec<CallFrame>> {
+    let mut csu: CallStackUnwinder<R> = CallStackUnwinder::new(
+        registers
+            .program_counter_register
+            .ok_or(anyhow!("Requires pc register id"))?,
+        registers
+            .link_register
+            .ok_or(anyhow!("Requires pc register id"))?,
+        registers
+            .stack_pointer_register
+            .ok_or(anyhow!("Requires pc register id"))?,
+        &registers,
+    );
+    csu.unwind(debug_frame, &mut registers, memory)
 }
 
-pub struct CallStackUnwinder<R: Reader<Offset = usize>> {
+struct CallStackUnwinder<R: Reader<Offset = usize>> {
     program_counter_register: usize,
     link_register: usize,
     stack_pointer_register: usize,
@@ -84,21 +100,18 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
         }
     }
 
-    pub fn get_call_stack(&self) -> Vec<CallFrame> {
-        self.call_stack.clone()
-    }
-
     pub fn unwind<'b, T: MemoryAccess>(
         &mut self,
         debug_frame: &'b DebugFrame<R>,
         registers: &mut Registers,
         mem: &mut T,
-    ) -> Result<()> {
+    ) -> Result<Vec<CallFrame>> {
         let code_location = match self.code_location {
             Some(val) => val,
             None => {
                 trace!("Stoped unwinding call stack, because: Reached end of stack");
-                return Ok(());
+
+                return Ok(self.call_stack.clone());
             }
         };
 
@@ -111,7 +124,7 @@ impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
             Ok(val) => val,
             Err(err) => {
                 trace!("Stoped unwinding call stack, because: {:?}", err);
-                return Ok(());
+                return Ok(self.call_stack.clone());
             }
         };
 
