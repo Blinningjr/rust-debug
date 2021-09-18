@@ -1,42 +1,22 @@
-pub mod value;
-pub mod evaluate;
 pub mod attributes;
+pub mod evaluate;
 pub mod pieces;
+pub mod value;
 pub mod value_information;
 
 use crate::call_stack::MemoryAccess;
-use pieces::EvalPieceResult;
 use crate::evaluate::pieces::evaluate_pieces;
 use crate::registers::Registers;
+use pieces::EvalPieceResult;
 
-
-use gimli::{
-    Dwarf,
-    Unit,
-    Expression,
-    Reader,
-    DebuggingInformationEntry,
-    AttributeValue::{
-        UnitRef,
-    },
-};
+use gimli::{AttributeValue::UnitRef, DebuggingInformationEntry, Dwarf, Expression, Reader, Unit};
 
 pub use value::{
-    EvaluatorValue,
-    StructValue,
-    EnumValue,
-    MemberValue,
-    UnionValue,
-    ArrayValue,
-    convert_to_gimli_value,
-    BaseValue,
+    convert_to_gimli_value, ArrayValue, BaseValue, EnumValue, EvaluatorValue, MemberValue,
+    StructValue, UnionValue,
 };
 
-use anyhow::{
-    bail,
-    Result,
-};
-
+use anyhow::{bail, Result};
 
 #[derive(Debug, Clone)]
 pub enum EvalResult {
@@ -45,31 +25,39 @@ pub enum EvalResult {
     RequiresMemory { address: u32, num_words: usize },
 }
 
-
 #[derive(Debug, Clone)]
 pub enum EvaluatorResult<R: Reader<Offset = usize>> {
     Complete(EvaluatorValue<R>),
     Requires(EvalResult),
 }
 
-
-pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<R>,
-                                                nunit:      &Unit<R>,
-                                                pc:         u32,
-                                                expr:       gimli::Expression<R>,
-                                                frame_base: Option<u64>,
-                                                unit:     &Unit<R>,
-                                                die: &DebuggingInformationEntry<R>,
-                                                registers: &Registers,
-                                                mem:                         &mut T,
-                                                ) -> Result<EvaluatorResult<R>>
-{
-    if let Ok(Some(tattr)) =  die.attr_value(gimli::DW_AT_type) {
+pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    nunit: &Unit<R>,
+    pc: u32,
+    expr: gimli::Expression<R>,
+    frame_base: Option<u64>,
+    unit: &Unit<R>,
+    die: &DebuggingInformationEntry<R>,
+    registers: &Registers,
+    mem: &mut T,
+) -> Result<EvaluatorResult<R>> {
+    if let Ok(Some(tattr)) = die.attr_value(gimli::DW_AT_type) {
         match tattr {
             gimli::AttributeValue::UnitRef(offset) => {
                 let die = unit.entry(offset)?;
-                return evaluate(dwarf, nunit, pc, expr, frame_base, Some(unit), Some(&die), registers, mem);
-            },
+                return evaluate(
+                    dwarf,
+                    nunit,
+                    pc,
+                    expr,
+                    frame_base,
+                    Some(unit),
+                    Some(&die),
+                    registers,
+                    mem,
+                );
+            }
             gimli::AttributeValue::DebugInfoRef(di_offset) => {
                 let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
                 let mut iter = dwarf.debug_info.units();
@@ -77,40 +65,51 @@ pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<
                     let unit = dwarf.unit(header)?;
                     if let Some(offset) = offset.to_unit_offset(&unit) {
                         let die = unit.entry(offset)?;
-                        return evaluate(dwarf, nunit, pc, expr, frame_base, Some(&unit), Some(&die), registers, mem);
+                        return evaluate(
+                            dwarf,
+                            nunit,
+                            pc,
+                            expr,
+                            frame_base,
+                            Some(&unit),
+                            Some(&die),
+                            registers,
+                            mem,
+                        );
                     }
                 }
                 bail!("");
-            },
+            }
             _ => bail!(""),
         };
     } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
         match die_offset {
             UnitRef(offset) => {
                 if let Ok(ndie) = unit.entry(offset) {
-                    return call_evaluate(dwarf, nunit, pc, expr, frame_base, unit, &ndie, registers, mem);
+                    return call_evaluate(
+                        dwarf, nunit, pc, expr, frame_base, unit, &ndie, registers, mem,
+                    );
                 }
-            },
+            }
             _ => {
                 unimplemented!();
-            },
+            }
         };
     }
     bail!("");
 }
 
-
-pub fn evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<R>,
-                unit:       &Unit<R>,
-                pc:         u32,
-                expr:       Expression<R>,
-                frame_base: Option<u64>,
-                type_unit:  Option<&gimli::Unit<R>>,
-                type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
-                registers: &Registers,
-                mem:                         &mut T,
-                ) -> Result<EvaluatorResult<R>>
-{
+pub fn evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    pc: u32,
+    expr: Expression<R>,
+    frame_base: Option<u64>,
+    type_unit: Option<&gimli::Unit<R>>,
+    type_die: Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
+    registers: &Registers,
+    mem: &mut T,
+) -> Result<EvaluatorResult<R>> {
     let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, mem)? {
         EvalPieceResult::Complete(val) => val,
         EvalPieceResult::Requires(req) => return Ok(EvaluatorResult::Requires(req)),
@@ -118,24 +117,23 @@ pub fn evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<R>,
     evaluate_value(dwarf, pieces, type_unit, type_die, registers, mem)
 }
 
-
-pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: &Dwarf<R>,
-                                                 pieces:     Vec<gimli::Piece<R>>,
-                                                 type_unit:  Option<&gimli::Unit<R>>,
-                                                 type_die:   Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
-                                                 registers: &Registers,
-                                                mem:                         &mut T,
-                                                 ) -> Result<EvaluatorResult<R>>
-{
+pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    pieces: Vec<gimli::Piece<R>>,
+    type_unit: Option<&gimli::Unit<R>>,
+    type_die: Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
+    registers: &Registers,
+    mem: &mut T,
+) -> Result<EvaluatorResult<R>> {
     let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
     loop {
         match evaluator.evaluate(&dwarf, registers, mem)? {
             evaluate::EvaluatorResult::Complete => break,
-            evaluate::EvaluatorResult::RequireReg(reg) => { 
+            evaluate::EvaluatorResult::RequireReg(reg) => {
                 return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
                     register: reg,
                 }));
-            },
+            }
         };
     }
 
@@ -146,4 +144,3 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: &Dwarf<
 
     Ok(EvaluatorResult::Complete(value))
 }
-

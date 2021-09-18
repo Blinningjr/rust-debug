@@ -1,35 +1,24 @@
 use crate::call_stack::CallFrame;
-use crate::utils::die_in_range;
-use crate::utils::get_current_unit;
-use crate::evaluate::EvaluatorValue;
-use crate::source_information::SourceInformation;
-use crate::evaluate::EvaluatorResult;
-use crate::evaluate::EvalResult;
-use crate::variable::VariableCreator;
-use crate::variable::is_variable_die;
-use crate::variable::Variable;
-use crate::registers::Registers;
+use crate::call_stack::MemoryAccess;
 use crate::evaluate::evaluate;
 use crate::evaluate::value::BaseValue;
-use crate::call_stack::MemoryAccess;
+use crate::evaluate::EvalResult;
+use crate::evaluate::EvaluatorResult;
+use crate::evaluate::EvaluatorValue;
+use crate::registers::Registers;
+use crate::source_information::SourceInformation;
+use crate::utils::die_in_range;
+use crate::utils::get_current_unit;
+use crate::variable::is_variable_die;
+use crate::variable::Variable;
+use crate::variable::VariableCreator;
 
 use gimli::{
-    Reader,
-    Dwarf,
-    Unit,
-    DebuggingInformationEntry,
-    EntriesTreeNode,
-    AttributeValue::DebugStrRef,
-    UnitSectionOffset,
-    UnitOffset,
+    AttributeValue::DebugStrRef, DebuggingInformationEntry, Dwarf, EntriesTreeNode, Reader, Unit,
+    UnitOffset, UnitSectionOffset,
 };
 
-use anyhow::{
-    Result,
-    bail,
-    anyhow,
-};
-
+use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, Clone)]
 pub struct StackFrame {
@@ -47,7 +36,7 @@ impl StackFrame {
                     if var_name == name {
                         return Some(v);
                     }
-                },
+                }
                 None => (),
             };
         }
@@ -55,7 +44,6 @@ impl StackFrame {
         return None;
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct StackFrameCreator {
@@ -68,22 +56,24 @@ pub struct StackFrameCreator {
     pub source: SourceInformation,
 
     pub frame_base: Option<u64>,
-    pub variables: Vec<Variable>, 
+    pub variables: Vec<Variable>,
 }
 
-
 impl StackFrameCreator {
-    pub fn new<R: Reader<Offset = usize>>(call_frame: CallFrame,
-                                          dwarf: &Dwarf<R>,
-                                          cwd: &str
-                                          ) -> Result<StackFrameCreator>
-    {
-        let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
-        let header = dwarf.debug_info.header_from_offset(
-            match section_offset.as_debug_info_offset() {
-                Some(val) => val,
-                None => bail!("Could not convert section offset to debug info offset"),
-            })?;
+    pub fn new<R: Reader<Offset = usize>>(
+        call_frame: CallFrame,
+        dwarf: &Dwarf<R>,
+        cwd: &str,
+    ) -> Result<StackFrameCreator> {
+        let (section_offset, unit_offset) =
+            find_function_die(dwarf, call_frame.code_location as u32)?;
+        let header =
+            dwarf
+                .debug_info
+                .header_from_offset(match section_offset.as_debug_info_offset() {
+                    Some(val) => val,
+                    None => bail!("Could not convert section offset to debug info offset"),
+                })?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let mut tree = unit.entries_tree(Some(unit_offset))?;
         let node = tree.root()?;
@@ -93,9 +83,15 @@ impl StackFrameCreator {
             _ => "<unknown>".to_string(),
         };
 
-        let source = SourceInformation::get_die_source_information(dwarf, &unit, &node.entry(), cwd)?;
+        let source =
+            SourceInformation::get_die_source_information(dwarf, &unit, &node.entry(), cwd)?;
 
-        let dies_to_check = get_functions_variables_die_offset(dwarf, section_offset, unit_offset, call_frame.code_location as u32)?;
+        let dies_to_check = get_functions_variables_die_offset(
+            dwarf,
+            section_offset,
+            unit_offset,
+            call_frame.code_location as u32,
+        )?;
 
         Ok(StackFrameCreator {
             section_offset: section_offset,
@@ -105,17 +101,17 @@ impl StackFrameCreator {
             name: name,
             source: source,
             frame_base: None,
-            variables: vec!(),
+            variables: vec![],
         })
     }
 
-
-    pub fn continue_creation<R: Reader<Offset = usize>, T: MemoryAccess>(&mut self,
-                                                        dwarf: &Dwarf<R>,
-                                                        registers: &mut Registers,
-                                                        mem:                         &mut T,
-                                                        cwd: &str
-                                                        ) -> Result<EvalResult> {
+    pub fn continue_creation<R: Reader<Offset = usize>, T: MemoryAccess>(
+        &mut self,
+        dwarf: &Dwarf<R>,
+        registers: &mut Registers,
+        mem: &mut T,
+        cwd: &str,
+    ) -> Result<EvalResult> {
         let pc = self.call_frame.code_location as u32;
 
         registers.stash_registers();
@@ -131,19 +127,20 @@ impl StackFrameCreator {
                 match self.section_offset.as_debug_info_offset() {
                     Some(val) => val,
                     None => bail!("Could not convert section offset to debug info offset"),
-                }) {
+                },
+            ) {
                 Ok(val) => val,
                 Err(err) => {
                     registers.pop_stashed_registers();
                     return Err(anyhow!(err));
-                },
+                }
             };
             let unit = match gimli::Unit::new(dwarf, header) {
                 Ok(val) => val,
                 Err(err) => {
                     registers.pop_stashed_registers();
                     return Err(anyhow!(err));
-                },
+                }
             };
 
             let die = match unit.entry(self.unit_offset) {
@@ -151,7 +148,7 @@ impl StackFrameCreator {
                 Err(err) => {
                     registers.pop_stashed_registers();
                     return Err(anyhow!(err));
-                },
+                }
             };
 
             self.frame_base = match evaluate_frame_base(dwarf, &unit, pc, &die, registers, mem) {
@@ -160,10 +157,9 @@ impl StackFrameCreator {
                 Err(err) => {
                     registers.pop_stashed_registers();
                     return Err(err);
-                },
+                }
             };
         }
-
 
         while self.dies_to_check.len() > 0 {
             match self.evaluate_variable(dwarf, registers, mem, pc, cwd) {
@@ -173,33 +169,40 @@ impl StackFrameCreator {
                         _ => {
                             registers.pop_stashed_registers();
                             return Ok(result);
-                        },
+                        }
                     };
-                },
+                }
                 Err(err) => {
                     registers.pop_stashed_registers();
                     return Err(err);
-                },
+                }
             };
-        } 
+        }
         registers.pop_stashed_registers();
 
         Ok(EvalResult::Complete)
     }
 
-
-    fn evaluate_variable<R: Reader<Offset = usize>, T: MemoryAccess>(&mut self,
-                                                    dwarf: &Dwarf<R>,
-                                                    registers: &mut Registers,
-                                                    mem:                         &mut T,
-                                                    pc: u32,
-                                                    cwd: &str
-                                                    ) -> Result<EvalResult> {
-        let mut vc = VariableCreator::new(dwarf, self.section_offset, self.dies_to_check[0], self.frame_base, pc, cwd)?;
+    fn evaluate_variable<R: Reader<Offset = usize>, T: MemoryAccess>(
+        &mut self,
+        dwarf: &Dwarf<R>,
+        registers: &mut Registers,
+        mem: &mut T,
+        pc: u32,
+        cwd: &str,
+    ) -> Result<EvalResult> {
+        let mut vc = VariableCreator::new(
+            dwarf,
+            self.section_offset,
+            self.dies_to_check[0],
+            self.frame_base,
+            pc,
+            cwd,
+        )?;
 
         let result = vc.continue_create(dwarf, registers, mem)?;
         match result {
-            EvalResult::Complete => (), 
+            EvalResult::Complete => (),
             _ => return Ok(result),
         };
 
@@ -209,29 +212,26 @@ impl StackFrameCreator {
         Ok(EvalResult::Complete)
     }
 
-
     pub fn get_stack_frame(&self) -> StackFrame {
         StackFrame {
             call_frame: self.call_frame.clone(),
-            name:   self.name.clone(),
+            name: self.name.clone(),
             source: self.source.clone(),
             variables: self.variables.clone(),
         }
     }
 }
 
-
-
-pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
-                                                        address: u32
-                                                        ) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)>
-{
+pub fn find_function_die<'a, R: Reader<Offset = usize>>(
+    dwarf: &'a Dwarf<R>,
+    address: u32,
+) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)> {
     let unit = get_current_unit(&dwarf, address)?;
     let mut cursor = unit.entries();
 
     let mut depth = 0;
-    let mut res = None; 
-    let mut dies = vec!();
+    let mut res = None;
+    let mut dies = vec![];
 
     assert!(cursor.next_dfs()?.is_some());
     while let Some((delta_depth, current)) = cursor.next_dfs()? {
@@ -249,20 +249,20 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
                         Some(val) => {
                             if val > depth {
                                 res = Some(depth);
-                                dies = vec!(current.clone());
+                                dies = vec![current.clone()];
                             } else if val == depth {
                                 dies.push(current.clone());
                             }
-                        },
+                        }
                         None => {
                             res = Some(depth);
                             dies.push(current.clone());
-                        },
+                        }
                     };
                 }
-            },
+            }
             _ => (),
-        }; 
+        };
     }
 
     if dies.len() != 1 {
@@ -271,22 +271,19 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(dwarf: &'a Dwarf<R>,
     return Ok((unit.header.offset(), dies[0].offset()));
 }
 
-
-
-
-pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
-                                                                     section_offset: UnitSectionOffset,
-                                                                     unit_offset: UnitOffset,
-                                                                     pc: u32
-                                                                     ) -> Result<Vec<UnitOffset>>
-{
-    fn recursive_offset<R: Reader<Offset = usize>>(dwarf: &Dwarf<R>,
-                                                   unit: &Unit<R>,
-                                                   node:  EntriesTreeNode<R>,
-                                                   pc: u32,
-                                                   list: &mut Vec<UnitOffset>
-                                                   ) -> Result<()>
-    {
+pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(
+    dwarf: &Dwarf<R>,
+    section_offset: UnitSectionOffset,
+    unit_offset: UnitOffset,
+    pc: u32,
+) -> Result<Vec<UnitOffset>> {
+    fn recursive_offset<R: Reader<Offset = usize>>(
+        dwarf: &Dwarf<R>,
+        unit: &Unit<R>,
+        node: EntriesTreeNode<R>,
+        pc: u32,
+        list: &mut Vec<UnitOffset>,
+    ) -> Result<()> {
         let die = node.entry();
 
         match die_in_range(dwarf, unit, die, pc) {
@@ -307,17 +304,18 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwa
         Ok(())
     }
 
-
-    let header = dwarf.debug_info.header_from_offset(
-        match section_offset.as_debug_info_offset() {
-            Some(val) => val,
-            None => bail!("Could not convert section offset to debug info offset"),
-        })?;
+    let header =
+        dwarf
+            .debug_info
+            .header_from_offset(match section_offset.as_debug_info_offset() {
+                Some(val) => val,
+                None => bail!("Could not convert section offset to debug info offset"),
+            })?;
     let unit = gimli::Unit::new(dwarf, header)?;
     let mut tree = unit.entries_tree(Some(unit_offset))?;
     let node = tree.root()?;
 
-    let mut die_offsets = vec!();
+    let mut die_offsets = vec![];
 
     // Recursively process the children.
     let mut children = node.children();
@@ -328,35 +326,44 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(dwarf: &Dwa
     Ok(die_offsets)
 }
 
-
-
 pub enum FrameBaseResult {
     Complete(u64),
     Requires(EvalResult),
 }
 
-pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & Dwarf<R>,
-                                                   unit:       &Unit<R>,
-                                                   pc:         u32,
-                                                   die:        &DebuggingInformationEntry<'_, '_, R>,
-                                                   registers: &mut Registers,
-                                                    mem:                         &mut T,
-                                                   ) -> Result<FrameBaseResult>
-{
+pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    pc: u32,
+    die: &DebuggingInformationEntry<'_, '_, R>,
+    registers: &mut Registers,
+    mem: &mut T,
+) -> Result<FrameBaseResult> {
     if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
         if let Some(expr) = val.exprloc_value() {
-
-            let result = evaluate(dwarf, unit, pc, expr.clone(), None, None, None, registers, mem)?;
+            let result = evaluate(
+                dwarf,
+                unit,
+                pc,
+                expr.clone(),
+                None,
+                None,
+                None,
+                registers,
+                mem,
+            )?;
             let value = match result {
                 EvaluatorResult::Complete(val) => val,
                 EvaluatorResult::Requires(req) => return Ok(FrameBaseResult::Requires(req)),
             };
 
             match value {
-                EvaluatorValue::Value(BaseValue::Address32(v), _) => return Ok(FrameBaseResult::Complete(v as u64)),
-                _  => {
+                EvaluatorValue::Value(BaseValue::Address32(v), _) => {
+                    return Ok(FrameBaseResult::Complete(v as u64))
+                }
+                _ => {
                     unreachable!();
-                },
+                }
             };
         } else {
             unimplemented!();
@@ -365,4 +372,3 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(dwarf: & 
         return Err(anyhow!("Die has no DW_AT_frame_base attribute"));
     }
 }
-
