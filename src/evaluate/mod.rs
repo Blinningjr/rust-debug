@@ -7,7 +7,6 @@ pub mod value_information;
 use crate::call_stack::MemoryAccess;
 use crate::evaluate::pieces::evaluate_pieces;
 use crate::registers::Registers;
-use pieces::EvalPieceResult;
 
 use gimli::{AttributeValue::UnitRef, DebuggingInformationEntry, Dwarf, Expression, Reader, Unit};
 
@@ -110,10 +109,7 @@ pub fn evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
     registers: &Registers,
     mem: &mut T,
 ) -> Result<EvaluatorResult<R>> {
-    let pieces = match evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, mem)? {
-        EvalPieceResult::Complete(val) => val,
-        EvalPieceResult::Requires(req) => return Ok(EvaluatorResult::Requires(req)),
-    };
+    let pieces = evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, mem)?;
     evaluate_value(dwarf, pieces, type_unit, type_die, registers, mem)
 }
 
