@@ -5,8 +5,10 @@ pub mod value;
 pub mod value_information;
 
 use crate::call_stack::MemoryAccess;
+use crate::evaluate::evaluate::evaluate_variable_with_type;
 use crate::evaluate::pieces::evaluate_pieces;
 use crate::registers::Registers;
+use evaluate::evaluate_variable;
 
 use gimli::{AttributeValue::UnitRef, DebuggingInformationEntry, Dwarf, Expression, Reader, Unit};
 
@@ -115,8 +117,26 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
     registers: &Registers,
     mem: &mut T,
 ) -> Result<EvaluatorValue<R>> {
-    let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
-    let value = evaluator.evaluate(&dwarf, registers, mem)?;
+    match type_unit {
+        Some(unit) => match type_die {
+            Some(die) => {
+                return evaluate_variable_with_type(
+                    dwarf,
+                    registers,
+                    mem,
+                    &pieces,
+                    unit.header.offset(),
+                    die.offset(),
+                );
+            }
+            None => (),
+        },
+        None => (),
+    };
+    return evaluate_variable(registers, mem, &pieces);
 
-    Ok(value)
+    //let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
+    //let value = evaluator.evaluate(&dwarf, registers, mem)?;
+
+    //Ok(value)
 }
