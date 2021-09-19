@@ -1,6 +1,5 @@
 use crate::evaluate::evaluate;
 use crate::evaluate::value::BaseValue;
-use crate::evaluate::EvaluatorResult;
 use crate::evaluate::EvaluatorValue;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
@@ -465,7 +464,7 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
 ) -> Result<u64> {
     if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
         if let Some(expr) = val.exprloc_value() {
-            let result = evaluate(
+            let value = evaluate(
                 dwarf,
                 unit,
                 pc,
@@ -476,10 +475,6 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
                 registers,
                 mem,
             )?;
-            let value = match result {
-                EvaluatorResult::Complete(val) => val,
-                EvaluatorResult::Requires(_req) => return Err(anyhow!("Requires mem or register")),
-            };
 
             match value {
                 EvaluatorValue::Value(BaseValue::Address32(v), _) => return Ok(v as u64),

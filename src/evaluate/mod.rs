@@ -15,19 +15,13 @@ pub use value::{
     StructValue, UnionValue,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, Clone)]
 pub enum EvalResult {
     Complete,
     RequiresRegister { register: u16 },
     RequiresMemory { address: u32, num_words: usize },
-}
-
-#[derive(Debug, Clone)]
-pub enum EvaluatorResult<R: Reader<Offset = usize>> {
-    Complete(EvaluatorValue<R>),
-    Requires(EvalResult),
 }
 
 pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
@@ -40,7 +34,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
     die: &DebuggingInformationEntry<R>,
     registers: &Registers,
     mem: &mut T,
-) -> Result<EvaluatorResult<R>> {
+) -> Result<EvaluatorValue<R>> {
     if let Ok(Some(tattr)) = die.attr_value(gimli::DW_AT_type) {
         match tattr {
             gimli::AttributeValue::UnitRef(offset) => {
@@ -108,7 +102,7 @@ pub fn evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
     type_die: Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
     registers: &Registers,
     mem: &mut T,
-) -> Result<EvaluatorResult<R>> {
+) -> Result<EvaluatorValue<R>> {
     let pieces = evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, mem)?;
     evaluate_value(dwarf, pieces, type_unit, type_die, registers, mem)
 }
@@ -120,15 +114,13 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
     type_die: Option<&gimli::DebuggingInformationEntry<'_, '_, R>>,
     registers: &Registers,
     mem: &mut T,
-) -> Result<EvaluatorResult<R>> {
+) -> Result<EvaluatorValue<R>> {
     let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
     loop {
         match evaluator.evaluate(&dwarf, registers, mem)? {
             evaluate::EvaluatorResult::Complete => break,
-            evaluate::EvaluatorResult::RequireReg(reg) => {
-                return Ok(EvaluatorResult::Requires(EvalResult::RequiresRegister {
-                    register: reg,
-                }));
+            evaluate::EvaluatorResult::RequireReg(_reg) => {
+                return Err(anyhow!("Requires regs"));
             }
         };
     }
@@ -138,5 +130,5 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
         None => unreachable!(),
     };
 
-    Ok(EvaluatorResult::Complete(value))
+    Ok(value)
 }

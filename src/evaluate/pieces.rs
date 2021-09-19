@@ -1,7 +1,7 @@
 use crate::call_stack::MemoryAccess;
 use crate::registers::Registers;
 
-use super::{call_evaluate, evaluate, EvalResult, EvaluatorResult};
+use super::{call_evaluate, evaluate, EvalResult};
 
 use gimli::{
     DieReference, Dwarf, Evaluation, EvaluationResult,
@@ -128,14 +128,9 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
             },
 
             RequiresEntryValue(entry) => {
-                let entry_value = match evaluate(
+                let entry_value = evaluate(
                     dwarf, unit, pc, entry, frame_base, None, None, registers, mem,
-                )? {
-                    EvaluatorResult::Complete(val) => val,
-                    EvaluatorResult::Requires(_req) => {
-                        return Err(anyhow!("Requires Memory or register"))
-                    }
-                };
+                )?;
 
                 result = eval.resume_with_entry_value(convert_to_gimli_value(match entry_value
                     .to_value()
@@ -156,7 +151,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                     Some(val) => val,
                     None => bail!("Could not find required paramter"),
                 };
-                let value = match evaluate(
+                let value = evaluate(
                     dwarf,
                     unit,
                     pc,
@@ -166,10 +161,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                     Some(&die),
                     registers,
                     mem,
-                )? {
-                    EvaluatorResult::Complete(val) => val,
-                    EvaluatorResult::Requires(_req) => return Err(anyhow!("Requires mem or reg")),
-                };
+                )?;
 
                 if let EvaluatorValue::Value(BaseValue::U64(val), _) = value {
                     result = eval.resume_with_parameter_ref(val)?;
@@ -227,12 +219,9 @@ where
         None => bail!("Could not find location attribute"),
     };
     if let Some(expr) = location.exprloc_value() {
-        let val = match call_evaluate(
+        let val = call_evaluate(
             dwarf, &unit, pc, expr, frame_base, &unit, &die, registers, mem,
-        )? {
-            EvaluatorResult::Complete(val) => val,
-            EvaluatorResult::Requires(req) => return Ok(req),
-        };
+        )?;
 
         if let EvaluatorValue::Bytes(b) = val {
             *result = eval.resume_with_at_location(b)?;

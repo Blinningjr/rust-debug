@@ -9,7 +9,6 @@ use crate::call_stack::MemoryAccess;
 use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
 use crate::evaluate::value_information::ValueInformation;
-use crate::evaluate::EvaluatorResult;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
@@ -97,7 +96,7 @@ impl Variable {
         let type_unit = gimli::Unit::new(dwarf, header)?;
         let type_die = unit.entry(type_unit_offset)?;
 
-        match evaluate(
+        let val = evaluate(
             dwarf,
             &unit,
             pc,
@@ -107,16 +106,14 @@ impl Variable {
             Some(&type_die),
             registers,
             memory,
-        )? {
-            EvaluatorResult::Complete(val) => Ok(Variable {
-                name,
-                value: val.to_string(),
-                type_: Some(val.get_type()),
-                source,
-                location: val.get_variable_information(),
-            }),
-            EvaluatorResult::Requires(_req) => Err(anyhow!("Requires mem or reg")),
-        }
+        )?;
+        Ok(Variable {
+            name,
+            value: val.to_string(),
+            type_: Some(val.get_type()),
+            source,
+            location: val.get_variable_information(),
+        })
     }
 }
 
