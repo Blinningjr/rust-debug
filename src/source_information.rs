@@ -72,10 +72,10 @@ impl SourceInformation {
         };
 
         Ok(SourceInformation {
-            directory: directory,
-            file: file,
-            line: line,
-            column: column,
+            directory,
+            file,
+            line,
+            column,
         })
     }
 }

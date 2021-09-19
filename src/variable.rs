@@ -9,7 +9,6 @@ use crate::call_stack::MemoryAccess;
 use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
 use crate::evaluate::value_information::ValueInformation;
-use crate::evaluate::EvalResult;
 use crate::evaluate::EvaluatorResult;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
@@ -25,29 +24,28 @@ pub struct Variable {
     pub location: Vec<ValueInformation>,
 }
 
-#[derive(Debug, Clone)]
-pub struct VariableCreator {
-    pub section_offset: UnitSectionOffset,
-    pub unit_offset: UnitOffset,
-    pub name: Option<String>,
-    pub source: Option<SourceInformation>,
-    pub value: Option<String>,
-    pub type_: Option<String>,
-    pub frame_base: Option<u64>,
-    pub pc: u32,
-
-    pub var_info: Option<Vec<ValueInformation>>,
-}
-
-impl VariableCreator {
-    pub fn new<R: Reader<Offset = usize>>(
+impl Variable {
+    pub fn get_variable<M: MemoryAccess, R: Reader<Offset = usize>>(
         dwarf: &Dwarf<R>,
+        registers: &Registers,
+        memory: &mut M,
         section_offset: UnitSectionOffset,
         unit_offset: UnitOffset,
         frame_base: Option<u64>,
-        pc: u32,
         cwd: &str,
-    ) -> Result<VariableCreator> {
+    ) -> Result<Variable> {
+        // Get the program counter.
+        let pc: u32 = *registers
+            .get_register_value(
+                &(registers.program_counter_register.ok_or(anyhow!(
+                    "Requires that the program counter register is known"
+                ))? as u16),
+            )
+            .ok_or(anyhow!(
+                "Requies that the program counter registers has a value"
+            ))?;
+
+        // Get the variable die.
         let header =
             dwarf
                 .debug_info
@@ -60,74 +58,36 @@ impl VariableCreator {
 
         let name = get_var_name(dwarf, &unit, &die)?;
 
+        // Get the source code location the variable was decleard.
         let source = match find_variable_source_information(dwarf, &unit, &die, cwd) {
             Ok(source) => Some(source),
             Err(_) => None,
         };
 
-        Ok(VariableCreator {
-            section_offset: section_offset,
-            unit_offset: unit_offset,
-            name: name,
-            source: source,
-            value: None,
-            type_: None,
-            frame_base: frame_base,
-            pc: pc,
-            var_info: None,
-        })
-    }
-
-    pub fn get_variable(&self) -> Result<Variable> {
-        match (&self.value, &self.var_info) {
-            (Some(val), Some(var_info)) => Ok(Variable {
-                name: self.name.clone(),
-                value: val.clone(),
-                type_: self.type_.clone(),
-                source: self.source.clone(),
-                location: var_info.clone(),
-            }),
-            (Some(val), None) => Ok(Variable {
-                name: self.name.clone(),
-                value: val.clone(),
-                type_: self.type_.clone(),
-                source: self.source.clone(),
-                location: vec![],
-            }),
-            _ => Err(anyhow!("Variable has not been evaluated yet")),
-        }
-    }
-
-    pub fn continue_create<R: Reader<Offset = usize>, T: MemoryAccess>(
-        &mut self,
-        dwarf: &Dwarf<R>,
-        registers: &Registers,
-        mem: &mut T,
-    ) -> Result<EvalResult> {
-        let header = dwarf.debug_info.header_from_offset(
-            match self.section_offset.as_debug_info_offset() {
-                Some(val) => val,
-                None => bail!("Could not convert the section offset into debug info offset"),
-            },
-        )?;
-        let unit = gimli::Unit::new(dwarf, header)?;
-        let die = unit.entry(self.unit_offset)?;
-
-        let expression = match find_variable_location(dwarf, &unit, &die, self.pc)? {
+        let expression = match find_variable_location(dwarf, &unit, &die, pc)? {
             VariableLocation::Expression(expr) => expr,
             VariableLocation::LocationListEntry(llent) => llent.data,
             VariableLocation::OutOfRange => {
-                self.value = Some("<OutOfRange>".to_owned());
-                return Ok(EvalResult::Complete);
+                return Ok(Variable {
+                    name,
+                    value: "<OutOfRange>".to_owned(),
+                    type_: None,
+                    source,
+                    location: vec![],
+                });
             }
             VariableLocation::NoLocation => {
-                self.value = Some("<OptimizedOut>".to_owned());
-                return Ok(EvalResult::Complete);
+                return Ok(Variable {
+                    name,
+                    value: "<OptimizedOut>".to_owned(),
+                    type_: None,
+                    source,
+                    location: vec![],
+                });
             }
         };
 
         let (type_section_offset, type_unit_offset) = find_variable_type_die(dwarf, &unit, &die)?;
-
         let header = dwarf.debug_info.header_from_offset(
             match type_section_offset.as_debug_info_offset() {
                 Some(val) => val,
@@ -140,21 +100,22 @@ impl VariableCreator {
         match evaluate(
             dwarf,
             &unit,
-            self.pc,
+            pc,
             expression,
-            self.frame_base,
+            frame_base,
             Some(&type_unit),
             Some(&type_die),
             registers,
-            mem,
+            memory,
         )? {
-            EvaluatorResult::Complete(val) => {
-                self.value = Some(val.to_string());
-                self.type_ = Some(val.get_type());
-                self.var_info = Some(val.get_variable_information());
-                Ok(EvalResult::Complete)
-            }
-            EvaluatorResult::Requires(req) => Ok(req),
+            EvaluatorResult::Complete(val) => Ok(Variable {
+                name,
+                value: val.to_string(),
+                type_: Some(val.get_type()),
+                source,
+                location: val.get_variable_information(),
+            }),
+            EvaluatorResult::Requires(_req) => Err(anyhow!("Requires mem or reg")),
         }
     }
 }

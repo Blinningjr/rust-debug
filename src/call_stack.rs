@@ -1,6 +1,5 @@
 use crate::evaluate::evaluate;
 use crate::evaluate::value::BaseValue;
-use crate::evaluate::EvalResult;
 use crate::evaluate::EvaluatorResult;
 use crate::evaluate::EvaluatorValue;
 use crate::registers::Registers;
@@ -9,7 +8,6 @@ use crate::utils::die_in_range;
 use crate::utils::get_current_unit;
 use crate::variable::is_variable_die;
 use crate::variable::Variable;
-use crate::variable::VariableCreator;
 use anyhow::{anyhow, Result};
 /**
  * Good gimli sources:
@@ -271,6 +269,7 @@ impl StackFrame {
 pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     dwarf: &Dwarf<R>,
     call_frame: CallFrame,
+    registers: &Registers,
     mem: &mut M,
     cwd: &str,
 ) -> Result<StackFrame> {
@@ -310,36 +309,34 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     )?;
 
     // Get register values
-    let mut registers = Registers::new();
+    let mut temporary_registers = Registers::new();
+    temporary_registers.program_counter_register = registers.program_counter_register;
+    temporary_registers.link_register = registers.link_register;
+    temporary_registers.stack_pointer_register = registers.stack_pointer_register;
     let pc = call_frame.code_location as u32;
     for i in 0..call_frame.registers.len() {
         match call_frame.registers[i] {
-            Some(val) => registers.add_register_value(i as u16, val),
+            Some(val) => temporary_registers.add_register_value(i as u16, val),
             None => (),
         };
     }
 
-    let frame_base = evaluate_frame_base(dwarf, &unit, pc, &die, &mut registers, mem)?;
+    let frame_base = evaluate_frame_base(dwarf, &unit, pc, &die, &mut temporary_registers, mem)?;
 
     let mut variables = vec![];
 
     for variable_die in dies_to_check {
-        let mut vc = VariableCreator::new(
+        let vc = Variable::get_variable(
             dwarf,
+            &temporary_registers,
+            mem,
             section_offset,
             variable_die,
             Some(frame_base),
-            pc,
             cwd,
         )?;
 
-        let result = vc.continue_create(dwarf, &mut registers, mem)?;
-        match result {
-            EvalResult::Complete => (),
-            _ => return Err(anyhow!("Requires mem or reg")),
-        };
-
-        variables.push(vc.get_variable()?);
+        variables.push(vc);
     }
 
     Ok(StackFrame {
