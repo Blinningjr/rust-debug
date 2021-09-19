@@ -15,7 +15,7 @@ pub use value::{
     StructValue, UnionValue,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 
 #[derive(Debug, Clone)]
 pub enum EvalResult {
@@ -116,19 +116,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
     mem: &mut T,
 ) -> Result<EvaluatorValue<R>> {
     let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
-    loop {
-        match evaluator.evaluate(&dwarf, registers, mem)? {
-            evaluate::EvaluatorResult::Complete => break,
-            evaluate::EvaluatorResult::RequireReg(_reg) => {
-                return Err(anyhow!("Requires regs"));
-            }
-        };
-    }
-
-    let value = match evaluator.get_value() {
-        Some(val) => val,
-        None => unreachable!(),
-    };
+    let value = evaluator.evaluate(&dwarf, registers, mem)?;
 
     Ok(value)
 }

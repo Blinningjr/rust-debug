@@ -38,23 +38,11 @@ impl EvaluatorState {
     }
 }
 
-/*
- * The result of the evaluation.
- */
-pub enum EvaluatorResult {
-    // Evaluator has evaluated the type into a value.
-    Complete,
-    // Evaluator requires the value of a register.
-    RequireReg(u16),
-    // Evaluator requires the value of a address.
-}
-
 pub enum PieceResult<R: Reader<Offset = usize>> {
     Value(Vec<u8>, Vec<ValuePiece>),
     Const(gimli::Value),
     Bytes(R),
     OptimizedOut,
-    Required(EvaluatorResult),
 }
 
 /*
@@ -94,12 +82,12 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         dwarf: &gimli::Dwarf<R>,
         registers: &Registers,
         mem: &mut T,
-    ) -> Result<EvaluatorResult> {
+    ) -> Result<EvaluatorValue<R>> {
         self.piece_index = 0;
 
         // If the value has already been evaluated then don't evaluated it again.
-        if self.result.is_some() {
-            return Ok(EvaluatorResult::Complete);
+        if let Some(val) = &self.result {
+            return Ok(val.clone());
         }
 
         // Check if a type die was given and if it was then get the needed information.
@@ -113,7 +101,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 // If the stack is empty then the first piece will be evaluated.
                 self.result =
                     Some(self.handle_eval_piece(registers, mem, Some(4), 0, Some(DwAte(1)))?);
-                return Ok(EvaluatorResult::Complete);
+                return Ok(self.result.clone().unwrap());
             }
         };
 
@@ -144,7 +132,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
 
         // Continue evaluating the value of the current state.
         self.result = Some(self.eval_type(registers, mem, dwarf, &unit, die, data_offset)?);
-        return Ok(EvaluatorResult::Complete);
+        return Ok(self.result.clone().unwrap());
     }
 
     /*
@@ -683,9 +671,9 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
         piece: Piece<R>,
         byte_size: u64,
         data_offset: u64,
-    ) -> PieceResult<R> {
+    ) -> Result<PieceResult<R>> {
         match piece.location {
-            Location::Empty => PieceResult::OptimizedOut,
+            Location::Empty => Ok(PieceResult::OptimizedOut),
             Location::Register { ref register } => {
                 match registers.get_register_value(&register.0) {
                     Some(val) => {
@@ -696,15 +684,15 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                         bytes = trim_piece_bytes(bytes, &piece, 4);
                         let byte_size = bytes.len();
 
-                        return PieceResult::Value(
+                        Ok(PieceResult::Value(
                             bytes,
                             vec![ValuePiece::Register {
                                 register: register.0,
                                 byte_size: byte_size,
                             }],
-                        );
+                        ))
                     }
-                    None => PieceResult::Required(EvaluatorResult::RequireReg(register.0)),
+                    None => Err(anyhow!("Requires reg")),
                 }
             }
             Location::Address { mut address } => {
@@ -720,16 +708,16 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                     None => panic!("Return error"),
                 };
 
-                PieceResult::Value(
+                Ok(PieceResult::Value(
                     bytes,
                     vec![ValuePiece::Memory {
                         address: address as u32,
                         byte_size: num_bytes,
                     }],
-                )
+                ))
             }
-            Location::Value { value } => PieceResult::Const(value),
-            Location::Bytes { value } => PieceResult::Bytes(value.clone()),
+            Location::Value { value } => Ok(PieceResult::Const(value)),
+            Location::Bytes { value } => Ok(PieceResult::Bytes(value.clone())),
             Location::ImplicitPointer {
                 value: _,
                 byte_offset: _,
@@ -783,7 +771,6 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
             )),
             PieceResult::Bytes(bytes) => Ok(EvaluatorValue::Bytes(bytes)),
             PieceResult::OptimizedOut => Ok(EvaluatorValue::OptimizedOut),
-            PieceResult::Required(_required) => Err(anyhow!("Requires mem or reg")),
         };
     }
 
@@ -808,7 +795,7 @@ impl<R: Reader<Offset = usize>> Evaluator<R> {
                 //return Ok(Some(ReturnResult::Value(super::value::EvaluatorValue::OptimizedOut)));
             }
             let piece = self.pieces[self.piece_index].clone();
-            let result = self.eval_piece(registers, mem, piece, byte_size, data_offset);
+            let result = self.eval_piece(registers, mem, piece, byte_size, data_offset)?;
             let (new_bytes, value_piece) = match result {
                 PieceResult::Value(bytes, pieces) => (bytes, pieces),
                 _ => return Ok(result),
