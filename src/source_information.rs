@@ -2,15 +2,34 @@ use anyhow::Result;
 
 use gimli::{DebuggingInformationEntry, Dwarf, Reader, Unit};
 
+/// Contains all the information about where the code was declared in the source code.
 #[derive(Debug, Clone)]
 pub struct SourceInformation {
+    /// The source code directory where the debug information was declared.
     pub directory: Option<String>,
+
+    /// The relative source code file path where the debug information was declared.
     pub file: Option<String>,
+
+    /// The source code line number where the debug information was declared.
     pub line: Option<u64>,
+
+    /// The source code column number where the debug information was declared.
     pub column: Option<u64>,
 }
 
 impl SourceInformation {
+    /// Retrieves the information about where the given DIE was declared in the source code.
+    ///
+    /// Description:
+    ///
+    /// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+    /// * `unit` - A reference to gimli-rs `Unit` struct, which the given DIE is located in.
+    /// * `die` - A reference to the DIE containing attributes starting with `DW_AT_decl_`.
+    /// * `cwd` - The work directory of the debugged program.
+    ///
+    ///This function will retrieve the information stored in the attributes starting with
+    ///`DW_AT_decl_` from the given DIE>
     pub fn get_die_source_information<R: Reader<Offset = usize>>(
         dwarf: &Dwarf<R>,
         unit: &Unit<R>,
@@ -80,6 +99,19 @@ impl SourceInformation {
     }
 }
 
+/// Find the machine code address that corresponds to a line in the source file.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `cwd` - The work directory of the debugged program.
+/// * `path` - The relative path to the source file from the work directory of the debugged program.
+/// * `line` - A line number in the source program.
+/// * `column` - A optional column number in the source program.
+///
+/// Finds the machine code address that is generated from the given source code file and line
+/// number.
+/// If there are multiple machine codes for that line number it takes the first one and the one.
 // Good source: DWARF section 6.2
 pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
     dwarf: &'a Dwarf<R>,
