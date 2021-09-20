@@ -9,7 +9,7 @@ use crate::registers::Registers;
 
 use gimli::{AttributeValue::UnitRef, DebuggingInformationEntry, Dwarf, Expression, Reader, Unit};
 
-pub use evaluate::{
+use evaluate::{
     convert_to_gimli_value, ArrayValue, BaseValue, EnumValue, EvaluatorValue, MemberValue,
     StructValue, UnionValue,
 };

@@ -1,4 +1,3 @@
-use crate::evaluate::evaluate::BaseValue;
 /**
  * Good gimli sources:
  * https://docs.rs/gimli/0.23.0/gimli/read/struct.DebugFrame.html
@@ -6,7 +5,9 @@ use crate::evaluate::evaluate::BaseValue;
  *
  * Dwarf source: Dwarf 5 section 6.4.1
  */
-use crate::evaluate::{evaluate, EvaluatorValue};
+use crate::evaluate::evaluate;
+use crate::evaluate::evaluate::BaseValue;
+use crate::evaluate::evaluate::EvaluatorValue;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::{die_in_range, get_current_unit};
