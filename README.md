@@ -8,7 +8,7 @@ So I thought that I could make my solution into a library that others can use.
 The library is far from finished but it works well enough that I can make a embedded rust debugger from it.
 
 ## Example
-Check out my debugger for embedded rust code I made using this libary.
+Check out my debugger for embedded rust code I made using this library.
 [https://github.com/Blinningjr/embedded-rust-debugger](https://github.com/Blinningjr/embedded-rust-debugger)
 
 

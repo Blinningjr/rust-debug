@@ -12,3 +12,6 @@ Cargo.lock
 # CTags file
 tags
 
+# aspell backupfile
+*.bak
+
