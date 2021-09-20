@@ -13,17 +13,44 @@ use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 
+/// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
 pub struct Variable {
+    /// The name of the variable.
     pub name: Option<String>,
+
+    /// The value of the variable.
     pub value: String,
+
+    /// The type of the variable.
     pub type_: Option<String>,
-    //    pub locations: Vec<u32>, // u32 or registery number
+
+    /// The source code location where the variable was declared.
     pub source: Option<SourceInformation>,
+
+    /// The debug target location information.
     pub location: Vec<ValueInformation>,
 }
 
 impl Variable {
+    /// Retrieve the variables debug information.
+    ///
+    /// Description:
+    ///
+    /// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+    /// * `registers` - A reference to the `Registers` struct.
+    /// * `memory` - A reference to a struct that implements the `MemoryAccess` trait.
+    /// * `section_offset` - A offset to the compilation unit where the DIE for the variable is
+    /// located.
+    /// * `unit_offset` - A offset into the compilation unit where the DIE representing the
+    /// variable is located.
+    /// * `frame_base` - The value of the frame base, which is often needed to evaluate the
+    /// variable.
+    /// * `cwd` - The work directory of the program being debugged.
+    ///
+    /// This function will go through the DIE in the compilation unit to find the necessary
+    /// debug information.
+    /// Then it will use that information to evaluate the value of the variable.
     pub fn get_variable<M: MemoryAccess, R: Reader<Offset = usize>>(
         dwarf: &Dwarf<R>,
         registers: &Registers,
@@ -117,6 +144,17 @@ impl Variable {
     }
 }
 
+/// Will check if the given DIE has one of the DWARF tags that represents a variable.
+///
+/// Description:
+///
+/// * `die` - A reference to DIE.
+///
+/// Will check if the given type has one of the following tags:
+/// - DW_TAG_variable
+/// - DW_TAG_formal_parameter
+/// - DW_TAG_constant
+/// If the DIE has one of the tags the function will return `true`, otherwise `false`.
 pub fn is_variable_die<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> bool {
     // Check that it is a variable.
     return die.tag() == gimli::DW_TAG_variable
@@ -124,7 +162,21 @@ pub fn is_variable_die<R: Reader<Offset = usize>>(die: &DebuggingInformationEntr
         || die.tag() == gimli::DW_TAG_constant;
 }
 
-fn get_var_name<R: Reader<Offset = usize>>(
+/// Will retrieve the name of a variable DIE.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `unit` - A reference to gimli-rs `Unit` struct, which the given DIE is located in.
+/// * `die` - A reference to DIE.
+///
+/// Will check if the given DIE represents a variable, if it does not it will return a error.
+/// After that it will try to evaluate the `DW_AT_name` attribute and return the result.
+/// But if it dose not have the name attribute it will try to get the name from the DIE in the
+/// `DW_AT_abstract_origin` attribute.
+/// If that attribute is missing it will return `Ok(None)`, because the variable does not have a
+/// name.
+pub fn get_var_name<R: Reader<Offset = usize>>(
     dwarf: &Dwarf<R>,
     unit: &Unit<R>,
     die: &DebuggingInformationEntry<R>,
