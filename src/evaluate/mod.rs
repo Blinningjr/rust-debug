@@ -1,18 +1,15 @@
 pub mod attributes;
 pub mod evaluate;
 pub mod pieces;
-pub mod value;
 pub mod value_information;
 
 use crate::call_stack::MemoryAccess;
-use crate::evaluate::evaluate::evaluate_variable_with_type;
 use crate::evaluate::pieces::evaluate_pieces;
 use crate::registers::Registers;
-use evaluate::evaluate_variable;
 
 use gimli::{AttributeValue::UnitRef, DebuggingInformationEntry, Dwarf, Expression, Reader, Unit};
 
-pub use value::{
+pub use evaluate::{
     convert_to_gimli_value, ArrayValue, BaseValue, EnumValue, EvaluatorValue, MemberValue,
     StructValue, UnionValue,
 };
@@ -120,7 +117,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
     match type_unit {
         Some(unit) => match type_die {
             Some(die) => {
-                return evaluate_variable_with_type(
+                return EvaluatorValue::evaluate_variable_with_type(
                     dwarf,
                     registers,
                     mem,
@@ -133,7 +130,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
         },
         None => (),
     };
-    return evaluate_variable(registers, mem, &pieces);
+    return EvaluatorValue::evaluate_variable(registers, mem, &pieces);
 
     //let mut evaluator = evaluate::Evaluator::new(pieces.clone(), type_unit, type_die);
     //let value = evaluator.evaluate(&dwarf, registers, mem)?;

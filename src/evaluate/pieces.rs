@@ -13,7 +13,7 @@ use gimli::{
     Expression, Reader, Unit, UnitOffset,
 };
 
-pub use super::value::{
+pub use super::evaluate::{
     convert_to_gimli_value, ArrayValue, BaseValue, EnumValue, EvaluatorValue, MemberValue,
     StructValue, UnionValue,
 };
