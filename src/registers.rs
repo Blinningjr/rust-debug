@@ -8,6 +8,8 @@ pub struct Registers {
     pub program_counter_register: Option<usize>,
     pub link_register: Option<usize>,
     pub stack_pointer_register: Option<usize>,
+
+    pub cfa: Option<u32>, // Canonical Frame Address
 }
 
 impl Registers {
@@ -18,6 +20,7 @@ impl Registers {
             program_counter_register: None,
             link_register: None,
             stack_pointer_register: None,
+            cfa: None,
         }
     }
 

@@ -74,7 +74,11 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
 
             RequiresTls(_tls) => unimplemented!(), // TODO
 
-            RequiresCallFrameCfa => unimplemented!(), // TODO: Add CFA to Register struct
+            RequiresCallFrameCfa => {
+                result = eval.resume_with_call_frame_cfa(
+                    registers.cfa.ok_or(anyhow!("Requires CFA"))? as u64,
+                )?;
+            }
 
             RequiresAtLocation(die_ref) => match die_ref {
                 DieReference::UnitRef(unit_offset) => match help_at_location(

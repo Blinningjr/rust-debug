@@ -312,6 +312,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     temporary_registers.program_counter_register = registers.program_counter_register;
     temporary_registers.link_register = registers.link_register;
     temporary_registers.stack_pointer_register = registers.stack_pointer_register;
+    temporary_registers.cfa = call_frame.cfa;
     let pc = call_frame.code_location as u32;
     for i in 0..call_frame.registers.len() {
         match call_frame.registers[i] {
