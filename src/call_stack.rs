@@ -1,13 +1,4 @@
-use crate::evaluate::evaluate;
 use crate::evaluate::evaluate::BaseValue;
-use crate::evaluate::EvaluatorValue;
-use crate::registers::Registers;
-use crate::source_information::SourceInformation;
-use crate::utils::die_in_range;
-use crate::utils::get_current_unit;
-use crate::variable::is_variable_die;
-use crate::variable::Variable;
-use anyhow::{anyhow, Result};
 /**
  * Good gimli sources:
  * https://docs.rs/gimli/0.23.0/gimli/read/struct.DebugFrame.html
@@ -15,6 +6,12 @@ use anyhow::{anyhow, Result};
  *
  * Dwarf source: Dwarf 5 section 6.4.1
  */
+use crate::evaluate::{evaluate, EvaluatorValue};
+use crate::registers::Registers;
+use crate::source_information::SourceInformation;
+use crate::utils::{die_in_range, get_current_unit};
+use crate::variable::{is_variable_die, Variable};
+use anyhow::{anyhow, Result};
 use gimli::DebugFrame;
 use gimli::{RegisterRule::*, UnwindSection};
 use log::trace;
@@ -49,193 +46,179 @@ pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     memory: &mut M,
     debug_frame: &'a DebugFrame<R>,
 ) -> Result<Vec<CallFrame>> {
-    let mut csu: CallStackUnwinder<R> = CallStackUnwinder::new(
-        registers
-            .program_counter_register
-            .ok_or(anyhow!("Requires pc register id"))?,
-        registers
-            .link_register
-            .ok_or(anyhow!("Requires pc register id"))?,
-        registers
-            .stack_pointer_register
-            .ok_or(anyhow!("Requires pc register id"))?,
-        &registers,
-    );
-    csu.unwind(debug_frame, &mut registers, memory)
+    let pc_reg = registers
+        .program_counter_register
+        .ok_or(anyhow!("Requires pc register id"))?;
+    let link_reg = registers
+        .link_register
+        .ok_or(anyhow!("Requires pc register id"))?;
+    let sp_reg = registers
+        .stack_pointer_register
+        .ok_or(anyhow!("Requires pc register id"))?;
+
+    let mut regs = [None; 16];
+    for (reg, val) in &registers.registers {
+        regs[*reg as usize] = Some(*val);
+    }
+    let code_location = registers
+        .get_register_value(&(pc_reg as u16))
+        .map(|v| *v as u64);
+
+    unwind_call_stack_recursive(
+        debug_frame,
+        &mut registers,
+        memory,
+        pc_reg,
+        link_reg,
+        sp_reg,
+        code_location,
+        regs,
+        &mut gimli::BaseAddresses::default(),
+        &mut gimli::UninitializedUnwindContext::new(),
+    )
 }
 
-/*
- * A struct for simplifying the process of virtually unwinding the stack.
- */
-struct CallStackUnwinder<R: Reader<Offset = usize>> {
-    program_counter_register: usize,
-    link_register: usize,
-    stack_pointer_register: usize,
-
+fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
+    debug_frame: &'a DebugFrame<R>,
+    registers: &mut Registers,
+    memory: &mut M,
+    pc_reg: usize,
+    link_reg: usize,
+    sp_reg: usize,
     code_location: Option<u64>,
-    registers: [Option<u32>; 16],
+    mut unwind_registers: [Option<u32>; 16],
+    base: &mut gimli::BaseAddresses,
+    ctx: &mut gimli::UninitializedUnwindContext<R>,
+) -> Result<Vec<CallFrame>> {
+    let current_location = match code_location {
+        Some(val) => val,
+        None => {
+            trace!("Stopped unwinding call stack, because: Reached end of stack");
 
-    // Optionally provide base addresses for any relative pointers. If a
-    // base address isn't provided and a pointer is found that is relative to
-    // it, we will return an `Err`.
-    bases: gimli::BaseAddresses,
+            return Ok(vec![]);
+        }
+    };
 
-    // This context is reusable, which cuts down on heap allocations.
-    ctx: gimli::UninitializedUnwindContext<R>,
+    let unwind_info = match debug_frame.unwind_info_for_address(
+        &base,
+        ctx,
+        current_location,
+        gimli::DebugFrame::cie_from_offset,
+    ) {
+        Ok(val) => val,
+        Err(err) => {
+            trace!("Stopped unwinding call stack, because: {:?}", err);
+            return Ok(vec![]);
+        }
+    };
 
-    call_stack: Vec<CallFrame>,
+    let cfa = unwind_cfa(unwind_registers, &unwind_info)?;
+
+    let mut new_registers = [None; 16];
+    for i in 0..16 as usize {
+        let reg_rule = unwind_info.register(gimli::Register(i as u16));
+
+        new_registers[i] = match reg_rule {
+            Undefined => {
+                // If the column is empty then it defaults to undefined.
+                // Source: https://github.com/gimli-rs/gimli/blob/00f4ee6a288d2e7f02b6841a5949d839e99d8359/src/read/cfi.rs#L2289-L2311
+                if i == sp_reg {
+                    cfa
+                } else if i == pc_reg {
+                    Some(current_location as u32)
+                } else {
+                    None
+                }
+            }
+            SameValue => unwind_registers[i],
+            Offset(offset) => {
+                let address = (offset
+                    + match cfa {
+                        Some(val) => i64::from(val),
+                        None => return Err(anyhow!("Expected CFA to have a value")),
+                    }) as u32;
+
+                let value = {
+                    let value = match memory.get_address(&address, 4) {
+                        Some(val) => {
+                            let mut result = vec![];
+                            for v in val {
+                                result.push(v);
+                            }
+
+                            u32::from_le_bytes(result.as_slice().try_into().unwrap())
+                        }
+                        None => panic!("tait not working"),
+                    };
+                    value
+                };
+
+                Some(value)
+            }
+            ValOffset(offset) => {
+                let value = (offset
+                    + match cfa {
+                        Some(val) => i64::from(val),
+                        None => return Err(anyhow!("Expected CFA to have a value")),
+                    }) as u32;
+
+                Some(value)
+            }
+            Register(reg) => unwind_registers[reg.0 as usize],
+            Expression(_expr) => unimplemented!(),    // TODO
+            ValExpression(_expr) => unimplemented!(), // TODO
+            Architectural => unimplemented!(),        // TODO
+        };
+    }
+
+    let mut call_stack = vec![CallFrame {
+        id: current_location,
+        registers: unwind_registers,
+        code_location: current_location,
+        cfa,
+        start_address: unwind_info.start_address(),
+        end_address: unwind_info.end_address(),
+    }];
+
+    unwind_registers = new_registers;
+
+    // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L297-L302
+    // Next function is where our current return register is pointing to.
+    // We just have to remove the lowest bit (indicator for Thumb mode).
+    //
+    // We also have to subtract one, as we want the calling instruction for
+    // a backtrace, not the next instruction to be executed.
+    let next_code_location = unwind_registers[link_reg as usize].map(|pc| u64::from(pc & !1) - 1);
+
+    call_stack.append(&mut unwind_call_stack_recursive(
+        debug_frame,
+        registers,
+        memory,
+        pc_reg,
+        link_reg,
+        sp_reg,
+        next_code_location,
+        unwind_registers,
+        base,
+        ctx,
+    )?);
+    return Ok(call_stack);
 }
 
-impl<R: Reader<Offset = usize>> CallStackUnwinder<R> {
-    pub fn new(
-        program_counter_register: usize,
-        link_register: usize,
-        stack_pointer_register: usize,
-        registers: &Registers,
-    ) -> CallStackUnwinder<R> {
-        let mut regs = [None; 16];
-        for (reg, val) in &registers.registers {
-            regs[*reg as usize] = Some(*val);
-        }
-        CallStackUnwinder {
-            program_counter_register,
-            link_register,
-            stack_pointer_register,
-
-            code_location: registers
-                .get_register_value(&(program_counter_register as u16))
-                .map(|v| *v as u64),
-            registers: regs,
-
-            bases: gimli::BaseAddresses::default(),
-            ctx: gimli::UninitializedUnwindContext::new(),
-
-            call_stack: vec![],
-        }
-    }
-
-    pub fn unwind<'b, T: MemoryAccess>(
-        &mut self,
-        debug_frame: &'b DebugFrame<R>,
-        registers: &mut Registers,
-        mem: &mut T,
-    ) -> Result<Vec<CallFrame>> {
-        let code_location = match self.code_location {
-            Some(val) => val,
-            None => {
-                trace!("Stopped unwinding call stack, because: Reached end of stack");
-
-                return Ok(self.call_stack.clone());
-            }
-        };
-
-        let unwind_info = match debug_frame.unwind_info_for_address(
-            &self.bases,
-            &mut self.ctx,
-            code_location,
-            gimli::DebugFrame::cie_from_offset,
-        ) {
-            Ok(val) => val,
-            Err(err) => {
-                trace!("Stopped unwinding call stack, because: {:?}", err);
-                return Ok(self.call_stack.clone());
-            }
-        };
-
-        let cfa = self.unwind_cfa(&unwind_info)?;
-
-        let mut new_registers = [None; 16];
-        for i in 0..16 as usize {
-            let reg_rule = unwind_info.register(gimli::Register(i as u16));
-
-            new_registers[i] = match reg_rule {
-                Undefined => {
-                    // If the column is empty then it defaults to undefined.
-                    // Source: https://github.com/gimli-rs/gimli/blob/00f4ee6a288d2e7f02b6841a5949d839e99d8359/src/read/cfi.rs#L2289-L2311
-                    if i == self.stack_pointer_register {
-                        cfa
-                    } else if i == self.program_counter_register {
-                        Some(code_location as u32)
-                    } else {
-                        None
-                    }
-                }
-                SameValue => self.registers[i],
-                Offset(offset) => {
-                    let address = (offset
-                        + match cfa {
-                            Some(val) => i64::from(val),
-                            None => return Err(anyhow!("Expected CFA to have a value")),
-                        }) as u32;
-
-                    let value = {
-                        let value = match mem.get_address(&address, 4) {
-                            Some(val) => {
-                                let mut result = vec![];
-                                for v in val {
-                                    result.push(v);
-                                }
-
-                                u32::from_le_bytes(result.as_slice().try_into().unwrap())
-                            }
-                            None => panic!("tait not working"),
-                        };
-                        value
-                    };
-
-                    Some(value)
-                }
-                ValOffset(offset) => {
-                    let value = (offset
-                        + match cfa {
-                            Some(val) => i64::from(val),
-                            None => return Err(anyhow!("Expected CFA to have a value")),
-                        }) as u32;
-
-                    Some(value)
-                }
-                Register(reg) => self.registers[reg.0 as usize],
-                Expression(_expr) => unimplemented!(), // TODO
-                ValExpression(_expr) => unimplemented!(), // TODO
-                Architectural => unimplemented!(),     // TODO
+fn unwind_cfa<R: Reader<Offset = usize>>(
+    registers: [Option<u32>; 16],
+    unwind_info: &gimli::UnwindTableRow<R>,
+) -> Result<Option<u32>> {
+    match unwind_info.cfa() {
+        gimli::CfaRule::RegisterAndOffset { register, offset } => {
+            let reg_val = match registers[register.0 as usize] {
+                Some(val) => val,
+                None => return Ok(None),
             };
+            Ok(Some((i64::from(reg_val) + offset) as u32))
         }
-
-        self.call_stack.push(CallFrame {
-            id: code_location,
-            registers: self.registers,
-            code_location,
-            cfa,
-            start_address: unwind_info.start_address(),
-            end_address: unwind_info.end_address(),
-        });
-
-        self.registers = new_registers;
-
-        // Source: https://github.com/probe-rs/probe-rs/blob/8112c28912125a54aad016b4b935abf168812698/probe-rs/src/debug/mod.rs#L297-L302
-        // Next function is where our current return register is pointing to.
-        // We just have to remove the lowest bit (indicator for Thumb mode).
-        //
-        // We also have to subtract one, as we want the calling instruction for
-        // a backtrace, not the next instruction to be executed.
-        self.code_location =
-            self.registers[self.link_register as usize].map(|pc| u64::from(pc & !1) - 1);
-
-        self.unwind(debug_frame, registers, mem)
-    }
-
-    fn unwind_cfa(&mut self, unwind_info: &gimli::UnwindTableRow<R>) -> Result<Option<u32>> {
-        match unwind_info.cfa() {
-            gimli::CfaRule::RegisterAndOffset { register, offset } => {
-                let reg_val = match self.registers[register.0 as usize] {
-                    Some(val) => val,
-                    None => return Ok(None),
-                };
-                Ok(Some((i64::from(reg_val) + offset) as u32))
-            }
-            gimli::CfaRule::Expression(_expr) => {
-                unimplemented!(); // TODO
-            }
+        gimli::CfaRule::Expression(_expr) => {
+            unimplemented!(); // TODO
         }
     }
 }
