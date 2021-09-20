@@ -1,5 +1,6 @@
 use crate::call_stack::MemoryAccess;
 use crate::registers::Registers;
+use std::convert::TryInto;
 
 use super::{call_evaluate, evaluate, EvalResult};
 
@@ -17,8 +18,6 @@ pub use super::evaluate::{
     convert_to_gimli_value, ArrayValue, BaseValue, EnumValue, EvaluatorValue, MemberValue,
     StructValue, UnionValue,
 };
-
-use super::evaluate::parse_base_type;
 
 use anyhow::{anyhow, bail, Result};
 
@@ -44,7 +43,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                 base_type,
             } => match mem.get_address(&(address as u32), size as usize) {
                 Some(data) => {
-                    let value = parse_base_type(unit, data, base_type)?;
+                    let value = eval_base_type(unit, data, base_type)?;
                     result = eval.resume_with_memory(convert_to_gimli_value(value))?;
                 }
                 None => {
@@ -58,7 +57,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
             } => match registers.get_register_value(&register.0) {
                 Some(data) => {
                     let bytes = data.to_le_bytes().to_vec();
-                    let value = parse_base_type(unit, bytes, base_type)?;
+                    let value = eval_base_type(unit, bytes, base_type)?;
                     result = eval.resume_with_register(convert_to_gimli_value(value))?;
                 }
                 None => {
@@ -197,6 +196,44 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
     }
 
     Ok(eval.result())
+}
+
+/*
+ * Evaluates the value of a base type.
+ */
+fn eval_base_type<R>(
+    unit: &gimli::Unit<R>,
+    data: Vec<u8>,
+    base_type: gimli::UnitOffset<usize>,
+) -> Result<BaseValue>
+where
+    R: Reader<Offset = usize>,
+{
+    if base_type.0 == 0 {
+        // NOTE: length can't be more then one word
+        let value = match data.len() {
+            0 => 0,
+            1 => u8::from_le_bytes(data.try_into().unwrap()) as u64,
+            2 => u16::from_le_bytes(data.try_into().unwrap()) as u64,
+            4 => u32::from_le_bytes(data.try_into().unwrap()) as u64,
+            8 => u64::from_le_bytes(data.try_into().unwrap()),
+            _ => unreachable!(),
+        };
+        return Ok(BaseValue::Generic(value));
+    }
+    let die = unit.entry(base_type)?;
+
+    // I think that the die returned must be a base type tag.
+    if die.tag() != gimli::DW_TAG_base_type {
+        bail!("Requires at the die has tag DW_TAG_base_type");
+    }
+
+    let encoding = match die.attr_value(gimli::DW_AT_encoding)? {
+        Some(gimli::AttributeValue::Encoding(dwate)) => dwate,
+        _ => bail!("Expected base type die to have attribute DW_AT_encoding"),
+    };
+
+    BaseValue::parse_base_type(data, encoding)
 }
 
 fn help_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(
