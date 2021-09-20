@@ -6,13 +6,9 @@ pub struct ValueInformation {
 
 impl ValueInformation {
     pub fn new(raw: Option<Vec<u8>>, pieces: Vec<ValuePiece>) -> ValueInformation {
-        ValueInformation {
-            raw: raw,
-            pieces: pieces,
-        }
+        ValueInformation { raw, pieces }
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub enum ValuePiece {
@@ -20,4 +16,3 @@ pub enum ValuePiece {
     Memory { address: u32, byte_size: usize },
     Dwarf { value: Option<gimli::Value> },
 }
-
