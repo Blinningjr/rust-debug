@@ -28,6 +28,24 @@ pub trait MemoryAccess {
     fn get_register(&mut self, register: &u16) -> Option<u32>;
 }
 
+pub fn stack_trace<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    debug_frame: &'a DebugFrame<R>,
+    registers: Registers,
+    memory: &mut M,
+    cwd: &str,
+) -> Result<Vec<StackFrame>> {
+    let call_stacktrace = unwind_call_stack(registers.clone(), memory, debug_frame)?;
+
+    let mut stack_trace = vec![];
+    for call_frame in call_stacktrace {
+        let stack_frame = create_stack_frame(dwarf, call_frame, &registers, memory, cwd)?;
+
+        stack_trace.push(stack_frame);
+    }
+    Ok(stack_trace)
+}
+
 #[derive(Debug, Clone)]
 pub struct CallFrame {
     pub id: u64,
@@ -42,7 +60,7 @@ pub struct CallFrame {
  *  A function for retrieving the call stack
  */
 pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
-    mut registers: Registers,
+    registers: Registers,
     memory: &mut M,
     debug_frame: &'a DebugFrame<R>,
 ) -> Result<Vec<CallFrame>> {
@@ -66,7 +84,6 @@ pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
 
     unwind_call_stack_recursive(
         debug_frame,
-        &mut registers,
         memory,
         pc_reg,
         link_reg,
@@ -80,7 +97,6 @@ pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
 
 fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
     debug_frame: &'a DebugFrame<R>,
-    registers: &mut Registers,
     memory: &mut M,
     pc_reg: usize,
     link_reg: usize,
@@ -94,7 +110,6 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
         Some(val) => val,
         None => {
             trace!("Stopped unwinding call stack, because: Reached end of stack");
-
             return Ok(vec![]);
         }
     };
@@ -192,7 +207,6 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
 
     call_stack.append(&mut unwind_call_stack_recursive(
         debug_frame,
-        registers,
         memory,
         pc_reg,
         link_reg,
