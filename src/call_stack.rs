@@ -23,12 +23,35 @@ use gimli::{
     UnitOffset, UnitSectionOffset,
 };
 
+/// A trait used for reading memory of the debug target.
 pub trait MemoryAccess {
+    /// Reads a number of bytes from the debugged target.
+    ///
+    /// Description:
+    ///
+    /// * `address` - The address that will be read.
+    /// * `num_bytes` - The number of bytes that will be read.
+    ///
+    /// This function is used for reading `num_bytes` bytes in the debugged target system at the
+    /// address `address`.
+    /// This is done when evaluating variables that are stored in the memory of the debugged
+    /// target.
     fn get_address(&mut self, address: &u32, num_bytes: usize) -> Option<Vec<u8>>;
-
-    fn get_register(&mut self, register: &u16) -> Option<u32>;
 }
 
+/// Will preform a stack trace on the debugged target.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `debug_frame` - A reference to the DWARF section `.debug_frame`.
+/// * `registers` - A `Registers` struct which is used to read the register values.
+/// * `memory` - Used to read the memory of the debugged target.
+/// * `cwd` - The work directory of the debugged program.
+///
+/// This function will first virtually unwind the call stack.
+/// Then it will evaluate all the variables in each of the stack frames, and return a `Vec` of
+/// `StackFrame`s.
 pub fn stack_trace<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     dwarf: &Dwarf<R>,
     debug_frame: &'a DebugFrame<R>,
@@ -47,19 +70,37 @@ pub fn stack_trace<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     Ok(stack_trace)
 }
 
+/// Describes what a call frame contains.
 #[derive(Debug, Clone)]
 pub struct CallFrame {
+    /// The identifier of the call frame.
     pub id: u64,
+
+    /// Preserved register values of the call frame.
     pub registers: [Option<u32>; 16],
+
+    /// The current code location in the frame.
     pub code_location: u64,
+
+    /// The Canonical Frame Address for this frame.
     pub cfa: Option<u32>,
+
+    /// First machine code address of this frame.
     pub start_address: u64,
+
+    /// Last machine code address of this frame.
     pub end_address: u64,
 }
 
-/**
- *  A function for retrieving the call stack
- */
+/// Will virtually unwind the call stack.
+///
+/// Description:
+///
+/// * `registers` - A `Registers` struct which is used to read the register values.
+/// * `memory` - Used to read the memory of the debugged target.
+/// * `debug_frame` - A reference to the DWARF section `.debug_frame`.
+///
+/// This function will virtually unwind the call stack and return a `Vec` of `CallFrame`s.
 pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     registers: Registers,
     memory: &mut M,
@@ -96,6 +137,21 @@ pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     )
 }
 
+/// Helper function for virtually unwind the call stack recursively.
+///
+/// Description:
+///
+/// * `debug_frame` - A reference to the DWARF section `.debug_frame`.
+/// * `memory` - Used to read the memory of the debugged target.
+/// * `pc_reg` - The register number which is the program counter register.
+/// * `link_reg` - The register number which is the link register.
+/// * `sp_reg` - The register number which is the stack pointer register.
+/// * `code_location` - The code location in the call frame.
+/// * `unwind_registers` - The virtually unwind register values.
+/// * `base` - A base address struct which gimli-rs requires.
+/// * `ctx` - Unwind context struct which gimli-rs requires.
+///
+/// This function will virtually unwind the call stack recursively.
 fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
     debug_frame: &'a DebugFrame<R>,
     memory: &mut M,
@@ -220,6 +276,14 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
     return Ok(call_stack);
 }
 
+/// A function for virtually unwind the Canonical Frame address.
+///
+/// Description:
+///
+/// * `registers` - The virtually unwind registers.
+/// * `unwind_info` - The current unwind information table row.
+///
+/// Will virtually unwind the Canonical Frame address.
 fn unwind_cfa<R: Reader<Offset = usize>>(
     registers: [Option<u32>; 16],
     unwind_info: &gimli::UnwindTableRow<R>,
@@ -238,15 +302,31 @@ fn unwind_cfa<R: Reader<Offset = usize>>(
     }
 }
 
+/// Describes what a stack frame contains.
 #[derive(Debug, Clone)]
 pub struct StackFrame {
+    /// The related call frame.
     pub call_frame: CallFrame,
+
+    /// Name of the frames subroutine.
     pub name: String,
+
+    /// The source code declaration location information.
     pub source: SourceInformation,
+
+    /// The variables in this frame.
     pub variables: Vec<Variable>,
 }
 
 impl StackFrame {
+    /// Find a variable in this stack frame.
+    ///
+    /// Description:
+    ///
+    /// * `name` - The name of the searched variable.
+    ///
+    /// This function will go through each of the variables in this stack frame and return the one
+    /// with the same name as the given name.
     pub fn find_variable(&self, name: &str) -> Option<&Variable> {
         for v in &self.variables {
             match &v.name {
@@ -263,6 +343,17 @@ impl StackFrame {
     }
 }
 
+/// Gets the stack frame information.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `call_frame` - A call frame which is used to evaluate the stack frame.
+/// * `registers` - A register struct for accessing the register values.
+/// * `mem` - A struct for accessing the memory of the debug target.
+/// * `cwd` - The work directory of the debugged program.
+///
+/// This function will find stack frame information using a call frame.
 pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     dwarf: &Dwarf<R>,
     call_frame: CallFrame,
@@ -345,6 +436,15 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     })
 }
 
+/// Will find the DIE representing the searched function
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `address` - Used to find which function this machine code address belongs too.
+///
+/// This function will search DWARF for the function that the given machine code address belongs
+/// too.
 pub fn find_function_die<'a, R: Reader<Offset = usize>>(
     dwarf: &'a Dwarf<R>,
     address: u32,
@@ -394,6 +494,18 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(
     return Ok((unit.header.offset(), dies[0].offset()));
 }
 
+/// Will find all the in range variable DIEs in a subroutine.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `section_offset` - A offset into the DWARF `.debug_info` section which is used to find the
+/// relevant compilation.
+/// * `unit_offset` - A offset into the given compilation unit, which points the subroutine DIE.
+/// * `pc` - A machine code address, it is usually the current code address.
+///
+/// This function will go done the subtree of a subroutine DIE and return all in range variable
+/// DIEs.
 pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(
     dwarf: &Dwarf<R>,
     section_offset: UnitSectionOffset,
@@ -453,6 +565,18 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(
     Ok(die_offsets)
 }
 
+/// Will evaluate the frame base address for a given subroutine.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `unit` - The compilation unit the subroutine DIE is located in.
+/// * `pc` - A machine code address, it is usually the current code location.
+/// * `die` - A reference to the subroutine DIE.
+/// * `registers` - A `Registers` struct which is used to read the register values.
+/// * `memory` - Used to read the memory of the debugged target.
+///
+/// This function is used to evaluate the frame base address for a given subroutine.
 pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
     dwarf: &Dwarf<R>,
     unit: &Unit<R>,
