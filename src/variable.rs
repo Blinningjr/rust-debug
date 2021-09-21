@@ -93,10 +93,10 @@ impl Variable {
         let expression = match find_variable_location(dwarf, &unit, &die, pc)? {
             VariableLocation::Expression(expr) => expr,
             VariableLocation::LocationListEntry(llent) => llent.data,
-            VariableLocation::OutOfRange => {
+            VariableLocation::LocationOutOfRange => {
                 return Ok(Variable {
                     name,
-                    value: "<OutOfRange>".to_owned(),
+                    value: "<LocationOutOfRange>".to_owned(),
                     type_: None,
                     source,
                     location: vec![],
@@ -212,8 +212,9 @@ pub enum VariableLocation<R: Reader<Offset = usize>> {
     /// The gimli-rs location list entry that describes the location of the Variable.
     LocationListEntry(gimli::LocationListEntry<R>),
 
-    /// The variable has no location currently but had or will have one.
-    OutOfRange,
+    /// The variable has no location currently but had or will have one. Note that the location can
+    /// be a constant stored in the DWARF stack.
+    LocationOutOfRange,
 
     /// The variable has no location.
     NoLocation,
@@ -248,7 +249,7 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(
                     }
                 }
 
-                return Ok(VariableLocation::OutOfRange);
+                return Ok(VariableLocation::LocationOutOfRange);
             }
             None => return Ok(VariableLocation::NoLocation),
             Some(v) => {
