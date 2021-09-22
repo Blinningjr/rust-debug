@@ -90,11 +90,12 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     /// A attribute type value.
     Member(Box<MemberValue<R>>),
 
-    /// A type with only a name as the value.
-    Name(String),
-
     /// The value is optimized away.
     OptimizedOut, // NOTE: Value is optimized out.
+
+    /// The variable has no location currently but had or will have one. Note that the location can
+    /// be a constant stored in the DWARF stack.
+    LocationOutOfRange,
 
     /// The value is size 0 bits.
     ZeroSize,
@@ -114,8 +115,8 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
             EvaluatorValue::Enum(enu) => enu.fmt(f),
             EvaluatorValue::Union(uni) => uni.fmt(f),
             EvaluatorValue::Member(mem) => mem.fmt(f),
-            EvaluatorValue::Name(nam) => nam.fmt(f),
             EvaluatorValue::OptimizedOut => write!(f, "< OptimizedOut >"),
+            EvaluatorValue::LocationOutOfRange => write!(f, "< LocationOutOfRange >"),
             EvaluatorValue::ZeroSize => write!(f, "< ZeroSize >"),
         };
     }
@@ -143,7 +144,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             EvaluatorValue::Enum(enu) => enu.get_type(),
             EvaluatorValue::Union(uni) => uni.get_type(),
             EvaluatorValue::Member(mem) => mem.get_type(),
-            EvaluatorValue::Name(nam) => nam.to_string(),
             _ => "<unknown>".to_owned(),
         }
     }

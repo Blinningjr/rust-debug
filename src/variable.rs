@@ -8,31 +8,25 @@ use anyhow::{anyhow, bail, Result};
 use crate::call_stack::MemoryAccess;
 use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
-use crate::evaluate::evaluate::ValueInformation;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
+use crate::variable::evaluate::EvaluatorValue;
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
-pub struct Variable {
+pub struct Variable<R: Reader<Offset = usize>> {
     /// The name of the variable.
     pub name: Option<String>,
 
-    /// The value of the variable.
-    pub value: String,
-
-    /// The type of the variable.
-    pub type_: Option<String>,
+    /// A tree strucured like the variable type in DWARF, but it also contains the values
+    pub value: EvaluatorValue<R>,
 
     /// The source code location where the variable was declared.
     pub source: Option<SourceInformation>,
-
-    /// The debug target location information.
-    pub location: Vec<ValueInformation>,
 }
 
-impl Variable {
+impl<R: Reader<Offset = usize>> Variable<R> {
     /// Retrieve the variables debug information.
     ///
     /// Description:
@@ -51,7 +45,7 @@ impl Variable {
     /// This function will go through the DIE in the compilation unit to find the necessary
     /// debug information.
     /// Then it will use that information to evaluate the value of the variable.
-    pub fn get_variable<M: MemoryAccess, R: Reader<Offset = usize>>(
+    pub fn get_variable<M: MemoryAccess>(
         dwarf: &Dwarf<R>,
         registers: &Registers,
         memory: &mut M,
@@ -59,7 +53,7 @@ impl Variable {
         unit_offset: UnitOffset,
         frame_base: Option<u64>,
         cwd: &str,
-    ) -> Result<Variable> {
+    ) -> Result<Variable<R>> {
         // Get the program counter.
         let pc: u32 = *registers
             .get_register_value(
@@ -96,19 +90,15 @@ impl Variable {
             VariableLocation::LocationOutOfRange => {
                 return Ok(Variable {
                     name,
-                    value: "<LocationOutOfRange>".to_owned(),
-                    type_: None,
+                    value: EvaluatorValue::LocationOutOfRange,
                     source,
-                    location: vec![],
                 });
             }
             VariableLocation::NoLocation => {
                 return Ok(Variable {
                     name,
-                    value: "<OptimizedOut>".to_owned(),
-                    type_: None,
+                    value: EvaluatorValue::OptimizedOut,
                     source,
-                    location: vec![],
                 });
             }
         };
@@ -123,7 +113,7 @@ impl Variable {
         let type_unit = gimli::Unit::new(dwarf, header)?;
         let type_die = unit.entry(type_unit_offset)?;
 
-        let val = evaluate(
+        let value = evaluate(
             dwarf,
             &unit,
             pc,
@@ -137,10 +127,8 @@ impl Variable {
 
         Ok(Variable {
             name,
-            value: val.to_string(),
-            type_: Some(val.get_type()),
+            value,
             source,
-            location: val.get_variable_information(),
         })
     }
 }

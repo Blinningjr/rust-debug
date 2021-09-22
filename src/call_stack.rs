@@ -58,7 +58,7 @@ pub fn stack_trace<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     registers: Registers,
     memory: &mut M,
     cwd: &str,
-) -> Result<Vec<StackFrame>> {
+) -> Result<Vec<StackFrame<R>>> {
     let call_stacktrace = unwind_call_stack(registers.clone(), memory, debug_frame)?;
 
     let mut stack_trace = vec![];
@@ -304,7 +304,7 @@ fn unwind_cfa<R: Reader<Offset = usize>>(
 
 /// Describes what a stack frame contains.
 #[derive(Debug, Clone)]
-pub struct StackFrame {
+pub struct StackFrame<R: Reader<Offset = usize>> {
     /// The related call frame.
     pub call_frame: CallFrame,
 
@@ -315,10 +315,10 @@ pub struct StackFrame {
     pub source: SourceInformation,
 
     /// The variables in this frame.
-    pub variables: Vec<Variable>,
+    pub variables: Vec<Variable<R>>,
 }
 
-impl StackFrame {
+impl<R: Reader<Offset = usize>> StackFrame<R> {
     /// Find a variable in this stack frame.
     ///
     /// Description:
@@ -327,7 +327,7 @@ impl StackFrame {
     ///
     /// This function will go through each of the variables in this stack frame and return the one
     /// with the same name as the given name.
-    pub fn find_variable(&self, name: &str) -> Option<&Variable> {
+    pub fn find_variable(&self, name: &str) -> Option<&Variable<R>> {
         for v in &self.variables {
             match &v.name {
                 Some(var_name) => {
@@ -360,7 +360,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     registers: &Registers,
     mem: &mut M,
     cwd: &str,
-) -> Result<StackFrame> {
+) -> Result<StackFrame<R>> {
     // Find the corresponding function to the call frame.
     let (section_offset, unit_offset) = find_function_die(dwarf, call_frame.code_location as u32)?;
     let header =
