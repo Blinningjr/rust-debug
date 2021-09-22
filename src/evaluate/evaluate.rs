@@ -1,7 +1,5 @@
 use super::attributes;
 use crate::call_stack::MemoryAccess;
-use crate::evaluate::value_information::ValueInformation;
-use crate::evaluate::value_information::ValuePiece;
 use crate::registers::Registers;
 use std::convert::TryInto;
 
@@ -1233,4 +1231,23 @@ fn trim_piece_bytes<R: Reader<Offset = usize>>(
     }
 
     return bytes;
+}
+
+#[derive(Debug, Clone)]
+pub struct ValueInformation {
+    pub raw: Option<Vec<u8>>, // byte size and raw value
+    pub pieces: Vec<ValuePiece>,
+}
+
+impl ValueInformation {
+    pub fn new(raw: Option<Vec<u8>>, pieces: Vec<ValuePiece>) -> ValueInformation {
+        ValueInformation { raw, pieces }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ValuePiece {
+    Register { register: u16, byte_size: usize },
+    Memory { address: u32, byte_size: usize },
+    Dwarf { value: Option<gimli::Value> },
 }

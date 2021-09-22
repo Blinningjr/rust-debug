@@ -1,6 +1,6 @@
 //! Easy to use DWARF abstraction for Rust.
 //!
-//! Provides an abstraction over dwarf. The abstraction provides a one function solution for
+//! Provides an abstraction over DWARF. The abstraction provides a one function solution for
 //! retrieving debug information from DWARF.
 //! Here are some of the  advantages:
 //! - Easy to use

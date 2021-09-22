@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, Result};
 use crate::call_stack::MemoryAccess;
 use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
-use crate::evaluate::value_information::ValueInformation;
+use crate::evaluate::evaluate::ValueInformation;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
@@ -243,13 +243,19 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(
             }
             Some(LocationListsRef(offset)) => {
                 let mut locations = dwarf.locations(unit, offset)?;
+                let mut count = 0;
                 while let Some(llent) = locations.next()? {
                     if in_range(address, &llent.range) {
                         return Ok(VariableLocation::LocationListEntry(llent));
                     }
+                    count += 1;
                 }
 
-                return Ok(VariableLocation::LocationOutOfRange);
+                if count > 0 {
+                    return Ok(VariableLocation::LocationOutOfRange);
+                } else {
+                    return Ok(VariableLocation::NoLocation);
+                }
             }
             None => return Ok(VariableLocation::NoLocation),
             Some(v) => {

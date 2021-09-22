@@ -7,6 +7,14 @@ use gimli::{
 
 use anyhow::Result;
 
+/// This function will return the value of the name attribute in the given DIE.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_name` from the given DIE.
 pub fn name_attribute<R: Reader<Offset = usize>>(
     dwarf: &gimli::Dwarf<R>,
     die: &DebuggingInformationEntry<R>,
@@ -20,6 +28,13 @@ pub fn name_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the byte_size attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_byte_size` from the given DIE.
 pub fn byte_size_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<u64> {
@@ -32,6 +47,13 @@ pub fn byte_size_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the alignment attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_alignment` from the given DIE.
 pub fn alignment_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<u64> {
@@ -44,6 +66,13 @@ pub fn alignment_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the data_member_location attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_data_member_location` from the given DIE.
 pub fn data_member_location_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<u64> {
@@ -56,6 +85,15 @@ pub fn data_member_location_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the type attribute in the given DIE.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `unit` - A reference to gimli-rs `Unit` struct which contains the given DIE.
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_type` from the given DIE.
 pub fn type_attribute<R: Reader<Offset = usize>>(
     dwarf: &gimli::Dwarf<R>,
     unit: &Unit<R>,
@@ -80,6 +118,13 @@ pub fn type_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the address_class attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_address_class` from the given DIE.
 pub fn address_class_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<DwAddr> {
@@ -92,6 +137,13 @@ pub fn address_class_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the const_value attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_cont_value` from the given DIE.
 pub fn const_value_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<u64> {
@@ -105,6 +157,13 @@ pub fn const_value_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the count attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_count` from the given DIE.
 pub fn count_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<u64> {
@@ -121,6 +180,13 @@ pub fn count_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the encoding attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_encoding` from the given DIE.
 pub fn encoding_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<DwAte> {
@@ -133,6 +199,13 @@ pub fn encoding_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the discr attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_discr` from the given DIE.
 pub fn discr_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<gimli::UnitOffset> {
@@ -145,6 +218,13 @@ pub fn discr_attribute<R: Reader<Offset = usize>>(
     };
 }
 
+/// This function will return the value of the discr_value attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_discr_value` from the given DIE.
 pub fn discr_value_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Option<u64> {

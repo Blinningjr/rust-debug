@@ -2,7 +2,7 @@ use crate::call_stack::MemoryAccess;
 use crate::registers::Registers;
 use std::convert::TryInto;
 
-use super::{call_evaluate, evaluate, EvalResult};
+use super::{call_evaluate, evaluate};
 
 use gimli::{
     DieReference, Dwarf, Evaluation, EvaluationResult,
@@ -81,7 +81,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
             }
 
             RequiresAtLocation(die_ref) => match die_ref {
-                DieReference::UnitRef(unit_offset) => match help_at_location(
+                DieReference::UnitRef(unit_offset) => help_at_location(
                     dwarf,
                     unit,
                     pc,
@@ -91,20 +91,13 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                     unit_offset,
                     registers,
                     mem,
-                )? {
-                    EvalResult::RequiresMemory {
-                        address: _,
-                        num_words: _,
-                    } => bail!("requires mem"),
-                    EvalResult::RequiresRegister { register: _ } => bail!("requires regs"),
-                    EvalResult::Complete => (),
-                },
+                )?,
 
                 DieReference::DebugInfoRef(debug_info_offset) => {
                     let unit_header = dwarf.debug_info.header_from_offset(debug_info_offset)?;
                     if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
                         let new_unit = dwarf.unit(unit_header)?;
-                        match help_at_location(
+                        help_at_location(
                             dwarf,
                             &new_unit,
                             pc,
@@ -114,16 +107,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                             unit_offset,
                             registers,
                             mem,
-                        )? {
-                            EvalResult::RequiresMemory {
-                                address: _,
-                                num_words: _,
-                            } => {
-                                bail!("requires mem")
-                            }
-                            EvalResult::RequiresRegister { register: _ } => bail!("requires regs"),
-                            EvalResult::Complete => (),
-                        }
+                        )?;
                     } else {
                         return Err(anyhow!("Could not find at location"));
                     }
@@ -250,7 +234,7 @@ fn help_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(
     unit_offset: UnitOffset<usize>,
     registers: &Registers,
     mem: &mut T,
-) -> Result<EvalResult>
+) -> Result<()>
 where
     R: Reader<Offset = usize>,
 {
@@ -260,13 +244,11 @@ where
         None => bail!("Could not find location attribute"),
     };
     if let Some(expr) = location.exprloc_value() {
-        let val = call_evaluate(
-            dwarf, &unit, pc, expr, frame_base, &unit, &die, registers, mem,
-        )?;
+        let val = call_evaluate(dwarf, pc, expr, frame_base, &unit, &die, registers, mem)?;
 
         if let EvaluatorValue::Bytes(b) = val {
             *result = eval.resume_with_at_location(b)?;
-            return Ok(EvalResult::Complete);
+            return Ok(());
         } else {
             bail!("Error expected bytes");
         }
