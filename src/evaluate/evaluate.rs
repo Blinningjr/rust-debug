@@ -1236,9 +1236,13 @@ pub fn convert_from_gimli_value(value: gimli::Value) -> BaseValue {
     }
 }
 
-/*
- * Helper method for getting the unit and die from the type attribute of the current die.
- */
+/// Will retrieve the type DIE and compilation unit for a given die.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `unit` - A compilation unit which contains the given DIE.
+/// * `die` - The DIE which contain a reference to the type DIE.
 fn get_type_info<R: Reader<Offset = usize>>(
     dwarf: &gimli::Dwarf<R>,
     unit: &gimli::Unit<R>,
@@ -1272,11 +1276,14 @@ fn get_type_info<R: Reader<Offset = usize>>(
     Ok((unit, die_offset))
 }
 
-/*
- * Check if address is correctly aligned
- *
- * NOTE: Don't know if it is correct.
- */
+/// Will check that the address is correctly aligned.
+///
+/// Description:
+///
+/// * `die` - The type DIE to check alignment for.
+/// * `data_offset` - The memory address offset.
+/// * `pieces` - A list of pieces containing the location and size information.
+/// * `piece_index` - The piece to first consume if needed, this index increases when a piece is consumed.
 fn check_alignment<R: Reader<Offset = usize>>(
     die: &gimli::DebuggingInformationEntry<'_, '_, R>,
     mut data_offset: u64,
@@ -1311,9 +1318,12 @@ fn check_alignment<R: Reader<Offset = usize>>(
     Ok(())
 }
 
-/*
- * Helper function for getting all the children of a die.
- */
+/// Will retrieve the list of children DIEs for a DIE.
+///
+/// Description:
+///
+/// * `unit` - The compilation unit which contains the given DIE.
+/// * `die` - The DIE to find the children for.
 fn get_children<R: Reader<Offset = usize>>(
     unit: &gimli::Unit<R>,
     die: &gimli::DebuggingInformationEntry<'_, '_, R>,
@@ -1330,6 +1340,16 @@ fn get_children<R: Reader<Offset = usize>>(
     Ok(result)
 }
 
+/// Will remove the unnecessary bytes.
+///
+/// Description:
+///
+/// * `bytes` - The bytes to be trimmed of unnecessary bytes.
+/// * `piece` - The piece the given bytes is evaluated from.
+/// * `byte_size` - The byte size of the resulting trim.
+///
+/// Some pieces contain more bytes then the type describes.
+/// Thus this function removes those unused bytes.
 fn trim_piece_bytes<R: Reader<Offset = usize>>(
     mut bytes: Vec<u8>,
     piece: &Piece<R>,
@@ -1362,6 +1382,7 @@ fn trim_piece_bytes<R: Reader<Offset = usize>>(
     return bytes;
 }
 
+/// Contains the unparsed value and the location of it.
 #[derive(Debug, Clone)]
 pub struct ValueInformation {
     pub raw: Option<Vec<u8>>, // byte size and raw value
@@ -1369,14 +1390,42 @@ pub struct ValueInformation {
 }
 
 impl ValueInformation {
+    /// Create a new `ValueInformation` struct
+    ///
+    /// Description:
+    ///
+    /// * `raw` - The unparsed value.
+    /// * `pieces` - The location of the value.
     pub fn new(raw: Option<Vec<u8>>, pieces: Vec<ValuePiece>) -> ValueInformation {
         ValueInformation { raw, pieces }
     }
 }
 
+/// A struct that describes the size and location of a value.
 #[derive(Debug, Clone)]
 pub enum ValuePiece {
-    Register { register: u16, byte_size: usize },
-    Memory { address: u32, byte_size: usize },
-    Dwarf { value: Option<gimli::Value> },
+    /// Contains which register the value is located and the size of it.
+    Register {
+        /// The register the value is stored.
+        register: u16,
+
+        /// The size of the value.
+        byte_size: usize,
+    },
+
+    /// Contains which address the value is located and the size of it.
+    Memory {
+        /// The address the value is stored.
+        address: u32,
+
+        /// The size of the value.
+        byte_size: usize,
+    },
+
+    /// Contains the value stored on the DWARF stack.
+    Dwarf {
+        /// The value stored on the DWARF stack.
+        /// If it is `None` then the value is optimized out.
+        value: Option<gimli::Value>,
+    },
 }
