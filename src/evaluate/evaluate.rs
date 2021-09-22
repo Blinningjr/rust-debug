@@ -18,8 +18,11 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     /// A pointer_type type and value.
     PointerTypeValue(Box<PointerTypeValue<R>>),
 
-    /// A Variant type and value.
+    /// A variant type and value.
     VariantValue(Box<VariantValue<R>>),
+
+    /// A variant_part type and value.
+    VariantPartValue(Box<VariantPartValue<R>>),
 
     /// gimli-rs bytes value.
     Bytes(R),
@@ -55,6 +58,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
             EvaluatorValue::Value(val, _) => val.fmt(f),
             EvaluatorValue::PointerTypeValue(pt) => pt.fmt(f),
             EvaluatorValue::VariantValue(var) => var.fmt(f),
+            EvaluatorValue::VariantPartValue(vpa) => vpa.fmt(f),
             EvaluatorValue::Bytes(byt) => write!(f, "{:?}", byt),
             EvaluatorValue::Array(arr) => arr.fmt(f),
             EvaluatorValue::Struct(stu) => stu.fmt(f),
@@ -737,78 +741,83 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // TODO: If variant is optimised out then return optimised out and remove the pieces for
                 // this type if needed.
 
-                // Get member die.
-                let die_offset = match attributes::discr_attribute(die) {
-                    Some(val) => val,
-                    None => bail!("Expected variant part die to have attribute DW_AT_discr"),
-                };
-                let member = &unit.entry(die_offset)?;
+                let variant: Option<MemberValue<R>> = match attributes::discr_attribute(die) {
+                    Some(die_offset) => {
+                        let member_die = &unit.entry(die_offset)?;
 
-                // Evaluate the DW_TAG_member value.
-                let value = match member.tag() {
-                    gimli::DW_TAG_member => EvaluatorValue::eval_type(
-                        registers,
-                        mem,
-                        dwarf,
-                        unit,
-                        member,
-                        data_offset,
-                        pieces,
-                        piece_index,
-                    )?,
-                    _ => panic!("Unexpected"),
+                        // Evaluate the DW_TAG_member value.
+                        match member_die.tag() {
+                            gimli::DW_TAG_member => match EvaluatorValue::eval_type(
+                                registers,
+                                mem,
+                                dwarf,
+                                unit,
+                                member_die,
+                                data_offset,
+                                pieces,
+                                piece_index,
+                            )? {
+                                EvaluatorValue::Member(member) => Some(*member),
+                                _ => unreachable!(),
+                            },
+                            _ => unreachable!(),
+                        }
+                    }
+                    None => None,
                 };
 
                 // The value should be a unsigned int thus convert the value to a u64.
-                let variant = get_udata(match value.to_value() {
-                    Some(val) => val,
-                    None => return Ok(EvaluatorValue::OptimizedOut), // TODO: Maybe need to remove the following pieces that is related to this structure.
-                });
+                let variant_number = match variant.clone() {
+                    Some(MemberValue { name: _name, value }) => match value.to_value() {
+                        Some(val) => Some(get_udata(val)),
+                        None => None,
+                    },
+                    None => None,
+                };
 
-                // Find the DW_TAG_member die and all the DW_TAG_variant dies.
+                let original_piece_index = piece_index.clone();
+                // Find  all the DW_TAG_variant dies and evaluate them.
                 let mut variants = vec![];
                 let children = get_children(unit, die)?;
                 for c in &children {
                     let c_die = unit.entry(*c)?;
                     match c_die.tag() {
                         gimli::DW_TAG_variant => {
-                            variants.push(c_die);
+                            let mut temp_piece_index = original_piece_index;
+                            // Evaluate the value of the variant.
+                            let variant = match EvaluatorValue::eval_type(
+                                registers,
+                                mem,
+                                dwarf,
+                                unit,
+                                &c_die,
+                                data_offset,
+                                pieces,
+                                &mut temp_piece_index,
+                            )? {
+                                EvaluatorValue::VariantValue(variant) => variant,
+                                _ => unreachable!(),
+                            };
+
+                            match (variant.discr_value, variant_number) {
+                                (Some(discr_value), Some(variant_num)) => {
+                                    // If This is the variant then update the piece index.
+                                    if discr_value == variant_num {
+                                        *piece_index = temp_piece_index;
+                                    }
+                                }
+                                _ => (),
+                            };
+
+                            variants.push(*variant);
                         }
                         _ => (),
                     };
                 }
 
-                for v in &variants {
-                    // Find the right variant type and evaluate it.
-                    let discr_value = match attributes::discr_value_attribute(v) {
-                        Some(val) => val,
-                        None => bail!("Expected variant die to have attribute DW_AT_discr_value"),
-                    };
-
-                    // Check if it is the correct variant.
-                    if discr_value == variant % (variants.len() as u64) {
-                        // NOTE: Don't know if using modulus here is correct, but it seems to be correct.
-
-                        // Evaluate the value of the variant.
-                        match v.tag() {
-                            gimli::DW_TAG_variant => {
-                                return EvaluatorValue::eval_type(
-                                    registers,
-                                    mem,
-                                    dwarf,
-                                    unit,
-                                    v,
-                                    data_offset,
-                                    pieces,
-                                    piece_index,
-                                );
-                            }
-                            _ => panic!("Expected variant die"),
-                        };
-                    }
-                }
-
-                unreachable!();
+                Ok(EvaluatorValue::VariantPartValue(Box::new(
+                    VariantPartValue { variant, variants },
+                )))
             }
             gimli::DW_TAG_variant => {
                 check_alignment(die, data_offset, pieces, piece_index)?;
@@ -1149,7 +1158,7 @@ pub struct VariantValue<R: Reader<Offset = usize>> {
 
     /// The child value
     pub child: MemberValue<R>,
-    // DW_TAG_pointer_type contains:
+    // DW_TAG_variant contains:
     // * DW_AT_discr_value
     // * A child with tag DW_TAG_member
 }
@@ -1169,6 +1178,46 @@ impl<R: Reader<Offset = usize>> VariantValue<R> {
         match &self.discr_value {
             Some(discr) => format!("{} {}", discr, self.child.get_type()),
             None => format!("{}", self.child.get_type()),
+        }
+    }
+}
+
+/// Struct that represents a variant_part.
+#[derive(Debug, Clone)]
+pub struct VariantPartValue<R: Reader<Offset = usize>> {
+    /// The variant value
+    pub variant: Option<MemberValue<R>>,
+
+    /// The variants
+    pub variants: Vec<VariantValue<R>>,
+    // DW_TAG_variant_part contains:
+    // * DW_AT_discr_value
+    // * A child with tag DW_TAG_member
+    // * Children with tag DW_TAG_variant
+}
+
+impl<R: Reader<Offset = usize>> fmt::Display for VariantPartValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut variants = "{".to_string();
+        for v in &self.variants {
+            variants = format!("{} {},", variants, v);
+        }
+        variants = format!("{} {}", variants, "}");
+        return match &self.variant {
+            // TODO: Improve
+            Some(variant) => write!(f, "< variant: {} >, {}", variant, variants),
+            None => write!(f, "{}", variants),
+        };
+    }
+}
+
+impl<R: Reader<Offset = usize>> VariantPartValue<R> {
+    /// Get the type of the variant_part as a `String`.
+    pub fn get_type(&self) -> String {
+        // TODO: Improve
+        match &self.variant {
+            Some(variant) => format!("{}", variant),
+            None => format!("",),
         }
     }
 }
@@ -1251,11 +1300,18 @@ impl BaseTypeValue {
             return Err(anyhow!("Expected data to be larger then 0"));
         }
 
+        // TODO: Fix so not any data size can be sent into this function.
         Ok(match (encoding, data.len()) {
             // Source: DWARF 4 page 168-169 and 77
             (DwAte(1), 4) => BaseTypeValue::Address32(u32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_address = 1 // TODO: Different size addresses?
             (DwAte(2), 1) => {
                 BaseTypeValue::Bool((u8::from_le_bytes(data.try_into().unwrap())) == 1)
+            } // DW_ATE_boolean = 2 // TODO: Use modulus?
+            (DwAte(2), 2) => {
+                BaseTypeValue::Bool((u16::from_le_bytes(data.try_into().unwrap())) == 1)
+            } // DW_ATE_boolean = 2 // TODO: Use modulus?
+            (DwAte(2), 4) => {
+                BaseTypeValue::Bool((u32::from_le_bytes(data.try_into().unwrap())) == 1)
             } // DW_ATE_boolean = 2 // TODO: Use modulus?
 
             //        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing

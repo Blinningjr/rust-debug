@@ -135,6 +135,10 @@ impl Variable {
             memory,
         )?;
 
+        println!("name: {:?}", name);
+        println!("{:?}", val);
+        println!("\n");
+
         Ok(Variable {
             name,
             value: val.to_string(),
