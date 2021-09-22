@@ -4,15 +4,21 @@ pub mod attributes;
 /// Contains structs representing the different Rust data types and more.
 pub mod evaluate;
 
-/// Contains a function for evaluating a DWARF expression into a `Vec` of `Piece`s.
-pub mod pieces;
-
 use crate::call_stack::MemoryAccess;
-use crate::evaluate::pieces::evaluate_pieces;
 use crate::registers::Registers;
-use anyhow::{bail, Result};
-use evaluate::EvaluatorValue;
-use gimli::{AttributeValue::UnitRef, DebuggingInformationEntry, Dwarf, Expression, Reader, Unit};
+use anyhow::{anyhow, bail, Result};
+use evaluate::{convert_to_gimli_value, BaseValue, EvaluatorValue};
+use gimli::{
+    AttributeValue::UnitRef,
+    DebuggingInformationEntry, DieReference, Dwarf, Evaluation, EvaluationResult,
+    EvaluationResult::{
+        Complete, RequiresAtLocation, RequiresBaseType, RequiresCallFrameCfa, RequiresEntryValue,
+        RequiresFrameBase, RequiresIndexedAddress, RequiresMemory, RequiresParameterRef,
+        RequiresRegister, RequiresRelocatedAddress, RequiresTls,
+    },
+    Expression, Reader, Unit, UnitOffset,
+};
+use std::convert::TryInto;
 
 /// Will find the DIE representing the type can evaluate the variable.
 ///
@@ -166,4 +172,278 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
         None => (),
     };
     return EvaluatorValue::evaluate_variable(registers, mem, &pieces);
+}
+
+/// Evaluates a gimli-rs `Expression` into a `Vec` of `Piece`s.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `unit` - A compilation unit which contains the given DIE.
+/// * `pc` - A machine code address, usually the current code location.
+/// * `expr` - The expression to be evaluated into `Piece`s.
+/// * `frame_base` - The frame base address value.
+/// * `registers` - A register struct for accessing the register values.
+/// * `mem` - A struct for accessing the memory of the debug target.
+///
+/// This function will evaluate the given expression into a list of pieces.
+/// These pieces describe the size and location of the variable the given expression is from.
+pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    pc: u32,
+    expr: Expression<R>,
+    frame_base: Option<u64>,
+    registers: &Registers,
+    mem: &mut T,
+) -> Result<Vec<gimli::Piece<R>>> {
+    let mut eval = expr.evaluation(unit.encoding());
+    let mut result = eval.evaluate()?;
+
+    loop {
+        match result {
+            Complete => break,
+            RequiresMemory {
+                address,
+                size,
+                space: _, // Do not know what this is used for.
+                base_type,
+            } => match mem.get_address(&(address as u32), size as usize) {
+                Some(data) => {
+                    let value = eval_base_type(unit, data, base_type)?;
+                    result = eval.resume_with_memory(convert_to_gimli_value(value))?;
+                }
+                None => {
+                    return Err(anyhow!("Requires Memory"));
+                }
+            },
+
+            RequiresRegister {
+                register,
+                base_type,
+            } => match registers.get_register_value(&register.0) {
+                Some(data) => {
+                    let bytes = data.to_le_bytes().to_vec();
+                    let value = eval_base_type(unit, bytes, base_type)?;
+                    result = eval.resume_with_register(convert_to_gimli_value(value))?;
+                }
+                None => {
+                    return Err(anyhow!("Requires register {}", register.0));
+                }
+            },
+
+            RequiresFrameBase => {
+                result = eval.resume_with_frame_base(match frame_base {
+                    Some(val) => val,
+                    None => bail!("Requires frame base"), // TODO: Return Error instead
+                })?;
+            }
+
+            RequiresTls(_tls) => unimplemented!(), // TODO
+
+            RequiresCallFrameCfa => {
+                result = eval.resume_with_call_frame_cfa(
+                    registers.cfa.ok_or(anyhow!("Requires CFA"))? as u64,
+                )?;
+            }
+
+            RequiresAtLocation(die_ref) => match die_ref {
+                DieReference::UnitRef(unit_offset) => help_at_location(
+                    dwarf,
+                    unit,
+                    pc,
+                    &mut eval,
+                    &mut result,
+                    frame_base,
+                    unit_offset,
+                    registers,
+                    mem,
+                )?,
+
+                DieReference::DebugInfoRef(debug_info_offset) => {
+                    let unit_header = dwarf.debug_info.header_from_offset(debug_info_offset)?;
+                    if let Some(unit_offset) = debug_info_offset.to_unit_offset(&unit_header) {
+                        let new_unit = dwarf.unit(unit_header)?;
+                        help_at_location(
+                            dwarf,
+                            &new_unit,
+                            pc,
+                            &mut eval,
+                            &mut result,
+                            frame_base,
+                            unit_offset,
+                            registers,
+                            mem,
+                        )?;
+                    } else {
+                        return Err(anyhow!("Could not find at location"));
+                    }
+                }
+            },
+
+            RequiresEntryValue(entry) => {
+                let entry_value = evaluate(
+                    dwarf, unit, pc, entry, frame_base, None, None, registers, mem,
+                )?;
+
+                result = eval.resume_with_entry_value(convert_to_gimli_value(match entry_value
+                    .to_value()
+                {
+                    Some(val) => val,
+                    None => bail!("Optimised Out"),
+                }))?;
+            }
+
+            RequiresParameterRef(unit_offset) => {
+                let die = unit.entry(unit_offset)?;
+                let call_value = match die.attr_value(gimli::DW_AT_call_value)? {
+                    Some(val) => val,
+                    None => bail!("Could not find required paramter"),
+                };
+
+                let expr = match call_value.exprloc_value() {
+                    Some(val) => val,
+                    None => bail!("Could not find required paramter"),
+                };
+                let value = evaluate(
+                    dwarf,
+                    unit,
+                    pc,
+                    expr,
+                    frame_base,
+                    Some(unit),
+                    Some(&die),
+                    registers,
+                    mem,
+                )?;
+
+                if let EvaluatorValue::Value(BaseValue::U64(val), _) = value {
+                    result = eval.resume_with_parameter_ref(val)?;
+                } else {
+                    bail!("Could not find required paramter");
+                }
+            }
+
+            RequiresRelocatedAddress(_num) => {
+                unimplemented!();
+                //                result = eval.resume_with_relocated_address(num)?; // TODO: Check and test if correct.
+            }
+
+            RequiresIndexedAddress {
+                index: _,
+                relocate: _,
+            } => {
+                // TODO: Check and test if correct. Also handle relocate flag
+                unimplemented!();
+                //                result = eval.resume_with_indexed_address(dwarf.address(unit, index)?)?;
+            }
+
+            RequiresBaseType(unit_offset) => {
+                let die = unit.entry(unit_offset)?;
+                let mut attrs = die.attrs();
+                while let Some(attr) = attrs.next().unwrap() {
+                    println!("Attribute name = {:?}", attr.name());
+                    println!("Attribute value = {:?}", attr.value());
+                }
+                unimplemented!();
+            }
+        };
+    }
+
+    Ok(eval.result())
+}
+
+/// Will parse the value of a `DW_TAG_base_type`.
+///
+/// Description:
+///
+/// * `unit` - A compilation unit which contains the type DIE pointed to by the given offset.
+/// * `unit` - The value to parse in bytes.
+/// * `base_type` - A offset into the given compilation unit which points to a DIE with the tag
+/// `DW_TAG_base_type`.
+///
+/// This function will parse the given value into the type given by the offset `base_type`.
+fn eval_base_type<R>(
+    unit: &gimli::Unit<R>,
+    data: Vec<u8>,
+    base_type: gimli::UnitOffset<usize>,
+) -> Result<BaseValue>
+where
+    R: Reader<Offset = usize>,
+{
+    if base_type.0 == 0 {
+        // NOTE: length can't be more then one word
+        let value = match data.len() {
+            0 => 0,
+            1 => u8::from_le_bytes(data.try_into().unwrap()) as u64,
+            2 => u16::from_le_bytes(data.try_into().unwrap()) as u64,
+            4 => u32::from_le_bytes(data.try_into().unwrap()) as u64,
+            8 => u64::from_le_bytes(data.try_into().unwrap()),
+            _ => unreachable!(),
+        };
+        return Ok(BaseValue::Generic(value));
+    }
+    let die = unit.entry(base_type)?;
+
+    // I think that the die returned must be a base type tag.
+    if die.tag() != gimli::DW_TAG_base_type {
+        bail!("Requires at the die has tag DW_TAG_base_type");
+    }
+
+    let encoding = match die.attr_value(gimli::DW_AT_encoding)? {
+        Some(gimli::AttributeValue::Encoding(dwate)) => dwate,
+        _ => bail!("Expected base type die to have attribute DW_AT_encoding"),
+    };
+
+    BaseValue::parse_base_type(data, encoding)
+}
+
+/// Will evaluate a value that is required when evaluating a expression into pieces.
+///
+/// Description:
+///
+/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+/// * `unit` - A compilation unit which contains the given DIE.
+/// * `pc` - A machine code address, usually the current code location.
+/// * `eval` - A gimli-rs `Evaluation` that will be continued with the new value.
+/// * `result` - A gimli-rs `EvaluationResult` that will be updated with the new evaluation result.
+/// * `frame_base` - The frame base address value.
+/// * `unit_offset` - A offset to the DIE that will be evaluated and added to the given
+/// `Evaluation` struct.
+/// * `registers` - A register struct for accessing the register values.
+/// * `mem` - A struct for accessing the memory of the debug target.
+///
+/// This function is a helper function for continuing a `Piece` evaluation where another value
+/// needs to be evaluated first.
+fn help_at_location<R: Reader<Offset = usize>, T: MemoryAccess>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    pc: u32,
+    eval: &mut Evaluation<R>,
+    result: &mut EvaluationResult<R>,
+    frame_base: Option<u64>,
+    unit_offset: UnitOffset<usize>,
+    registers: &Registers,
+    mem: &mut T,
+) -> Result<()>
+where
+    R: Reader<Offset = usize>,
+{
+    let die = unit.entry(unit_offset)?;
+    let location = match die.attr_value(gimli::DW_AT_location)? {
+        Some(val) => val,
+        None => bail!("Could not find location attribute"),
+    };
+    if let Some(expr) = location.exprloc_value() {
+        let val = call_evaluate(dwarf, pc, expr, frame_base, &unit, &die, registers, mem)?;
+
+        if let EvaluatorValue::Bytes(b) = val {
+            *result = eval.resume_with_at_location(b)?;
+            return Ok(());
+        } else {
+            bail!("Error expected bytes");
+        }
+    } else {
+        bail!("die has no at location");
+    }
 }
