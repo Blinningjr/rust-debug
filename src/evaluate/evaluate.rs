@@ -237,6 +237,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         pieces: &Vec<Piece<R>>,
         piece_index: &mut usize,
     ) -> Result<EvaluatorValue<R>> {
+        // TODO: Reimplement this function.
+
         if pieces.len() <= *piece_index {
             return Ok(EvaluatorValue::OptimizedOut);
         }
@@ -323,9 +325,9 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             }
         }
 
-        //        while bytes.len() > byte_size as usize {
-        //            bytes.pop();    // TODO: Think this loop can be removed
-        //        }
+        while all_bytes.len() > byte_size as usize {
+            all_bytes.pop(); // NOTE: Removes extra bytes if value is from register and less the 4 byts
+        }
 
         Ok(EvaluatorValue::Value(
             BaseTypeValue::parse_base_type(all_bytes.clone(), encoding)?,
@@ -368,9 +370,11 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Get byte size and encoding from the die.
                 let byte_size = attributes::byte_size_attribute(die)
                     .ok_or(anyhow!("Expected to have byte_size attribute"))?;
+
                 if byte_size == 0 {
                     return Ok(EvaluatorValue::ZeroSize);
                 }
+
                 let encoding = attributes::encoding_attribute(die)
                     .ok_or(anyhow!("Expected to habe encoding attribute"))?;
 
