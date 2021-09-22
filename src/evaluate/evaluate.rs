@@ -24,6 +24,9 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     /// A variant_part type and value.
     VariantPartValue(Box<VariantPartValue<R>>),
 
+    /// A subrange_type type and value.
+    SubrangeTypeValue(SubrangeTypeValue),
+
     /// gimli-rs bytes value.
     Bytes(R),
 
@@ -59,6 +62,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
             EvaluatorValue::PointerTypeValue(pt) => pt.fmt(f),
             EvaluatorValue::VariantValue(var) => var.fmt(f),
             EvaluatorValue::VariantPartValue(vpa) => vpa.fmt(f),
+            EvaluatorValue::SubrangeTypeValue(srt) => srt.fmt(f),
             EvaluatorValue::Bytes(byt) => write!(f, "{:?}", byt),
             EvaluatorValue::Array(arr) => arr.fmt(f),
             EvaluatorValue::Struct(stu) => stu.fmt(f),
@@ -87,6 +91,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     /// Will return the type of this value as a `String`.
     pub fn get_type(&self) -> String {
         match self {
+            // TODO Update
             EvaluatorValue::Value(val, _) => val.get_type(),
             EvaluatorValue::Array(arr) => arr.get_type(),
             EvaluatorValue::Struct(stu) => stu.get_type(),
@@ -428,59 +433,70 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                 check_alignment(die, data_offset, pieces, piece_index)?;
 
-                let children = get_children(unit, die)?;
-                let dimension_die = unit.entry(children[0])?;
-
-                let value = match dimension_die.tag() {
-                    gimli::DW_TAG_subrange_type => EvaluatorValue::eval_type(
-                        registers,
-                        mem,
-                        dwarf,
-                        unit,
-                        &dimension_die,
-                        data_offset,
-                        pieces,
-                        piece_index,
-                    )?,
-                    gimli::DW_TAG_enumeration_type => EvaluatorValue::eval_type(
-                        registers,
-                        mem,
-                        dwarf,
-                        unit,
-                        &dimension_die,
-                        data_offset,
-                        pieces,
-                        piece_index,
-                    )?,
-                    _ => unimplemented!(),
-                };
-
-                // Evaluate the length of the array.
-                let count = get_udata(match value.to_value() {
-                    Some(val) => val,
-                    None => return Ok(EvaluatorValue::OptimizedOut), // TODO: Maybe need to remove the following pieces that is related to this structure.
-                }) as usize;
-
-                // Get type attribute unit and die.
-                let (type_unit, die_offset) = get_type_info(dwarf, unit, die)?;
-                let type_die = &type_unit.entry(die_offset)?;
-
-                // Evaluate all the values in the array.
-                let mut values = vec![];
-                for _i in 0..count {
-                    values.push(EvaluatorValue::eval_type(
-                        registers,
-                        mem,
-                        dwarf,
-                        &type_unit,
-                        type_die,
-                        data_offset,
-                        pieces,
-                        piece_index,
-                    )?);
+                let mut children = get_children(unit, die)?;
+                let mut i = 0;
+                while i < children.len() {
+                    let die = unit.entry(children[i])?;
+                    match die.tag() {
+                        gimli::DW_TAG_subrange_type => (),
+                        _ => {
+                            let _c = children.remove(i);
+                            i -= 1;
+                        }
+                    }
+                    i += 1;
                 }
 
-                Ok(EvaluatorValue::Array(Box::new(ArrayTypeValue { values })))
+                if children.len() != 1 {
+                    unreachable!();
+                }
+
+                let dimension_die = unit.entry(children[0])?;
+
+                let subrange_type_value = match EvaluatorValue::eval_type(
+                    registers,
+                    mem,
+                    dwarf,
+                    unit,
+                    &dimension_die,
+                    data_offset,
+                    pieces,
+                    piece_index,
+                )? {
+                    EvaluatorValue::SubrangeTypeValue(subrange_type_value) => subrange_type_value,
+                    _ => unreachable!(),
+                };
+
+                let mut values = vec![];
+
+                // Evaluate all the values in the array.
+                match subrange_type_value.get_count() {
+                    Some(count) => {
+                        // Get type attribute unit and die.
+                        let (type_unit, die_offset) = get_type_info(dwarf, unit, die)?;
+                        let type_die = &type_unit.entry(die_offset)?;
+
+                        // Evaluate all the values in the array.
+                        for _i in 0..count {
+                            values.push(EvaluatorValue::eval_type(
+                                registers,
+                                mem,
+                                dwarf,
+                                &type_unit,
+                                type_die,
+                                data_offset,
+                                pieces,
+                                piece_index,
+                            )?);
+                        }
+                    }
+                    None => (),
+                };
+
+                Ok(EvaluatorValue::Array(Box::new(ArrayTypeValue {
+                    subrange_type_value,
+                    values,
+                })))
             }
             gimli::DW_TAG_structure_type => {
                 // Make sure that the die has the tag DW_TAG_structure_type.
@@ -869,36 +885,47 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_subrange_type die, this should never happen"),
                 };
 
+                let lower_bound = attributes::lower_bound_attribute(die);
+
                 // If the die has a count attribute then that is the value.
                 match attributes::count_attribute(die) {
                     // NOTE: This could be replace with lower and upper bound
-                    Some(val) => {
-                        return Ok(EvaluatorValue::Value(
-                            BaseTypeValue::U64(val),
-                            ValueInformation::new(None, vec![ValuePiece::Dwarf { value: None }]),
-                        ))
+                    Some(count) => Ok(EvaluatorValue::SubrangeTypeValue(SubrangeTypeValue {
+                        lower_bound,
+                        count: Some(count),
+                        base_type_value: None,
+                    })),
+                    None => {
+                        // Get the type unit and die.
+                        let (type_unit, die_offset) = match get_type_info(dwarf, unit, die) {
+                            Ok(val) => val,
+                            Err(_) => bail!("Expected subrange type die to have type information"),
+                        };
+                        let type_die = &type_unit.entry(die_offset)?;
+
+                        // Evaluate the type attribute value.
+                        let base_type_value = match EvaluatorValue::eval_type(
+                            registers,
+                            mem,
+                            dwarf,
+                            &type_unit,
+                            type_die,
+                            data_offset,
+                            pieces,
+                            piece_index,
+                        )? {
+                            EvaluatorValue::Value(base_type_value, value_information) => {
+                                Some((base_type_value, value_information))
+                            }
+                            _ => unreachable!(),
+                        };
+                        Ok(EvaluatorValue::SubrangeTypeValue(SubrangeTypeValue {
+                            lower_bound,
+                            count: None,
+                            base_type_value,
+                        }))
                     }
-                    None => (),
-                };
-
-                // Get the type unit and die.
-                let (type_unit, die_offset) = match get_type_info(dwarf, unit, die) {
-                    Ok(val) => val,
-                    Err(_) => bail!("Expected subrange type die to have type information"),
-                };
-                let type_die = &type_unit.entry(die_offset)?;
-
-                // Evaluate the type attribute value.
-                Ok(EvaluatorValue::eval_type(
-                    registers,
-                    mem,
-                    dwarf,
-                    &type_unit,
-                    type_die,
-                    data_offset,
-                    pieces,
-                    piece_index,
-                )?)
+                }
             }
             gimli::DW_TAG_subroutine_type => unimplemented!(),
             gimli::DW_TAG_subprogram => unimplemented!(),
@@ -969,6 +996,9 @@ fn format_types<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> S
 /// Struct that represents a array type.
 #[derive(Debug, Clone)]
 pub struct ArrayTypeValue<R: Reader<Offset = usize>> {
+    /// subrange_type information.
+    pub subrange_type_value: SubrangeTypeValue,
+
     /// The list of values in the array.
     pub values: Vec<EvaluatorValue<R>>,
 }
@@ -1218,6 +1248,52 @@ impl<R: Reader<Offset = usize>> VariantPartValue<R> {
         match &self.variant {
             Some(variant) => format!("{}", variant),
             None => format!("",),
+        }
+    }
+}
+
+/// Struct that represents a variant.
+#[derive(Debug, Clone)]
+pub struct SubrangeTypeValue {
+    /// The lowser bound
+    pub lower_bound: Option<u64>,
+
+    /// The count
+    pub count: Option<u64>,
+
+    /// The count value but evaluated. // TODO: Combine count and number to one attriute.
+    pub base_type_value: Option<(BaseTypeValue, ValueInformation)>,
+    // DW_TAG_variant contains:
+    // * DW_AT_type
+    // * DW_AT_lower_bound
+    // * DW_AT_count
+}
+
+impl fmt::Display for SubrangeTypeValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match self.get_count() {
+            Some(count) => write!(f, "{}", count),
+            None => write!(f, ""),
+        };
+    }
+}
+
+impl SubrangeTypeValue {
+    /// Get the type of the subrange_type as a `String`.
+    pub fn get_type(&self) -> String {
+        match &self.base_type_value {
+            Some((val, _)) => format!("{}", val.get_type()),
+            None => format!("u64"),
+        }
+    }
+
+    pub fn get_count(&self) -> Option<u64> {
+        match self.count {
+            Some(val) => Some(val),
+            None => match &self.base_type_value {
+                Some((btv, _)) => Some(get_udata(btv.clone())),
+                None => None,
+            },
         }
     }
 }
