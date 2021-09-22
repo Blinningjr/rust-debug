@@ -502,22 +502,64 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 };
 
                 // This vill evaluate the address
-                match address_class.0 {
+                let address = match address_class.0 {
                     0 => {
-                        let address = EvaluatorValue::handle_eval_piece(
+                        EvaluatorValue::handle_eval_piece(
                             registers,
                             mem,
                             4, // This Should be set dependent on the system(4 for 32 bit systems)
                             data_offset,
                             DwAte(1),
                             pieces,
-                        )?;
-                        return Ok(EvaluatorValue::PointerTypeValue(Box::new(
-                            PointerTypeValue { name, address },
-                        )));
+                        )?
                     }
                     _ => bail!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
                 };
+
+                let value = match (attributes::type_attribute(dwarf, unit, die)?, &address) {
+                    (
+                        Some((section_offset, unit_offset)),
+                        EvaluatorValue::Value(BaseTypeValue::Address32(address_value), _),
+                    ) => {
+                        // Get the variable die.
+                        let header = dwarf.debug_info.header_from_offset(
+                            match section_offset.as_debug_info_offset() {
+                                Some(val) => val,
+                                None => {
+                                    bail!("Could not convert section offset into debug info offset")
+                                }
+                            },
+                        )?;
+
+                        let type_unit = gimli::Unit::new(dwarf, header)?;
+                        let type_die = unit.entry(unit_offset)?;
+                        let mut new_pieces = vec![MyPiece::new(Piece {
+                            size_in_bits: None,
+                            bit_offset: None,
+                            location: Location::<R>::Address {
+                                address: *address_value as u64,
+                            },
+                        })];
+                        EvaluatorValue::eval_type(
+                            registers,
+                            mem,
+                            dwarf,
+                            &type_unit,
+                            &type_die,
+                            0,
+                            &mut new_pieces,
+                        )?
+                    }
+                    _ => EvaluatorValue::OptimizedOut,
+                };
+
+                return Ok(EvaluatorValue::PointerTypeValue(Box::new(
+                    PointerTypeValue {
+                        name,
+                        address,
+                        value,
+                    },
+                )));
 
                 // TODO: Use DW_AT_type and the evaluated address to evaluate the pointer.
             }
@@ -1211,7 +1253,9 @@ pub struct PointerTypeValue<R: Reader<Offset = usize>> {
 
     /// The value of the attribute.
     pub address: EvaluatorValue<R>,
-    // TODO: Add ponterd to value.
+
+    /// The value stored at the pointed location
+    pub value: EvaluatorValue<R>,
     // DW_TAG_pointer_type contains:
     // * DW_AT_type
     // * DW_AT_name
@@ -1221,8 +1265,8 @@ pub struct PointerTypeValue<R: Reader<Offset = usize>> {
 impl<R: Reader<Offset = usize>> fmt::Display for PointerTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match &self.name {
-            Some(name) => write!(f, "{}::{}", name, self.address),
-            None => write!(f, "{}", self.address),
+            Some(name) => write!(f, "{}::{}", name, self.value),
+            None => write!(f, "{}", self.value),
         };
     }
 }
@@ -1231,8 +1275,8 @@ impl<R: Reader<Offset = usize>> PointerTypeValue<R> {
     /// Get the type of the pointer type as a `String`.
     pub fn get_type(&self) -> String {
         match &self.name {
-            Some(name) => format!("{}::{}", name, self.address.get_type()),
-            None => format!("{}", self.address.get_type()),
+            Some(name) => format!("{}::{}", name, self.value.get_type()),
+            None => format!("{}", self.value.get_type()),
         }
     }
 }
