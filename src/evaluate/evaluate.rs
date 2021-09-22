@@ -18,6 +18,9 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     /// A pointer_type type and value.
     PointerTypeValue(Box<PointerTypeValue<R>>),
 
+    /// A Variant type and value.
+    VariantValue(Box<VariantValue<R>>),
+
     /// gimli-rs bytes value.
     Bytes(R),
 
@@ -51,6 +54,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
         return match self {
             EvaluatorValue::Value(val, _) => val.fmt(f),
             EvaluatorValue::PointerTypeValue(pt) => pt.fmt(f),
+            EvaluatorValue::VariantValue(var) => var.fmt(f),
             EvaluatorValue::Bytes(byt) => write!(f, "{:?}", byt),
             EvaluatorValue::Array(arr) => arr.fmt(f),
             EvaluatorValue::Struct(stu) => stu.fmt(f),
@@ -108,7 +112,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 }
                 info
             }
-            EvaluatorValue::Enum(en) => en.value.get_variable_information(),
+            EvaluatorValue::Enum(en) => en.variant.get_variable_information(),
             EvaluatorValue::Union(un) => {
                 let mut info = vec![];
                 for val in un.members {
@@ -671,7 +675,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 let type_die = &type_unit.entry(die_offset)?;
 
                 // Get type value.
-                let type_result = EvaluatorValue::eval_type(
+                let variant = EvaluatorValue::eval_type(
                     registers,
                     mem,
                     dwarf,
@@ -682,59 +686,43 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     piece_index,
                 )?;
 
-                // Get the value as a unsigned int.
-                let value = get_udata(match type_result.to_value() {
-                    Some(val) => val,
-                    None => return Ok(EvaluatorValue::OptimizedOut), // TODO: Maybe need to remove the following pieces that is related to this structure.
-                });
-
                 // Go through the children and find the correct enumerator value.
                 let children = get_children(unit, die)?;
 
-                let clen = children.len() as u64;
-
+                let mut enumerators = vec![];
                 for c in children {
                     let c_die = unit.entry(c)?;
                     match c_die.tag() {
                         gimli::DW_TAG_enumerator => {
+                            let name = attributes::name_attribute(dwarf, &c_die);
+
                             let const_value = match attributes::const_value_attribute(&c_die) {
                                 Some(val) => val,
                                 None => bail!(
-                                "Expected enumeration type die to have attribute DW_AT_const_value"
-                            ),
+                                    "Expected enumeration type die to have attribute DW_AT_const_value"
+                                ),
                             };
 
-                            // Check if it is the correct one.
-                            if const_value == value % clen {
-                                // Get the name of the enum type and the enum variant.
-                                let name = match attributes::name_attribute(dwarf, die) {
-                                    Some(val) => val,
-                                    None => {
-                                        bail!("Expected enumeration type die to have attribute DW_AT_name")
-                                    }
-                                };
-
-                                let e_name = match attributes::name_attribute(dwarf, &c_die) {
-                                    Some(val) => val,
-                                    None => {
-                                        bail!(
-                                            "Expected enumerator die to have attribute DW_AT_name"
-                                        )
-                                    }
-                                };
-
-                                return Ok(EvaluatorValue::Enum(Box::new(EnumerationTypeValue {
-                                    name,
-                                    value: EvaluatorValue::Name(e_name),
-                                })));
-                            }
+                            enumerators.push(EnumeratorValue { name, const_value });
                         }
                         gimli::DW_TAG_subprogram => (),
                         _ => unimplemented!(),
                     };
                 }
 
-                unreachable!()
+                // Get the name of the enum type and the enum variant.
+                let name = match attributes::name_attribute(dwarf, die) {
+                    Some(val) => val,
+                    None => {
+                        bail!("Expected enumeration type die to have attribute DW_AT_name")
+                    }
+                };
+
+                Ok(EvaluatorValue::Enum(Box::new(EnumerationTypeValue {
+                    name,
+                    variant,
+                    enumerators,
+                })))
             }
             gimli::DW_TAG_variant_part => {
                 // Make sure that the die has tag DW_TAG_variant_part
@@ -825,6 +813,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             gimli::DW_TAG_variant => {
                 check_alignment(die, data_offset, pieces, piece_index)?;
 
+                let mut members = vec![];
+
                 // Find the child die of type DW_TAG_member
                 let children = get_children(unit, die)?;
                 for c in children {
@@ -832,7 +822,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     match c_die.tag() {
                         gimli::DW_TAG_member => {
                             // Evaluate the value of the member.
-                            let value = EvaluatorValue::eval_type(
+                            let member = match EvaluatorValue::eval_type(
                                 registers,
                                 mem,
                                 dwarf,
@@ -841,24 +831,27 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 data_offset,
                                 pieces,
                                 piece_index,
-                            )?;
-
-                            // Get the name of the die.
-                            let name = match attributes::name_attribute(dwarf, &c_die) {
-                                Some(val) => val,
-                                None => bail!("Expected member die to have attribute DW_AT_name"),
+                            )? {
+                                EvaluatorValue::Member(member) => member,
+                                _ => unreachable!(),
                             };
 
-                            return Ok(EvaluatorValue::Enum(Box::new(EnumerationTypeValue {
-                                name,
-                                value,
-                            })));
+                            members.push(member);
                         }
                         _ => (),
                     };
                 }
 
-                unreachable!();
+                if members.len() != 1 {
+                    unreachable!(); // DW_TAG_variant should only have one member child.
+                }
+
+                let discr_value = attributes::discr_value_attribute(die);
+
+                Ok(EvaluatorValue::VariantValue(Box::new(VariantValue {
+                    discr_value,
+                    child: *members[0].clone(),
+                })))
             }
             gimli::DW_TAG_subrange_type => {
                 // Make sure that the die has the tag DW_TAG_subrange_type
@@ -1013,20 +1006,23 @@ pub struct EnumerationTypeValue<R: Reader<Offset = usize>> {
     /// The name of the Enum.
     pub name: String,
 
+    /// The name of the Enum.
+    pub variant: EvaluatorValue<R>,
+
     /// The value of the enum.
-    pub value: EvaluatorValue<R>,
+    pub enumerators: Vec<EnumeratorValue>,
 }
 
 impl<R: Reader<Offset = usize>> fmt::Display for EnumerationTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}::{}", self.name, self.value)
+        write!(f, "{}::{}", self.name, self.variant)
     }
 }
 
 impl<R: Reader<Offset = usize>> EnumerationTypeValue<R> {
     /// Get the type of the enum as a `String`.
     pub fn get_type(&self) -> String {
-        format!("{}::{}", self.name, self.value.get_type())
+        format!("{}::{}", self.name, self.variant.get_type())
     }
 }
 
@@ -1107,11 +1103,72 @@ impl<R: Reader<Offset = usize>> fmt::Display for PointerTypeValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> PointerTypeValue<R> {
-    /// Get the type of the attribute as a `String`.
+    /// Get the type of the pointer type as a `String`.
     pub fn get_type(&self) -> String {
         match &self.name {
             Some(name) => format!("{}::{}", name, self.address.get_type()),
             None => format!("{}", self.address.get_type()),
+        }
+    }
+}
+
+/// Struct that represents a enumerator.
+#[derive(Debug, Clone)]
+pub struct EnumeratorValue {
+    /// The name of the enumerator.
+    pub name: Option<String>,
+
+    /// The value of the attribute.
+    pub const_value: u64,
+    // DW_TAG_enumerator contains:
+    // * DW_AT_name
+    // * DW_AT_const_value
+}
+
+impl fmt::Display for EnumeratorValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match &self.name {
+            Some(name) => write!(f, "{}::{}", name, self.const_value),
+            None => write!(f, "{}", self.const_value),
+        };
+    }
+}
+
+impl EnumeratorValue {
+    /// Get the type of the enumerator as a `String`.
+    pub fn get_type(&self) -> String {
+        format!("{:?}", self.name)
+    }
+}
+
+/// Struct that represents a variant.
+#[derive(Debug, Clone)]
+pub struct VariantValue<R: Reader<Offset = usize>> {
+    /// The discr value
+    pub discr_value: Option<u64>,
+
+    /// The child value
+    pub child: MemberValue<R>,
+    // DW_TAG_pointer_type contains:
+    // * DW_AT_discr_value
+    // * A child with tag DW_TAG_member
+}
+
+impl<R: Reader<Offset = usize>> fmt::Display for VariantValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match &self.discr_value {
+            Some(discr) => write!(f, "{}::{}", discr, self.child),
+            None => write!(f, "{}", self.child),
+        };
+    }
+}
+
+impl<R: Reader<Offset = usize>> VariantValue<R> {
+    /// Get the type of the variant as a `String`.
+    pub fn get_type(&self) -> String {
+        match &self.discr_value {
+            Some(discr) => format!("{} {}", discr, self.child.get_type()),
+            None => format!("{}", self.child.get_type()),
         }
     }
 }
