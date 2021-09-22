@@ -9,6 +9,51 @@ use anyhow::{anyhow, bail, Result};
 
 use std::fmt;
 
+/// A wrapper for `gimli::Piece` which also contains a boolean that describes if this piece has
+/// already been used to evaluate a value.
+/// This means that the offset in the type information should be used.
+#[derive(Debug, Clone)]
+struct MyPiece<R: Reader<Offset = usize>> {
+    /// The piece which contains location information.
+    pub piece: Piece<R>,
+
+    /// Is true if this piece has already been used to evaluate a value.
+    pub used_before: bool,
+}
+impl<R: Reader<Offset = usize>> MyPiece<R> {
+    /// Creates a new `MyPiece`.
+    pub fn new(piece: Piece<R>) -> MyPiece<R> {
+        MyPiece {
+            piece,
+            used_before: false,
+        }
+    }
+
+    /// Updates the size in_bits value and return a boolean which tells if the piece is consumed
+    /// and should be removed.
+    ///
+    /// Description:
+    ///
+    /// * `bit_size` - How many bits of data needed from the piece.
+    pub fn should_remove(&mut self, bit_size: u64) -> bool {
+        match self.piece.size_in_bits {
+            Some(val) => {
+                if val > bit_size {
+                    self.piece.size_in_bits = Some(val - bit_size);
+                    self.used_before = true;
+                    false
+                } else {
+                    true
+                }
+            }
+            None => {
+                self.used_before = true;
+                false
+            }
+        }
+    }
+}
+
 /// Describes all the different Rust types values in the form of a tree structure.
 #[derive(Debug, Clone)]
 pub enum EvaluatorValue<R: Reader<Offset = usize>> {
@@ -189,6 +234,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         // Get the die of the current state.
         let die = &unit.entry(die_offset)?;
 
+        let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
+
         // Continue evaluating the value of the current state.
         EvaluatorValue::eval_type(
             registers,
@@ -197,8 +244,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             &unit,
             die,
             data_offset,
-            pieces,
-            &mut 0,
+            &mut my_pieces,
         )
     }
 
@@ -214,7 +260,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         mem: &mut M,
         pieces: &Vec<Piece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-        EvaluatorValue::handle_eval_piece(registers, mem, 4, 0, DwAte(1), pieces, &mut 0)
+        let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
+        EvaluatorValue::handle_eval_piece(registers, mem, 4, 0, DwAte(1), &mut my_pieces)
     }
 
     /// Will maybe consume a number of pieces to evaluate a base type.
@@ -227,45 +274,42 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     /// * `data_offset` - The memory address offset.
     /// * `encoding` - The encoding of the base type.
     /// * `pieces` - A list of pieces containing the location and size information.
-    /// * `piece_index` - The piece to first consume if needed, this index increases when a piece is consumed.
     fn handle_eval_piece<M: MemoryAccess>(
         registers: &Registers,
         mem: &mut M,
         byte_size: u64,
-        mut data_offset: u64,
+        data_offset: u64,
         encoding: DwAte,
-        pieces: &Vec<Piece<R>>,
-        piece_index: &mut usize,
+        pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-        // TODO: Reimplement this function.
-
-        if pieces.len() <= *piece_index {
+        if pieces.len() == 0 {
             return Ok(EvaluatorValue::OptimizedOut);
-        }
-
-        // TODO: confirm
-        if pieces.len() > 1 {
-            // NOTE: Is this correct?
-            data_offset = 0;
-        }
-
-        // TODO: confirm if this is correct
-        if pieces.len() > 1 {
-            data_offset = 0;
         }
 
         let mut all_bytes = vec![];
         let mut value_pieces = vec![];
         while all_bytes.len() < byte_size.try_into()? {
-            if pieces.len() <= *piece_index {
+            if pieces.len() == 0 {
+                //return Ok(EvaluatorValue::OptimizedOut);
                 unreachable!();
                 //return Ok(EvaluatorValue::OptimizedOut);
             }
-            let piece = pieces[*piece_index].clone();
 
             // Evaluate the bytes needed from one gimli::Piece.
-            match piece.location {
-                Location::Empty => return Ok(EvaluatorValue::OptimizedOut),
+            match pieces[0].piece.clone().location {
+                Location::Empty => {
+                    // Remove piece if whole object is used.
+                    let bit_size = {
+                        if byte_size < all_bytes.len() as u64 {
+                            8 * all_bytes.len() as u64
+                        } else {
+                            8 * (byte_size - all_bytes.len() as u64)
+                        }
+                    };
+                    if pieces[0].should_remove(bit_size) {
+                        return Ok(EvaluatorValue::OptimizedOut);
+                    }
+                }
                 Location::Register { ref register } => {
                     match registers.get_register_value(&register.0) {
                         Some(val) => {
@@ -273,22 +317,41 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             let mut bytes = vec![];
                             bytes.extend_from_slice(&val.to_le_bytes());
 
-                            bytes = trim_piece_bytes(bytes, &piece, 4);
-                            let byte_size = bytes.len();
+                            bytes = trim_piece_bytes(bytes, &pieces[0].piece, 4); // 4 because 32 bit registers
+                            let bytes_len = bytes.len();
 
                             all_bytes.extend_from_slice(&bytes);
                             value_pieces.extend_from_slice(&vec![ValuePiece::Register {
                                 register: register.0,
-                                byte_size: byte_size,
+                                byte_size: bytes_len,
                             }]);
+
+                            // Remove piece if whole object is used.
+                            let bit_size = {
+                                if byte_size < all_bytes.len() as u64 {
+                                    8 * all_bytes.len() as u64
+                                } else {
+                                    8 * (byte_size - all_bytes.len() as u64)
+                                }
+                            };
+                            if pieces[0].should_remove(bit_size) {
+                                return Ok(EvaluatorValue::OptimizedOut);
+                            }
                         }
                         None => return Err(anyhow!("Requires reg")),
                     };
                 }
                 Location::Address { mut address } => {
-                    address += data_offset;
+                    // Check if `data_offset` should be used.
+                    address += {
+                        if pieces[0].used_before {
+                            data_offset
+                        } else {
+                            0
+                        }
+                    };
 
-                    let num_bytes = match piece.size_in_bits {
+                    let num_bytes = match pieces[0].piece.size_in_bits {
                         Some(val) => (val + 8 - 1) / 8,
                         None => byte_size,
                     } as usize;
@@ -303,11 +366,31 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         address: address as u32,
                         byte_size: num_bytes,
                     }]);
-                    if pieces[*piece_index].size_in_bits.is_some() {
-                        *piece_index += 1;
+                    // Remove piece if whole object is used.
+                    let bit_size = {
+                        if byte_size < all_bytes.len() as u64 {
+                            8 * all_bytes.len() as u64
+                        } else {
+                            8 * (byte_size - all_bytes.len() as u64)
+                        }
+                    };
+                    if pieces[0].should_remove(bit_size) {
+                        return Ok(EvaluatorValue::OptimizedOut);
                     }
                 }
                 Location::Value { value } => {
+                    // Remove piece if whole object is used.
+                    let bit_size = {
+                        if byte_size < all_bytes.len() as u64 {
+                            8 * all_bytes.len() as u64
+                        } else {
+                            8 * (byte_size - all_bytes.len() as u64)
+                        }
+                    };
+                    if pieces[0].should_remove(bit_size) {
+                        return Ok(EvaluatorValue::OptimizedOut);
+                    }
+
                     return Ok(EvaluatorValue::Value(
                         convert_from_gimli_value(value),
                         ValueInformation {
@@ -317,7 +400,21 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     ));
                 }
 
-                Location::Bytes { value } => return Ok(EvaluatorValue::Bytes(value.clone())),
+                Location::Bytes { value } => {
+                    // Remove piece if whole object is used.
+                    let bit_size = {
+                        if byte_size < all_bytes.len() as u64 {
+                            8 * all_bytes.len() as u64
+                        } else {
+                            8 * (byte_size - all_bytes.len() as u64)
+                        }
+                    };
+                    if pieces[0].should_remove(bit_size) {
+                        return Ok(EvaluatorValue::OptimizedOut);
+                    }
+
+                    return Ok(EvaluatorValue::Bytes(value.clone()));
+                }
                 Location::ImplicitPointer {
                     value: _,
                     byte_offset: _,
@@ -346,7 +443,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     /// * `die` - The current type die in the type tree.
     /// * `data_offset` - The memory address offset.
     /// * `pieces` - A list of pieces containing the location and size information.
-    /// * `piece_index` - The piece to first consume if needed, this index increases when a piece is consumed.
     fn eval_type<M: MemoryAccess>(
         registers: &Registers,
         mem: &mut M,
@@ -354,8 +450,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         unit: &gimli::Unit<R>,
         die: &gimli::DebuggingInformationEntry<'_, '_, R>,
         data_offset: u64,
-        pieces: &Vec<Piece<R>>,
-        piece_index: &mut usize,
+        pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
         match die.tag() {
             gimli::DW_TAG_base_type => {
@@ -365,7 +460,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_base_type die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 // Get byte size and encoding from the die.
                 let byte_size = attributes::byte_size_attribute(die)
@@ -386,7 +481,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     data_offset, // TODO
                     encoding,
                     pieces,
-                    piece_index,
                 )
             }
             gimli::DW_TAG_pointer_type => {
@@ -396,7 +490,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_pointer_type die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 // Get the name of the pointer type.
                 let name = attributes::name_attribute(dwarf, die);
@@ -417,7 +511,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             data_offset,
                             DwAte(1),
                             pieces,
-                            piece_index,
                         )?;
                         return Ok(EvaluatorValue::PointerTypeValue(Box::new(
                             PointerTypeValue { name, address },
@@ -435,7 +528,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_array_type die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 let mut children = get_children(unit, die)?;
                 let mut i = 0;
@@ -465,7 +558,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     &dimension_die,
                     data_offset,
                     pieces,
-                    piece_index,
                 )? {
                     EvaluatorValue::SubrangeTypeValue(subrange_type_value) => subrange_type_value,
                     _ => unreachable!(),
@@ -490,7 +582,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 type_die,
                                 data_offset,
                                 pieces,
-                                piece_index,
                             )?);
                         }
                     }
@@ -509,7 +600,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_structure_type die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 let name = match attributes::name_attribute(dwarf, die) {
                     Some(val) => val,
@@ -533,7 +624,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 &c_die,
                                 data_offset,
                                 pieces,
-                                piece_index,
                             )?];
 
                             return Ok(EvaluatorValue::Struct(Box::new(StructureTypeValue {
@@ -571,7 +661,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             m_die,
                             data_offset,
                             pieces,
-                            piece_index,
                         )?,
                         _ => panic!("Unexpected die"),
                     };
@@ -590,7 +679,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_union_type die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 let name = match attributes::name_attribute(dwarf, die) {
                     Some(val) => val,
@@ -633,7 +722,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             m_die,
                             data_offset,
                             pieces,
-                            piece_index,
                         )?,
                         _ => panic!("Unexpected die"),
                     };
@@ -662,7 +750,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     None => data_offset,
                 };
 
-                check_alignment(die, new_data_offset, pieces, piece_index)?;
+                check_alignment(die, new_data_offset, pieces)?;
 
                 // Get the type attribute unit and die.
                 let (type_unit, die_offset) = get_type_info(dwarf, unit, die)?;
@@ -677,7 +765,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     type_die,
                     new_data_offset,
                     pieces,
-                    piece_index,
                 )?;
 
                 Ok(EvaluatorValue::Member(Box::new(MemberValue {
@@ -692,7 +779,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_enumeration_type die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 // Get type attribute unit and die.
                 let (type_unit, die_offset) = get_type_info(dwarf, unit, die)?;
@@ -707,7 +794,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     type_die,
                     data_offset,
                     pieces,
-                    piece_index,
                 )?;
 
                 // Go through the children and find the correct enumerator value.
@@ -755,7 +841,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => bail!("Expected DW_TAG_variant_part die, this should never happen"),
                 };
 
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 // Get the enum variant.
                 // TODO: If variant is optimised out then return optimised out and remove the pieces for
@@ -775,7 +861,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 member_die,
                                 data_offset,
                                 pieces,
-                                piece_index,
                             )? {
                                 EvaluatorValue::Member(member) => Some(*member),
                                 _ => unreachable!(),
@@ -795,7 +880,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     None => None,
                 };
 
-                let original_piece_index = piece_index.clone();
+                let original_pieces = pieces.clone();
                 // Find  all the DW_TAG_variant dies and evaluate them.
                 let mut variants = vec![];
                 let children = get_children(unit, die)?;
@@ -803,7 +888,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     let c_die = unit.entry(*c)?;
                     match c_die.tag() {
                         gimli::DW_TAG_variant => {
-                            let mut temp_piece_index = original_piece_index;
+                            let mut temp_pieces = original_pieces.clone();
                             // Evaluate the value of the variant.
                             let variant = match EvaluatorValue::eval_type(
                                 registers,
@@ -812,8 +897,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 unit,
                                 &c_die,
                                 data_offset,
-                                pieces,
-                                &mut temp_piece_index,
+                                &mut temp_pieces,
                             )? {
                                 EvaluatorValue::VariantValue(variant) => variant,
                                 _ => unreachable!(),
@@ -823,7 +907,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 (Some(discr_value), Some(variant_num)) => {
                                     // If This is the variant then update the piece index.
                                     if discr_value == variant_num {
-                                        *piece_index = temp_piece_index;
+                                        *pieces = temp_pieces;
                                     }
                                 }
                                 _ => (),
@@ -840,7 +924,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 )))
             }
             gimli::DW_TAG_variant => {
-                check_alignment(die, data_offset, pieces, piece_index)?;
+                check_alignment(die, data_offset, pieces)?;
 
                 let mut members = vec![];
 
@@ -859,7 +943,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 &c_die,
                                 data_offset,
                                 pieces,
-                                piece_index,
                             )? {
                                 EvaluatorValue::Member(member) => member,
                                 _ => unreachable!(),
@@ -916,7 +999,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             type_die,
                             data_offset,
                             pieces,
-                            piece_index,
                         )? {
                             EvaluatorValue::Value(base_type_value, value_information) => {
                                 Some((base_type_value, value_information))
@@ -1528,16 +1610,14 @@ fn get_type_info<R: Reader<Offset = usize>>(
 /// * `die` - The type DIE to check alignment for.
 /// * `data_offset` - The memory address offset.
 /// * `pieces` - A list of pieces containing the location and size information.
-/// * `piece_index` - The piece to first consume if needed, this index increases when a piece is consumed.
 fn check_alignment<R: Reader<Offset = usize>>(
     die: &gimli::DebuggingInformationEntry<'_, '_, R>,
     mut data_offset: u64,
-    pieces: &Vec<Piece<R>>,
-    piece_index: &mut usize,
+    pieces: &Vec<MyPiece<R>>,
 ) -> Result<()> {
     match attributes::alignment_attribute(die) {
         Some(alignment) => {
-            if pieces.len() <= *piece_index {
+            if pieces.len() == 0 {
                 return Ok(());
             }
 
@@ -1545,7 +1625,7 @@ fn check_alignment<R: Reader<Offset = usize>>(
                 data_offset = 0;
             }
 
-            match pieces[*piece_index].location {
+            match pieces[0].piece.location {
                 Location::Address { address } => {
                     let mut addr = address + (data_offset / 4) * 4;
                     addr -= addr % 4; // TODO: Is this correct?
