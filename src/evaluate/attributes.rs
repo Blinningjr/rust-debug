@@ -237,3 +237,24 @@ pub fn discr_value_attribute<R: Reader<Offset = usize>>(
         _ => None,
     };
 }
+
+/// This function will return the value of the lower_bound attribute in the given DIE.
+///
+/// Description:
+///
+/// * `die` - A reference to a gimli-rs `Die` struct.
+///
+/// This function will try to retrieve the value of the attribute `DW_AT_lower_bound` from the given DIE.
+pub fn lower_bound_attribute<R: Reader<Offset = usize>>(
+    die: &DebuggingInformationEntry<R>,
+) -> Option<u64> {
+    return match die.attr_value(gimli::DW_AT_lower_bound).ok()? {
+        Some(Data1(val)) => Some(val as u64),
+        Some(Udata(val)) => Some(val),
+        Some(Sdata(val)) => Some(val as u64),
+        Some(unknown) => {
+            panic!("Unimplemented for {:?}", unknown);
+        }
+        _ => None,
+    };
+}
