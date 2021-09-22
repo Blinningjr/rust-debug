@@ -9,20 +9,37 @@ use anyhow::{anyhow, bail, Result};
 
 use std::fmt;
 
+/// Describes all the different Rust types values in the form of a tree structure.
 #[derive(Debug, Clone)]
 pub enum EvaluatorValue<R: Reader<Offset = usize>> {
+    /// A base_type type and value with location information.
     Value(BaseValue, ValueInformation),
+
+    /// gimli-rs bytes value.
     Bytes(R),
 
+    /// A array type value.
     Array(Box<ArrayValue<R>>),
+
+    /// A struct type value.
     Struct(Box<StructValue<R>>),
+
+    /// A enum type value.
     Enum(Box<EnumValue<R>>),
+
+    /// A union type value.
     Union(Box<UnionValue<R>>),
+
+    /// A attribute type value.
     Member(Box<MemberValue<R>>),
+
+    /// A type with only a name as the value.
     Name(String),
 
-    OutOfRange,   // NOTE: Variable does not have a value currently.
+    /// The value is optimized away.
     OptimizedOut, // NOTE: Value is optimized out.
+
+    /// The value is size 0 bits.
     ZeroSize,
 }
 
@@ -37,7 +54,6 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
             EvaluatorValue::Union(uni) => uni.fmt(f),
             EvaluatorValue::Member(mem) => mem.fmt(f),
             EvaluatorValue::Name(nam) => nam.fmt(f),
-            EvaluatorValue::OutOfRange => write!(f, "< OutOfRange >"),
             EvaluatorValue::OptimizedOut => write!(f, "< OptimizedOut >"),
             EvaluatorValue::ZeroSize => write!(f, "< ZeroSize >"),
         };
@@ -45,17 +61,18 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
+    /// Will return this value as a `BaseValue` struct if possible.
     pub fn to_value(self) -> Option<BaseValue> {
         match self {
             EvaluatorValue::Value(val, _) => Some(val),
             EvaluatorValue::Member(val) => val.value.to_value(),
-            EvaluatorValue::OutOfRange => None,
             EvaluatorValue::OptimizedOut => None,
             EvaluatorValue::ZeroSize => None,
             _ => None, // TODO: Find a better solution then this.
         }
     }
 
+    /// Will return the type of this value as a `String`.
     pub fn get_type(&self) -> String {
         match self {
             EvaluatorValue::Value(val, _) => val.get_type(),
@@ -69,6 +86,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         }
     }
 
+    /// Will return a `Vec` of location and unparsed value infromation about the value.
     pub fn get_variable_information(self) -> Vec<ValueInformation> {
         match self {
             EvaluatorValue::Value(_, var_info) => vec![var_info],
@@ -101,16 +119,23 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     vec![ValuePiece::Dwarf { value: None }],
                 )]
             }
-            EvaluatorValue::OutOfRange => {
-                vec![ValueInformation::new(
-                    None,
-                    vec![ValuePiece::Dwarf { value: None }],
-                )]
-            }
             _ => vec![],
         }
     }
 
+    /// Evaluate a list of `Piece`s into a value and parse it to the given type.
+    ///
+    /// Description:
+    ///
+    /// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+    /// * `registers` - A register struct for accessing the register values.
+    /// * `mem` - A struct for accessing the memory of the debug target.
+    /// * `pieces` - A list of gimli-rs pieces containing the location information..
+    /// * `unit_offset` - A offset to the `Unit` which contains the given type DIE.
+    /// * `die_offset` - A offset to the DIE that contains the type of the value.
+    ///
+    /// This function will use the location information in the `pieces` parameter to read the
+    /// values and parse it to the given type.
     pub fn evaluate_variable_with_type<M: MemoryAccess>(
         dwarf: &gimli::Dwarf<R>,
         registers: &Registers,
@@ -160,6 +185,13 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         )
     }
 
+    /// This function will evaluate the given pieces into a unsigned 32 bit integer.
+    ///
+    /// Description:
+    ///
+    /// * `registers` - A register struct for accessing the register values.
+    /// * `mem` - A struct for accessing the memory of the debug target.
+    /// * `pieces` - A list of gimli-rs pieces containing the location information..
     pub fn evaluate_variable<M: MemoryAccess>(
         registers: &Registers,
         mem: &mut M,
@@ -168,9 +200,17 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         EvaluatorValue::handle_eval_piece(registers, mem, 4, 0, DwAte(1), pieces, &mut 0)
     }
 
-    /*
-     * Evaluates the value of a piece and decides if the piece should be discarded or kept.
-     */
+    /// Will maybe consume a number of pieces to evaluate a base type.
+    ///
+    /// Description:
+    ///
+    /// * `registers` - A register struct for accessing the register values.
+    /// * `mem` - A struct for accessing the memory of the debug target.
+    /// * `byte_size` - The size of the base type in bytes.
+    /// * `data_offset` - The memory address offset.
+    /// * `encoding` - The encoding of the base type.
+    /// * `pieces` - A list of pieces containing the location and size information.
+    /// * `piece_index` - The piece to first consume if needed, this index increases when a piece is consumed.
     fn handle_eval_piece<M: MemoryAccess>(
         registers: &Registers,
         mem: &mut M,
@@ -276,9 +316,18 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         ))
     }
 
-    /*
-     * Evaluates the value of a type.
-     */
+    /// Evaluate and parse the type by going down the tree of type dies.
+    ///
+    /// Description:
+    ///
+    /// * `registers` - A register struct for accessing the register values.
+    /// * `mem` - A struct for accessing the memory of the debug target.
+    /// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+    /// * `unit` - A compilation unit which contains the given DIE.
+    /// * `die` - The current type die in the type tree.
+    /// * `data_offset` - The memory address offset.
+    /// * `pieces` - A list of pieces containing the location and size information.
+    /// * `piece_index` - The piece to first consume if needed, this index increases when a piece is consumed.
     fn eval_type<M: MemoryAccess>(
         registers: &Registers,
         mem: &mut M,
@@ -843,6 +892,11 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     }
 }
 
+/// Parse a `BaseValue` struct to a `u64` value.
+///
+/// Description:
+///
+/// * `value` - The `BaseValue` that will be turned into a `u64`.
 fn get_udata(value: BaseValue) -> u64 {
     match value {
         BaseValue::U8(v) => v as u64,
@@ -854,6 +908,11 @@ fn get_udata(value: BaseValue) -> u64 {
     }
 }
 
+/// Format a `Vec` of `EvaluatorValue`s into a `String` that describes the value and type.
+///
+/// Description:
+///
+/// * `values` - A list of `EvaluatorValue`s that will be formatted into a `String`.
 fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
     let len = values.len();
     if len == 0 {
@@ -869,6 +928,11 @@ fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> 
     return res;
 }
 
+/// Format a `Vec` of `EvaluatorValue`s into a `String` that describes the type.
+///
+/// Description:
+///
+/// * `values` - A list of `EvaluatorValue`s that will be formatted into a `String`.
 fn format_types<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> String {
     let len = values.len();
     if len == 0 {
@@ -884,8 +948,10 @@ fn format_types<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> S
     return res;
 }
 
+/// Struct that represents a array type.
 #[derive(Debug, Clone)]
 pub struct ArrayValue<R: Reader<Offset = usize>> {
+    /// The list of values in the array.
     pub values: Vec<EvaluatorValue<R>>,
 }
 
@@ -896,14 +962,19 @@ impl<R: Reader<Offset = usize>> fmt::Display for ArrayValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> ArrayValue<R> {
+    /// Get the type of the array as a `String`.
     pub fn get_type(&self) -> String {
         format!("[ {} ]", format_types(&self.values))
     }
 }
 
+/// Struct that represents a struct type.
 #[derive(Debug, Clone)]
 pub struct StructValue<R: Reader<Offset = usize>> {
+    /// The name of the struct.
     pub name: String,
+
+    /// All the attributes of the struct.
     pub members: Vec<EvaluatorValue<R>>,
 }
 
@@ -914,14 +985,19 @@ impl<R: Reader<Offset = usize>> fmt::Display for StructValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> StructValue<R> {
+    /// Get the type of the struct as a `String`.
     pub fn get_type(&self) -> String {
         format!("{} {{ {} }}", self.name, format_types(&self.members))
     }
 }
 
+/// Struct that represents a enum type.
 #[derive(Debug, Clone)]
 pub struct EnumValue<R: Reader<Offset = usize>> {
+    /// The name of the Enum.
     pub name: String,
+
+    /// The value of the enum.
     pub value: EvaluatorValue<R>,
 }
 
@@ -932,14 +1008,19 @@ impl<R: Reader<Offset = usize>> fmt::Display for EnumValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> EnumValue<R> {
+    /// Get the type of the enum as a `String`.
     pub fn get_type(&self) -> String {
         format!("{}::{}", self.name, self.value.get_type())
     }
 }
 
+/// Struct that represents a union type.
 #[derive(Debug, Clone)]
 pub struct UnionValue<R: Reader<Offset = usize>> {
+    /// The name of the union type
     pub name: String,
+
+    /// The values of the union type.
     pub members: Vec<EvaluatorValue<R>>,
 }
 
@@ -950,14 +1031,19 @@ impl<R: Reader<Offset = usize>> fmt::Display for UnionValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> UnionValue<R> {
+    /// Get the type of the union as a `String`.
     pub fn get_type(&self) -> String {
         format!("{} ( {} )", self.name, format_types(&self.members))
     }
 }
 
+/// Struct that represents a attribute type.
 #[derive(Debug, Clone)]
 pub struct MemberValue<R: Reader<Offset = usize>> {
+    /// The name of the attribute.
     pub name: Option<String>,
+
+    /// The value of the attribute.
     pub value: EvaluatorValue<R>,
 }
 
@@ -971,6 +1057,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for MemberValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> MemberValue<R> {
+    /// Get the type of the attribute as a `String`.
     pub fn get_type(&self) -> String {
         match &self.name {
             Some(name) => format!("{}::{}", name, self.value.get_type()),
@@ -979,24 +1066,46 @@ impl<R: Reader<Offset = usize>> MemberValue<R> {
     }
 }
 
+/// A enum representing the base types in DWARF.
 #[derive(Debug, Clone)]
 pub enum BaseValue {
+    /// generic value.
     Generic(u64),
 
+    /// 32 bit address.
     Address32(u32),
+
+    /// boolean
     Bool(bool),
 
+    /// 8 bit unsigned integer.
     U8(u8),
+
+    /// 16 bit unsigned integer.
     U16(u16),
+
+    /// 32 bit unsigned integer.
     U32(u32),
+
+    /// 64 bit unsigned integer.
     U64(u64),
 
+    /// 8 bit signed integer.
     I8(i8),
+
+    /// 16 bit signed integer.
     I16(i16),
+
+    /// 32 bit signed integer.
     I32(i32),
+
+    /// 64 bit signed integer.
     I64(i64),
 
+    /// 32 bit float.
     F32(f32),
+
+    /// 64 bit float.
     F64(f64),
 }
 
@@ -1021,6 +1130,15 @@ impl fmt::Display for BaseValue {
 }
 
 impl BaseValue {
+    /// Parse a DWARF base type.
+    ///
+    /// Description:
+    ///
+    /// * `data` - The value in bytes.
+    /// * `encoding` - The DWARF encoding of the value.
+    ///
+    /// Will parse the given bytes into the encoding type.
+    /// The size of the given `data` parameter will be used when parsing.
     pub fn parse_base_type(data: Vec<u8>, encoding: DwAte) -> Result<BaseValue> {
         if data.len() == 0 {
             return Err(anyhow!("Expected data to be larger then 0"));
@@ -1051,6 +1169,7 @@ impl BaseValue {
         })
     }
 
+    /// Get the base type as a `String` with the Rust names.
     pub fn get_type(&self) -> String {
         match self {
             BaseValue::Bool(_) => "bool".to_owned(),
@@ -1070,6 +1189,11 @@ impl BaseValue {
     }
 }
 
+/// Convert a `BaseValue` to a `gimli::Value`.
+///
+/// Description:
+///
+/// * `value` - The value that will be converted into a `gimli::Value` stuct.
 pub fn convert_to_gimli_value(value: BaseValue) -> gimli::Value {
     match value {
         BaseValue::Bool(val) => gimli::Value::Generic(match val {
@@ -1091,6 +1215,11 @@ pub fn convert_to_gimli_value(value: BaseValue) -> gimli::Value {
     }
 }
 
+/// Convert a `gimli::Value` to a `BaseValue`.
+///
+/// Description:
+///
+/// * `value` - The value that will be converted into a `BaseValue` stuct.
 pub fn convert_from_gimli_value(value: gimli::Value) -> BaseValue {
     match value {
         gimli::Value::Generic(val) => BaseValue::Generic(val),

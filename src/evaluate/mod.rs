@@ -408,8 +408,7 @@ where
 /// * `eval` - A gimli-rs `Evaluation` that will be continued with the new value.
 /// * `result` - A gimli-rs `EvaluationResult` that will be updated with the new evaluation result.
 /// * `frame_base` - The frame base address value.
-/// * `unit_offset` - A offset to the DIE that will be evaluated and added to the given
-/// `Evaluation` struct.
+/// * `unit_offset` - A offset to the DIE that will be evaluated and added to the given `Evaluation` struct.
 /// * `registers` - A register struct for accessing the register values.
 /// * `mem` - A struct for accessing the memory of the debug target.
 ///
