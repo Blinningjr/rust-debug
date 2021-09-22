@@ -13,22 +13,22 @@ use std::fmt;
 #[derive(Debug, Clone)]
 pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     /// A base_type type and value with location information.
-    Value(BaseValue, ValueInformation),
+    Value(BaseTypeValue, ValueInformation),
 
     /// gimli-rs bytes value.
     Bytes(R),
 
     /// A array type value.
-    Array(Box<ArrayValue<R>>),
+    Array(Box<ArrayTypeValue<R>>),
 
     /// A struct type value.
-    Struct(Box<StructValue<R>>),
+    Struct(Box<StructureTypeValue<R>>),
 
     /// A enum type value.
-    Enum(Box<EnumValue<R>>),
+    Enum(Box<EnumerationTypeValue<R>>),
 
     /// A union type value.
-    Union(Box<UnionValue<R>>),
+    Union(Box<UnionTypeValue<R>>),
 
     /// A attribute type value.
     Member(Box<MemberValue<R>>),
@@ -61,8 +61,8 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
 }
 
 impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
-    /// Will return this value as a `BaseValue` struct if possible.
-    pub fn to_value(self) -> Option<BaseValue> {
+    /// Will return this value as a `BaseTypeValue` struct if possible.
+    pub fn to_value(self) -> Option<BaseTypeValue> {
         match self {
             EvaluatorValue::Value(val, _) => Some(val),
             EvaluatorValue::Member(val) => val.value.to_value(),
@@ -311,7 +311,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         //        }
 
         Ok(EvaluatorValue::Value(
-            BaseValue::parse_base_type(all_bytes.clone(), encoding)?,
+            BaseTypeValue::parse_base_type(all_bytes.clone(), encoding)?,
             ValueInformation::new(Some(all_bytes.clone()), value_pieces),
         ))
     }
@@ -369,7 +369,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 )
             }
             gimli::DW_TAG_pointer_type => {
-                // Make sure that the die has the tag DW_TAG_array_type.
+                // Make sure that the die has the tag DW_TAG_pointer_type.
                 match die.tag() {
                     gimli::DW_TAG_pointer_type => (),
                     _ => bail!("Expected DW_TAG_pointer_type die, this should never happen"),
@@ -459,7 +459,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     )?);
                 }
 
-                Ok(EvaluatorValue::Array(Box::new(ArrayValue { values })))
+                Ok(EvaluatorValue::Array(Box::new(ArrayTypeValue { values })))
             }
             gimli::DW_TAG_structure_type => {
                 // Make sure that the die has the tag DW_TAG_structure_type.
@@ -495,7 +495,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 piece_index,
                             )?];
 
-                            return Ok(EvaluatorValue::Struct(Box::new(StructValue {
+                            return Ok(EvaluatorValue::Struct(Box::new(StructureTypeValue {
                                 name,
                                 members,
                             })));
@@ -537,7 +537,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     members.push(member);
                 }
 
-                return Ok(EvaluatorValue::Struct(Box::new(StructValue {
+                return Ok(EvaluatorValue::Struct(Box::new(StructureTypeValue {
                     name,
                     members,
                 })));
@@ -599,7 +599,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     members.push(member);
                 }
 
-                return Ok(EvaluatorValue::Union(Box::new(UnionValue {
+                return Ok(EvaluatorValue::Union(Box::new(UnionTypeValue {
                     name,
                     members,
                 })));
@@ -710,7 +710,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                     }
                                 };
 
-                                return Ok(EvaluatorValue::Enum(Box::new(EnumValue {
+                                return Ok(EvaluatorValue::Enum(Box::new(EnumerationTypeValue {
                                     name,
                                     value: EvaluatorValue::Name(e_name),
                                 })));
@@ -836,7 +836,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 None => bail!("Expected member die to have attribute DW_AT_name"),
                             };
 
-                            return Ok(EvaluatorValue::Enum(Box::new(EnumValue { name, value })));
+                            return Ok(EvaluatorValue::Enum(Box::new(EnumerationTypeValue {
+                                name,
+                                value,
+                            })));
                         }
                         _ => (),
                     };
@@ -856,7 +859,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     // NOTE: This could be replace with lower and upper bound
                     Some(val) => {
                         return Ok(EvaluatorValue::Value(
-                            BaseValue::U64(val),
+                            BaseTypeValue::U64(val),
                             ValueInformation::new(None, vec![ValuePiece::Dwarf { value: None }]),
                         ))
                     }
@@ -892,18 +895,18 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     }
 }
 
-/// Parse a `BaseValue` struct to a `u64` value.
+/// Parse a `BaseTypeValue` struct to a `u64` value.
 ///
 /// Description:
 ///
-/// * `value` - The `BaseValue` that will be turned into a `u64`.
-fn get_udata(value: BaseValue) -> u64 {
+/// * `value` - The `BaseTypeValue` that will be turned into a `u64`.
+fn get_udata(value: BaseTypeValue) -> u64 {
     match value {
-        BaseValue::U8(v) => v as u64,
-        BaseValue::U16(v) => v as u64,
-        BaseValue::U32(v) => v as u64,
-        BaseValue::U64(v) => v,
-        BaseValue::Generic(v) => v,
+        BaseTypeValue::U8(v) => v as u64,
+        BaseTypeValue::U16(v) => v as u64,
+        BaseTypeValue::U32(v) => v as u64,
+        BaseTypeValue::U64(v) => v,
+        BaseTypeValue::Generic(v) => v,
         _ => unimplemented!(),
     }
 }
@@ -950,18 +953,18 @@ fn format_types<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> S
 
 /// Struct that represents a array type.
 #[derive(Debug, Clone)]
-pub struct ArrayValue<R: Reader<Offset = usize>> {
+pub struct ArrayTypeValue<R: Reader<Offset = usize>> {
     /// The list of values in the array.
     pub values: Vec<EvaluatorValue<R>>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for ArrayValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for ArrayTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[ {} ]", format_values(&self.values))
     }
 }
 
-impl<R: Reader<Offset = usize>> ArrayValue<R> {
+impl<R: Reader<Offset = usize>> ArrayTypeValue<R> {
     /// Get the type of the array as a `String`.
     pub fn get_type(&self) -> String {
         format!("[ {} ]", format_types(&self.values))
@@ -970,7 +973,7 @@ impl<R: Reader<Offset = usize>> ArrayValue<R> {
 
 /// Struct that represents a struct type.
 #[derive(Debug, Clone)]
-pub struct StructValue<R: Reader<Offset = usize>> {
+pub struct StructureTypeValue<R: Reader<Offset = usize>> {
     /// The name of the struct.
     pub name: String,
 
@@ -978,13 +981,13 @@ pub struct StructValue<R: Reader<Offset = usize>> {
     pub members: Vec<EvaluatorValue<R>>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for StructValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for StructureTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {{ {} }}", self.name, format_values(&self.members))
     }
 }
 
-impl<R: Reader<Offset = usize>> StructValue<R> {
+impl<R: Reader<Offset = usize>> StructureTypeValue<R> {
     /// Get the type of the struct as a `String`.
     pub fn get_type(&self) -> String {
         format!("{} {{ {} }}", self.name, format_types(&self.members))
@@ -993,7 +996,7 @@ impl<R: Reader<Offset = usize>> StructValue<R> {
 
 /// Struct that represents a enum type.
 #[derive(Debug, Clone)]
-pub struct EnumValue<R: Reader<Offset = usize>> {
+pub struct EnumerationTypeValue<R: Reader<Offset = usize>> {
     /// The name of the Enum.
     pub name: String,
 
@@ -1001,13 +1004,13 @@ pub struct EnumValue<R: Reader<Offset = usize>> {
     pub value: EvaluatorValue<R>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for EnumValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for EnumerationTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}::{}", self.name, self.value)
     }
 }
 
-impl<R: Reader<Offset = usize>> EnumValue<R> {
+impl<R: Reader<Offset = usize>> EnumerationTypeValue<R> {
     /// Get the type of the enum as a `String`.
     pub fn get_type(&self) -> String {
         format!("{}::{}", self.name, self.value.get_type())
@@ -1016,7 +1019,7 @@ impl<R: Reader<Offset = usize>> EnumValue<R> {
 
 /// Struct that represents a union type.
 #[derive(Debug, Clone)]
-pub struct UnionValue<R: Reader<Offset = usize>> {
+pub struct UnionTypeValue<R: Reader<Offset = usize>> {
     /// The name of the union type
     pub name: String,
 
@@ -1024,13 +1027,13 @@ pub struct UnionValue<R: Reader<Offset = usize>> {
     pub members: Vec<EvaluatorValue<R>>,
 }
 
-impl<R: Reader<Offset = usize>> fmt::Display for UnionValue<R> {
+impl<R: Reader<Offset = usize>> fmt::Display for UnionTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} ( {} )", self.name, format_values(&self.members))
     }
 }
 
-impl<R: Reader<Offset = usize>> UnionValue<R> {
+impl<R: Reader<Offset = usize>> UnionTypeValue<R> {
     /// Get the type of the union as a `String`.
     pub fn get_type(&self) -> String {
         format!("{} ( {} )", self.name, format_types(&self.members))
@@ -1068,7 +1071,7 @@ impl<R: Reader<Offset = usize>> MemberValue<R> {
 
 /// A enum representing the base types in DWARF.
 #[derive(Debug, Clone)]
-pub enum BaseValue {
+pub enum BaseTypeValue {
     /// generic value.
     Generic(u64),
 
@@ -1109,27 +1112,27 @@ pub enum BaseValue {
     F64(f64),
 }
 
-impl fmt::Display for BaseValue {
+impl fmt::Display for BaseTypeValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
-            BaseValue::Bool(val) => write!(f, "{}", val),
-            BaseValue::Generic(val) => write!(f, "{}", val),
-            BaseValue::I8(val) => write!(f, "{}", val),
-            BaseValue::U8(val) => write!(f, "{}", val),
-            BaseValue::I16(val) => write!(f, "{}", val),
-            BaseValue::U16(val) => write!(f, "{}", val),
-            BaseValue::I32(val) => write!(f, "{}", val),
-            BaseValue::U32(val) => write!(f, "{}", val),
-            BaseValue::I64(val) => write!(f, "{}", val),
-            BaseValue::U64(val) => write!(f, "{}", val),
-            BaseValue::F32(val) => write!(f, "{}", val),
-            BaseValue::F64(val) => write!(f, "{}", val),
-            BaseValue::Address32(val) => write!(f, "'Address' {:#10x}", val),
+            BaseTypeValue::Bool(val) => write!(f, "{}", val),
+            BaseTypeValue::Generic(val) => write!(f, "{}", val),
+            BaseTypeValue::I8(val) => write!(f, "{}", val),
+            BaseTypeValue::U8(val) => write!(f, "{}", val),
+            BaseTypeValue::I16(val) => write!(f, "{}", val),
+            BaseTypeValue::U16(val) => write!(f, "{}", val),
+            BaseTypeValue::I32(val) => write!(f, "{}", val),
+            BaseTypeValue::U32(val) => write!(f, "{}", val),
+            BaseTypeValue::I64(val) => write!(f, "{}", val),
+            BaseTypeValue::U64(val) => write!(f, "{}", val),
+            BaseTypeValue::F32(val) => write!(f, "{}", val),
+            BaseTypeValue::F64(val) => write!(f, "{}", val),
+            BaseTypeValue::Address32(val) => write!(f, "'Address' {:#10x}", val),
         };
     }
 }
 
-impl BaseValue {
+impl BaseTypeValue {
     /// Parse a DWARF base type.
     ///
     /// Description:
@@ -1139,30 +1142,32 @@ impl BaseValue {
     ///
     /// Will parse the given bytes into the encoding type.
     /// The size of the given `data` parameter will be used when parsing.
-    pub fn parse_base_type(data: Vec<u8>, encoding: DwAte) -> Result<BaseValue> {
+    pub fn parse_base_type(data: Vec<u8>, encoding: DwAte) -> Result<BaseTypeValue> {
         if data.len() == 0 {
             return Err(anyhow!("Expected data to be larger then 0"));
         }
 
         Ok(match (encoding, data.len()) {
             // Source: DWARF 4 page 168-169 and 77
-            (DwAte(1), 4) => BaseValue::Address32(u32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_address = 1 // TODO: Different size addresses?
-            (DwAte(2), 1) => BaseValue::Bool((u8::from_le_bytes(data.try_into().unwrap())) == 1), // DW_ATE_boolean = 2 // TODO: Use modulus?
+            (DwAte(1), 4) => BaseTypeValue::Address32(u32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_address = 1 // TODO: Different size addresses?
+            (DwAte(2), 1) => {
+                BaseTypeValue::Bool((u8::from_le_bytes(data.try_into().unwrap())) == 1)
+            } // DW_ATE_boolean = 2 // TODO: Use modulus?
 
             //        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing
-            (DwAte(4), 4) => BaseValue::F32(f32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
-            (DwAte(4), 8) => BaseValue::F64(f64::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
+            (DwAte(4), 4) => BaseTypeValue::F32(f32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
+            (DwAte(4), 8) => BaseTypeValue::F64(f64::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
 
-            (DwAte(5), 1) => BaseValue::I8(i8::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 8)
-            (DwAte(5), 2) => BaseValue::I16(i16::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 16)
-            (DwAte(5), 4) => BaseValue::I32(i32::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 32)
-            (DwAte(5), 8) => BaseValue::I64(i64::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 64)
+            (DwAte(5), 1) => BaseTypeValue::I8(i8::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 8)
+            (DwAte(5), 2) => BaseTypeValue::I16(i16::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 16)
+            (DwAte(5), 4) => BaseTypeValue::I32(i32::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 32)
+            (DwAte(5), 8) => BaseTypeValue::I64(i64::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 64)
 
             //        (DwAte(6), _) => ,     // DW_ATE_signed_char = 6 // TODO: Add type
-            (DwAte(7), 1) => BaseValue::U8(u8::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 8)
-            (DwAte(7), 2) => BaseValue::U16(u16::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 16)
-            (DwAte(7), 4) => BaseValue::U32(u32::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 32)
-            (DwAte(7), 8) => BaseValue::U64(u64::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 64)
+            (DwAte(7), 1) => BaseTypeValue::U8(u8::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 8)
+            (DwAte(7), 2) => BaseTypeValue::U16(u16::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 16)
+            (DwAte(7), 4) => BaseTypeValue::U32(u32::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 32)
+            (DwAte(7), 8) => BaseTypeValue::U64(u64::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 64)
             _ => {
                 unimplemented!("encoding {}, byte_size: {}", encoding, data.len());
             }
@@ -1172,67 +1177,67 @@ impl BaseValue {
     /// Get the base type as a `String` with the Rust names.
     pub fn get_type(&self) -> String {
         match self {
-            BaseValue::Bool(_) => "bool".to_owned(),
-            BaseValue::Generic(_) => "<unknown>".to_owned(),
-            BaseValue::I8(_) => "i8".to_owned(),
-            BaseValue::U8(_) => "u8".to_owned(),
-            BaseValue::I16(_) => "i16".to_owned(),
-            BaseValue::U16(_) => "u16".to_owned(),
-            BaseValue::I32(_) => "i32".to_owned(),
-            BaseValue::U32(_) => "u32".to_owned(),
-            BaseValue::I64(_) => "i64".to_owned(),
-            BaseValue::U64(_) => "u64".to_owned(),
-            BaseValue::F32(_) => "f32".to_owned(),
-            BaseValue::F64(_) => "f63".to_owned(),
-            BaseValue::Address32(_) => "<32 bit address>".to_owned(),
+            BaseTypeValue::Bool(_) => "bool".to_owned(),
+            BaseTypeValue::Generic(_) => "<unknown>".to_owned(),
+            BaseTypeValue::I8(_) => "i8".to_owned(),
+            BaseTypeValue::U8(_) => "u8".to_owned(),
+            BaseTypeValue::I16(_) => "i16".to_owned(),
+            BaseTypeValue::U16(_) => "u16".to_owned(),
+            BaseTypeValue::I32(_) => "i32".to_owned(),
+            BaseTypeValue::U32(_) => "u32".to_owned(),
+            BaseTypeValue::I64(_) => "i64".to_owned(),
+            BaseTypeValue::U64(_) => "u64".to_owned(),
+            BaseTypeValue::F32(_) => "f32".to_owned(),
+            BaseTypeValue::F64(_) => "f63".to_owned(),
+            BaseTypeValue::Address32(_) => "<32 bit address>".to_owned(),
         }
     }
 }
 
-/// Convert a `BaseValue` to a `gimli::Value`.
+/// Convert a `BaseTypeValue` to a `gimli::Value`.
 ///
 /// Description:
 ///
 /// * `value` - The value that will be converted into a `gimli::Value` stuct.
-pub fn convert_to_gimli_value(value: BaseValue) -> gimli::Value {
+pub fn convert_to_gimli_value(value: BaseTypeValue) -> gimli::Value {
     match value {
-        BaseValue::Bool(val) => gimli::Value::Generic(match val {
+        BaseTypeValue::Bool(val) => gimli::Value::Generic(match val {
             true => 1,
             false => 0,
         }),
-        BaseValue::Generic(val) => gimli::Value::Generic(val),
-        BaseValue::I8(val) => gimli::Value::I8(val),
-        BaseValue::U8(val) => gimli::Value::U8(val),
-        BaseValue::I16(val) => gimli::Value::I16(val),
-        BaseValue::U16(val) => gimli::Value::U16(val),
-        BaseValue::I32(val) => gimli::Value::I32(val),
-        BaseValue::U32(val) => gimli::Value::U32(val),
-        BaseValue::I64(val) => gimli::Value::I64(val),
-        BaseValue::U64(val) => gimli::Value::U64(val),
-        BaseValue::F32(val) => gimli::Value::F32(val),
-        BaseValue::F64(val) => gimli::Value::F64(val),
-        BaseValue::Address32(val) => gimli::Value::Generic(val as u64),
+        BaseTypeValue::Generic(val) => gimli::Value::Generic(val),
+        BaseTypeValue::I8(val) => gimli::Value::I8(val),
+        BaseTypeValue::U8(val) => gimli::Value::U8(val),
+        BaseTypeValue::I16(val) => gimli::Value::I16(val),
+        BaseTypeValue::U16(val) => gimli::Value::U16(val),
+        BaseTypeValue::I32(val) => gimli::Value::I32(val),
+        BaseTypeValue::U32(val) => gimli::Value::U32(val),
+        BaseTypeValue::I64(val) => gimli::Value::I64(val),
+        BaseTypeValue::U64(val) => gimli::Value::U64(val),
+        BaseTypeValue::F32(val) => gimli::Value::F32(val),
+        BaseTypeValue::F64(val) => gimli::Value::F64(val),
+        BaseTypeValue::Address32(val) => gimli::Value::Generic(val as u64),
     }
 }
 
-/// Convert a `gimli::Value` to a `BaseValue`.
+/// Convert a `gimli::Value` to a `BaseTypeValue`.
 ///
 /// Description:
 ///
-/// * `value` - The value that will be converted into a `BaseValue` stuct.
-pub fn convert_from_gimli_value(value: gimli::Value) -> BaseValue {
+/// * `value` - The value that will be converted into a `BaseTypeValue` stuct.
+pub fn convert_from_gimli_value(value: gimli::Value) -> BaseTypeValue {
     match value {
-        gimli::Value::Generic(val) => BaseValue::Generic(val),
-        gimli::Value::I8(val) => BaseValue::I8(val),
-        gimli::Value::U8(val) => BaseValue::U8(val),
-        gimli::Value::I16(val) => BaseValue::I16(val),
-        gimli::Value::U16(val) => BaseValue::U16(val),
-        gimli::Value::I32(val) => BaseValue::I32(val),
-        gimli::Value::U32(val) => BaseValue::U32(val),
-        gimli::Value::I64(val) => BaseValue::I64(val),
-        gimli::Value::U64(val) => BaseValue::U64(val),
-        gimli::Value::F32(val) => BaseValue::F32(val),
-        gimli::Value::F64(val) => BaseValue::F64(val),
+        gimli::Value::Generic(val) => BaseTypeValue::Generic(val),
+        gimli::Value::I8(val) => BaseTypeValue::I8(val),
+        gimli::Value::U8(val) => BaseTypeValue::U8(val),
+        gimli::Value::I16(val) => BaseTypeValue::I16(val),
+        gimli::Value::U16(val) => BaseTypeValue::U16(val),
+        gimli::Value::I32(val) => BaseTypeValue::I32(val),
+        gimli::Value::U32(val) => BaseTypeValue::U32(val),
+        gimli::Value::I64(val) => BaseTypeValue::I64(val),
+        gimli::Value::U64(val) => BaseTypeValue::U64(val),
+        gimli::Value::F32(val) => BaseTypeValue::F32(val),
+        gimli::Value::F64(val) => BaseTypeValue::F64(val),
     }
 }
 

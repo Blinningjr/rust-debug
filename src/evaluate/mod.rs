@@ -7,7 +7,7 @@ pub mod evaluate;
 use crate::call_stack::MemoryAccess;
 use crate::registers::Registers;
 use anyhow::{anyhow, bail, Result};
-use evaluate::{convert_to_gimli_value, BaseValue, EvaluatorValue};
+use evaluate::{convert_to_gimli_value, BaseTypeValue, EvaluatorValue};
 use gimli::{
     AttributeValue::UnitRef,
     DebuggingInformationEntry, DieReference, Dwarf, Evaluation, EvaluationResult,
@@ -317,7 +317,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                     mem,
                 )?;
 
-                if let EvaluatorValue::Value(BaseValue::U64(val), _) = value {
+                if let EvaluatorValue::Value(BaseTypeValue::U64(val), _) = value {
                     result = eval.resume_with_parameter_ref(val)?;
                 } else {
                     bail!("Could not find required paramter");
@@ -367,7 +367,7 @@ fn eval_base_type<R>(
     unit: &gimli::Unit<R>,
     data: Vec<u8>,
     base_type: gimli::UnitOffset<usize>,
-) -> Result<BaseValue>
+) -> Result<BaseTypeValue>
 where
     R: Reader<Offset = usize>,
 {
@@ -381,7 +381,7 @@ where
             8 => u64::from_le_bytes(data.try_into().unwrap()),
             _ => unreachable!(),
         };
-        return Ok(BaseValue::Generic(value));
+        return Ok(BaseTypeValue::Generic(value));
     }
     let die = unit.entry(base_type)?;
 
@@ -395,7 +395,7 @@ where
         _ => bail!("Expected base type die to have attribute DW_AT_encoding"),
     };
 
-    BaseValue::parse_base_type(data, encoding)
+    BaseTypeValue::parse_base_type(data, encoding)
 }
 
 /// Will evaluate a value that is required when evaluating a expression into pieces.

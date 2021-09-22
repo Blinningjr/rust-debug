@@ -134,6 +134,7 @@ impl Variable {
             registers,
             memory,
         )?;
+
         Ok(Variable {
             name,
             value: val.to_string(),

@@ -6,7 +6,7 @@
  * Dwarf source: Dwarf 5 section 6.4.1
  */
 use crate::evaluate::evaluate;
-use crate::evaluate::evaluate::BaseValue;
+use crate::evaluate::evaluate::BaseTypeValue;
 use crate::evaluate::evaluate::EvaluatorValue;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
@@ -600,7 +600,7 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
             )?;
 
             match value {
-                EvaluatorValue::Value(BaseValue::Address32(v), _) => return Ok(v as u64),
+                EvaluatorValue::Value(BaseTypeValue::Address32(v), _) => return Ok(v as u64),
                 _ => {
                     unreachable!();
                 }
