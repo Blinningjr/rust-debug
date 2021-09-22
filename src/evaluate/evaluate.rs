@@ -15,6 +15,9 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
     /// A base_type type and value with location information.
     Value(BaseTypeValue, ValueInformation),
 
+    /// A pointer_type type and value.
+    PointerTypeValue(Box<PointerTypeValue<R>>),
+
     /// gimli-rs bytes value.
     Bytes(R),
 
@@ -47,6 +50,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self {
             EvaluatorValue::Value(val, _) => val.fmt(f),
+            EvaluatorValue::PointerTypeValue(pt) => pt.fmt(f),
             EvaluatorValue::Bytes(byt) => write!(f, "{:?}", byt),
             EvaluatorValue::Array(arr) => arr.fmt(f),
             EvaluatorValue::Struct(stu) => stu.fmt(f),
@@ -377,14 +381,19 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                 check_alignment(die, data_offset, pieces, piece_index)?;
 
+                // Get the name of the pointer type.
+                let name = attributes::name_attribute(dwarf, die);
+
                 // Evaluate the pointer type value.
                 let address_class = match attributes::address_class_attribute(die) {
                     Some(val) => val,
                     None => bail!("Die is missing required attribute DW_AT_address_class"),
                 };
+
+                // This vill evaluate the address
                 match address_class.0 {
                     0 => {
-                        let res = EvaluatorValue::handle_eval_piece(
+                        let address = EvaluatorValue::handle_eval_piece(
                             registers,
                             mem,
                             4, // This Should be set dependent on the system(4 for 32 bit systems)
@@ -393,10 +402,14 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             pieces,
                             piece_index,
                         )?;
-                        return Ok(res);
+                        return Ok(EvaluatorValue::PointerTypeValue(Box::new(
+                            PointerTypeValue { name, address },
+                        )));
                     }
                     _ => bail!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
                 };
+
+                // TODO: Use DW_AT_type and the evaluated address to evaluate the pointer.
             }
             gimli::DW_TAG_array_type => {
                 // Make sure that the die has the tag DW_TAG_array_type.
@@ -1065,6 +1078,40 @@ impl<R: Reader<Offset = usize>> MemberValue<R> {
         match &self.name {
             Some(name) => format!("{}::{}", name, self.value.get_type()),
             None => format!("{}", self.value.get_type()),
+        }
+    }
+}
+
+/// Struct that represents a pointer type.
+#[derive(Debug, Clone)]
+pub struct PointerTypeValue<R: Reader<Offset = usize>> {
+    /// The name of the pointer type.
+    pub name: Option<String>,
+
+    /// The value of the attribute.
+    pub address: EvaluatorValue<R>,
+    // TODO: Add ponterd to value.
+    // DW_TAG_pointer_type contains:
+    // * DW_AT_type
+    // * DW_AT_name
+    // * DW_AT_address_class
+}
+
+impl<R: Reader<Offset = usize>> fmt::Display for PointerTypeValue<R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return match &self.name {
+            Some(name) => write!(f, "{}::{}", name, self.address),
+            None => write!(f, "{}", self.address),
+        };
+    }
+}
+
+impl<R: Reader<Offset = usize>> PointerTypeValue<R> {
+    /// Get the type of the attribute as a `String`.
+    pub fn get_type(&self) -> String {
+        match &self.name {
+            Some(name) => format!("{}::{}", name, self.address.get_type()),
+            None => format!("{}", self.address.get_type()),
         }
     }
 }
