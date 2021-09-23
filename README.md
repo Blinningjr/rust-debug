@@ -1,12 +1,15 @@
 # rust-debug
 Is a library for retrieving debug information from the DWARF format.
 
+
 The library provides a abstraction over the DWARF debug format, which simplifies the process of retrieving information form DWARF.
+
 
 The goals of for the library are:
 * Easy to use.
 * Provides one function solution for everything.
-* Dose not enforce which library is used too read from the debugged target.
+* Dose not enforce which library is used to read from the debugged target.
+* Dose not restrict usage of `gimli-rs`.
 
 
 ## Features
