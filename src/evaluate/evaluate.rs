@@ -342,8 +342,16 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     };
 
                     let num_bytes = match pieces[0].piece.size_in_bits {
-                        Some(val) => (val + 8 - 1) / 8,
-                        None => byte_size,
+                        Some(val) => {
+                            let max_num_bytes = (val + 8 - 1) / 8;
+                            let needed_num_bytes = byte_size - all_bytes.len() as u64;
+                            if max_num_bytes < needed_num_bytes {
+                                max_num_bytes
+                            } else {
+                                needed_num_bytes
+                            }
+                        }
+                        None => byte_size - all_bytes.len() as u64,
                     } as usize;
 
                     let bytes = match mem.get_address(&(address as u32), num_bytes) {
