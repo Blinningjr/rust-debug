@@ -43,6 +43,8 @@ impl<R: Reader<Offset = usize>> MyPiece<R> {
                     self.used_before = true;
                     false
                 } else {
+                    self.used_before = true;
+                    self.piece.size_in_bits = Some(0);
                     true
                 }
             }
@@ -290,7 +292,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         let mut value_pieces = vec![];
         while all_bytes.len() < byte_size.try_into()? {
             if pieces.len() == 0 {
-                //return Ok(EvaluatorValue::OptimizedOut);
                 unreachable!();
                 //return Ok(EvaluatorValue::OptimizedOut);
             }
@@ -299,16 +300,11 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
             match pieces[0].piece.clone().location {
                 Location::Empty => {
                     // Remove piece if whole object is used.
-                    let bit_size = {
-                        if byte_size < all_bytes.len() as u64 {
-                            8 * all_bytes.len() as u64
-                        } else {
-                            8 * (byte_size - all_bytes.len() as u64)
-                        }
-                    };
+                    let bit_size = 8 * (byte_size - all_bytes.len() as u64);
                     if pieces[0].should_remove(bit_size) {
-                        return Ok(EvaluatorValue::OptimizedOut);
+                        pieces.remove(0);
                     }
+                    return Ok(EvaluatorValue::OptimizedOut);
                 }
                 Location::Register { ref register } => {
                     match registers.get_register_value(&register.0) {
@@ -327,15 +323,9 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             }]);
 
                             // Remove piece if whole object is used.
-                            let bit_size = {
-                                if byte_size < all_bytes.len() as u64 {
-                                    8 * all_bytes.len() as u64
-                                } else {
-                                    8 * (byte_size - all_bytes.len() as u64)
-                                }
-                            };
+                            let bit_size = 8 * (bytes_len as u64);
                             if pieces[0].should_remove(bit_size) {
-                                return Ok(EvaluatorValue::OptimizedOut);
+                                pieces.remove(0);
                             }
                         }
                         None => return Err(anyhow!("Requires reg")),
@@ -366,29 +356,18 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         address: address as u32,
                         byte_size: num_bytes,
                     }]);
+
                     // Remove piece if whole object is used.
-                    let bit_size = {
-                        if byte_size < all_bytes.len() as u64 {
-                            8 * all_bytes.len() as u64
-                        } else {
-                            8 * (byte_size - all_bytes.len() as u64)
-                        }
-                    };
+                    let bit_size = 8 * num_bytes as u64;
                     if pieces[0].should_remove(bit_size) {
-                        return Ok(EvaluatorValue::OptimizedOut);
+                        pieces.remove(0);
                     }
                 }
                 Location::Value { value } => {
                     // Remove piece if whole object is used.
-                    let bit_size = {
-                        if byte_size < all_bytes.len() as u64 {
-                            8 * all_bytes.len() as u64
-                        } else {
-                            8 * (byte_size - all_bytes.len() as u64)
-                        }
-                    };
+                    let bit_size = 8 * (byte_size - all_bytes.len() as u64);
                     if pieces[0].should_remove(bit_size) {
-                        return Ok(EvaluatorValue::OptimizedOut);
+                        pieces.remove(0);
                     }
 
                     return Ok(EvaluatorValue::Value(
@@ -402,15 +381,9 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                 Location::Bytes { value } => {
                     // Remove piece if whole object is used.
-                    let bit_size = {
-                        if byte_size < all_bytes.len() as u64 {
-                            8 * all_bytes.len() as u64
-                        } else {
-                            8 * (byte_size - all_bytes.len() as u64)
-                        }
-                    };
+                    let bit_size = 8 * (byte_size - all_bytes.len() as u64);
                     if pieces[0].should_remove(bit_size) {
-                        return Ok(EvaluatorValue::OptimizedOut);
+                        pieces.remove(0);
                     }
 
                     return Ok(EvaluatorValue::Bytes(value.clone()));
@@ -1070,7 +1043,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 /// Description:
 ///
 /// * `value` - The `BaseTypeValue` that will be turned into a `u64`.
-fn get_udata(value: BaseTypeValue) -> u64 {
+pub fn get_udata(value: BaseTypeValue) -> u64 {
     match value {
         BaseTypeValue::U8(v) => v as u64,
         BaseTypeValue::U16(v) => v as u64,
