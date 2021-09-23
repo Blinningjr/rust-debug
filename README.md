@@ -1,8 +1,8 @@
 # rust-debug
-Is a library for retrieving debug information from the DWARF format.
+Is a library for retrieving debug information from the `DWARF` format.
 
 
-The library provides a abstraction over the DWARF debug format, which simplifies the process of retrieving information form DWARF.
+The library provides a abstraction over the `DWARF` debug format, which simplifies the process of retrieving information from `DWARF`.
 
 
 The goals of for the library are:
@@ -23,6 +23,12 @@ The goals of for the library are:
 ## Example
 Check out this debugger for embedded Rust code I made using this library.
 [https://github.com/Blinningjr/embedded-rust-debugger](https://github.com/Blinningjr/embedded-rust-debugger)
+
+
+## Requirements
+* All the provided function require something from `gimli-rs`
+* Some of the function require that the debugged target registers and memory can be read.
+* Some knowledge of the `DWARF` format
 
 
 ## License
