@@ -1,14 +1,20 @@
 # rust-debug
-This is a debugging library for rust code.
-It provides functions for reading and evaluating some of the most common debugging information.
+Is a library for retrieving debug information from the DWARF format.
 
-The goal of this library is to make it easy to retrieve common information from dwarf, like stack information and variable information.
-I noticed when implementing my rust [debugger](https://github.com/Blinningjr/embedded-rust-debugger) that a lot of other project implemented the same functionality as me.
-So I thought that I could make my solution into a library that others can use.
-The library is far from finished but it works well enough that I can make a embedded rust debugger from it.
+The library provides a abstraction over the DWARF debug format, simplifies the process of retrieving information form DWARF.
+The goal is to provide one function solution for complicated task like preforming a stack trace.
+
+
+## Features
+* One function solution for doing a stack trace
+* One function solution for retrieving the call stack.
+* One function solution for evaluating a variable.
+* One Function solution for retrieving the source code location where a `DIE` was declared.
+* One Function solution for finding a breakpoint location.
+
 
 ## Example
-Check out my debugger for embedded rust code I made using this library.
+Check out this debugger for embedded Rust code I made using this library.
 [https://github.com/Blinningjr/embedded-rust-debugger](https://github.com/Blinningjr/embedded-rust-debugger)
 
 
