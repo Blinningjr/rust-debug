@@ -1,16 +1,20 @@
 # rust-debug
 Is a library for retrieving debug information from the DWARF format.
 
-The library provides a abstraction over the DWARF debug format, simplifies the process of retrieving information form DWARF.
-The goal is to provide one function solution for complicated task like preforming a stack trace.
+The library provides a abstraction over the DWARF debug format, which simplifies the process of retrieving information form DWARF.
+
+The goals of the library are:
+* Easy to use.
+* Provides one function solution for everything.
+* Dose not enforce which library is used too read from the debugged target.
 
 
 ## Features
-* One function solution for doing a stack trace
-* One function solution for retrieving the call stack.
-* One function solution for evaluating a variable.
-* One Function solution for retrieving the source code location where a `DIE` was declared.
-* One Function solution for finding a breakpoint location.
+* Preforming a stack trace.
+* Virtually unwinding the call stack.
+* Evaluating a variable.
+* Finding a breakpoint location.
+* Retrieving the source code location where a `DIE` was declared.
 
 
 ## Example
