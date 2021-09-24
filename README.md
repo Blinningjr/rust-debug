@@ -5,9 +5,9 @@ Is a library for retrieving debug information from the `DWARF` format.
 The library provides a abstraction over the `DWARF` debug format, which simplifies the process of retrieving information from `DWARF`.
 
 
-The goals of for the library are:
+The goals for the library are:
 * Easy to use.
-* Provides one function solution for everything.
+* Provide one function solutions.
 * Dose not enforce which library is used to read from the debugged target.
 * Dose not restrict usage of `gimli-rs`.
 
