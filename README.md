@@ -8,8 +8,8 @@ The library provides a abstraction over the `DWARF` debug format, which simplifi
 The goals for the library are:
 * Easy to use.
 * Provide one function solutions.
-* Dose not enforce which library is used to read from the debugged target.
-* Dose not restrict usage of `gimli-rs`.
+* Does not enforce which library is used to read from the debugged target.
+* Does not restrict usage of `gimli-rs`.
 
 
 ## Features
