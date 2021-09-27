@@ -1,5 +1,5 @@
 use gimli::{
-    AttributeValue::{DebugStrRef, Exprloc, LocationListsRef, UnitRef},
+    AttributeValue::{DebugStrRef, Exprloc, LocationListsRef, UnitRef, DebugInfoRef},
     DebuggingInformationEntry, Dwarf, Reader, Unit, UnitOffset, UnitSectionOffset,
 };
 
@@ -181,7 +181,21 @@ pub fn get_var_name<R: Reader<Offset = usize>>(
                         return get_var_name(dwarf, unit, &ndie);
                     }
                 }
+                DebugInfoRef(di_offset) => {
+                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                    let mut iter = dwarf.debug_info.units();
+                    while let Ok(Some(header)) = iter.next() {
+                        let unit = dwarf.unit(header)?;
+                        if let Some(offset) = offset.to_unit_offset(&unit) {
+                            if let Ok(ndie) = unit.entry(offset) {
+                                return get_var_name(dwarf, &unit, &ndie);
+                            }
+                        }
+                    }
+                    return Ok(None);
+                }
                 _ => {
+                    println!("offset: {:?}", offset);
                     unimplemented!();
                 }
             };
@@ -283,6 +297,19 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(
                                 return find_variable_type_die(dwarf, unit, &ao_die);
                             }
                         }
+                        DebugInfoRef(di_offset) => {
+                            let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                            let mut iter = dwarf.debug_info.units();
+                            while let Ok(Some(header)) = iter.next() {
+                                let unit = dwarf.unit(header)?;
+                                if let Some(offset) = offset.to_unit_offset(&unit) {
+                                    if let Ok(ndie) = unit.entry(offset) {
+                                        return find_variable_type_die(dwarf, &unit, &ndie);
+                                    }
+                                }
+                            }
+                            return Err(anyhow!("Could not find this variables type die"));
+                        }
                         _ => {
                             unimplemented!();
                         }
@@ -321,6 +348,19 @@ pub fn find_variable_source_information<R: Reader<Offset = usize>>(
                 UnitRef(offset) => {
                     let ao_die = unit.entry(offset)?;
                     return find_variable_source_information(dwarf, unit, &ao_die, cwd);
+                }
+                DebugInfoRef(di_offset) => {
+                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                    let mut iter = dwarf.debug_info.units();
+                    while let Ok(Some(header)) = iter.next() {
+                        let unit = dwarf.unit(header)?;
+                        if let Some(offset) = offset.to_unit_offset(&unit) {
+                            if let Ok(ndie) = unit.entry(offset) {
+                                return find_variable_source_information(dwarf, &unit, &ndie, cwd);
+                            }
+                        }
+                    }
+                    return Err(anyhow!("Could not find this variables die"));
                 }
                 _ => {
                     unimplemented!();
