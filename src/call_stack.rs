@@ -12,7 +12,7 @@ use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::{die_in_range, get_current_unit};
 use crate::variable::{is_variable_die, Variable};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, bail};
 use gimli::DebugFrame;
 use gimli::{RegisterRule::*, UnwindSection};
 use log::trace;
@@ -317,6 +317,9 @@ pub struct StackFrame<R: Reader<Offset = usize>> {
 
     /// The variables in this frame.
     pub variables: Vec<Variable<R>>,
+
+    /// The arguments in this frame.
+    pub arguments: Vec<Variable<R>>,
     
     /// The registers in this frame.
     pub registers: Vec<Variable<R>>,
@@ -417,6 +420,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     let frame_base = evaluate_frame_base(dwarf, &unit, pc, &die, &mut temporary_registers, mem)?;
 
     let mut variables = vec![];
+    let mut arguments = vec![];
 
     for variable_die in dies_to_check {
         let vc = Variable::get_variable(
@@ -428,8 +432,12 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             Some(frame_base),
             cwd,
         )?;
-
-        variables.push(vc);
+        
+        if is_argument(dwarf, section_offset, variable_die)? {
+            arguments.push(vc);
+        } else {
+            variables.push(vc);
+        }
     }
 
     let mut regs = vec![];
@@ -446,6 +454,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
         name,
         source,
         variables,
+        arguments,
         registers: regs,
     })
 }
@@ -625,4 +634,28 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
     } else {
         return Err(anyhow!("Die has no DW_AT_frame_base attribute"));
     }
+}
+
+
+fn is_argument<R: Reader<Offset = usize>>(
+        dwarf: &Dwarf<R>,
+        section_offset: UnitSectionOffset,
+        unit_offset: UnitOffset,
+    ) -> Result<bool> {
+        // Get the variable die.
+        let header =
+            dwarf
+                .debug_info
+                .header_from_offset(match section_offset.as_debug_info_offset() {
+                    Some(val) => val,
+                    None => bail!("Could not convert section offset into debug info offset"),
+                })?;
+        let unit = gimli::Unit::new(dwarf, header)?;
+        let die = unit.entry(unit_offset)?;
+
+        println!("die tag: {:?}", die.tag().static_string());
+        match die.tag() {
+            gimli::DW_TAG_formal_parameter => Ok(true),   
+            _ => Ok(false),
+        }
 }
