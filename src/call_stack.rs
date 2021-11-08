@@ -17,6 +17,7 @@ use gimli::DebugFrame;
 use gimli::{RegisterRule::*, UnwindSection};
 use log::trace;
 use std::convert::TryInto;
+use crate::evaluate::evaluate::ValueInformation;
 
 use gimli::{
     AttributeValue::DebugStrRef, DebuggingInformationEntry, Dwarf, EntriesTreeNode, Reader, Unit,
@@ -316,6 +317,9 @@ pub struct StackFrame<R: Reader<Offset = usize>> {
 
     /// The variables in this frame.
     pub variables: Vec<Variable<R>>,
+    
+    /// The registers in this frame.
+    pub registers: Vec<Variable<R>>,
 }
 
 impl<R: Reader<Offset = usize>> StackFrame<R> {
@@ -428,11 +432,21 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
         variables.push(vc);
     }
 
+    let mut regs = vec![];
+    for (key, value) in registers.get_registers_as_list() {
+        regs.push(Variable {
+            name: Some(format!("R{}", key)),
+            value: EvaluatorValue::Value(BaseTypeValue::Reg32(value), ValueInformation {raw: None, pieces: vec![]}),
+            source: None,
+        });
+    }
+
     Ok(StackFrame {
         call_frame,
         name,
         source,
         variables,
+        registers: regs,
     })
 }
 

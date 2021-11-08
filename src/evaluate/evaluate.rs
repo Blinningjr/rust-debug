@@ -1418,6 +1418,9 @@ pub enum BaseTypeValue {
     /// 32 bit address.
     Address32(u32),
 
+    /// 32 bit register value.
+    Reg32(u32),
+
     /// boolean
     Bool(bool),
 
@@ -1468,6 +1471,7 @@ impl fmt::Display for BaseTypeValue {
             BaseTypeValue::F32(val) => write!(f, "{}", val),
             BaseTypeValue::F64(val) => write!(f, "{}", val),
             BaseTypeValue::Address32(val) => write!(f, "'Address' {:#10x}", val),
+            BaseTypeValue::Reg32(val) => write!(f, "0x{:x}", val),
         };
     }
 }
@@ -1537,6 +1541,7 @@ impl BaseTypeValue {
             BaseTypeValue::F32(_) => "f32".to_owned(),
             BaseTypeValue::F64(_) => "f63".to_owned(),
             BaseTypeValue::Address32(_) => "<32 bit address>".to_owned(),
+            BaseTypeValue::Reg32(_) => "<32 bit register value>".to_owned(),
         }
     }
 }
@@ -1564,6 +1569,7 @@ pub fn convert_to_gimli_value(value: BaseTypeValue) -> gimli::Value {
         BaseTypeValue::F32(val) => gimli::Value::F32(val),
         BaseTypeValue::F64(val) => gimli::Value::F64(val),
         BaseTypeValue::Address32(val) => gimli::Value::Generic(val as u64),
+        BaseTypeValue::Reg32(val) => gimli::Value::U32(val),
     }
 }
 
