@@ -441,12 +441,17 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     }
 
     let mut regs = vec![];
-    for (key, value) in registers.get_registers_as_list() {
-        regs.push(Variable {
-            name: Some(format!("R{}", key)),
-            value: EvaluatorValue::Value(BaseTypeValue::Reg32(value), ValueInformation {raw: None, pieces: vec![]}),
-            source: None,
-        });
+    for key in 0..call_frame.registers.len() {
+        match call_frame.registers[key] {
+            Some(value) => {
+                regs.push(Variable {
+                    name: Some(format!("R{}", key)),
+                    value: EvaluatorValue::Value(BaseTypeValue::Reg32(value), ValueInformation {raw: None, pieces: vec![]}),
+                    source: None,
+                });
+            },
+            _ => (),
+        };
     }
 
     Ok(StackFrame {
