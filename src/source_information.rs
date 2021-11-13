@@ -1,4 +1,6 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+
+use crate::utils::get_current_unit;
 
 use gimli::{DebuggingInformationEntry, Dwarf, Reader, Unit};
 
@@ -201,4 +203,46 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
             return Ok(Some(res.1));
         }
     };
+}
+
+
+
+pub fn get_line_number<R: Reader<Offset = usize>>(
+        dwarf: &Dwarf<R>,
+        address: u64,
+    ) -> Result<Option<u64>> {
+
+    let unit = get_current_unit(dwarf, address as u32)?;
+    match unit.line_program {
+        Some(line_program) => {
+            let (program, sequences) = line_program.sequences()?;
+            let mut in_range_seqs = vec!();
+            for seq in sequences {
+                if address >= seq.start && address < seq.end {
+                    in_range_seqs.push(seq);
+                }
+            }
+            println!("number of seqs: {:?}", in_range_seqs.len());
+            println!("pc: {:?}", address);
+            let mut result = vec!();
+            let mut all = 0;
+            for seq in in_range_seqs {
+                let mut sm = program.resume_from(&seq);
+                while let Some((_lph, row)) = sm.next_row()? {
+                    println!("address: {:?}, line: {:?}, is_stmt: {:?}, valid: {:?}", row.address(), row.line(), row.is_stmt(), row.address() == address);
+                    if row.address() == address {
+                        result.push(row.line());
+                    }
+                    all += 1;
+                }
+            }
+            println!("total line rows: {:?}", all);
+            println!("result line rows: {:?}", result.len());
+            if result.len() < 1 {
+                return Ok(None);
+            }
+            return Ok(result[0]);
+        },
+        None => Err(anyhow!("Unit has no line program")),
+    }
 }
