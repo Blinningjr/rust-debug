@@ -356,7 +356,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                     let bytes = match mem.get_address(&(address as u32), num_bytes) {
                         Some(val) => val,
-                        None => panic!("Return error"),
+                        None => panic!(
+                            "can not read address: {:x} num_bytes: {:?}, Return error",
+                            address as u64, num_bytes
+                        ),
                     };
 
                     all_bytes.extend_from_slice(&bytes);
