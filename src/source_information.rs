@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 
 use crate::utils::get_current_unit;
 
-use gimli::{DebuggingInformationEntry, Dwarf, Reader, Unit};
+use gimli::{ColumnType, DebuggingInformationEntry, Dwarf, Reader, Unit};
 
 /// Contains all the information about where the code was declared in the source code.
 #[derive(Debug, Clone)]
@@ -98,6 +98,99 @@ impl SourceInformation {
             line,
             column,
         })
+    }
+
+    pub fn get_from_address<R: Reader<Offset = usize>>(
+        dwarf: &Dwarf<R>,
+        address: u64,
+        cwd: &str,
+    ) -> Result<SourceInformation> {
+        let unit = get_current_unit(dwarf, address as u32)?;
+        let mut nearest = None;
+        match unit.line_program.clone() {
+            Some(line_program) => {
+                let (program, sequences) = line_program.sequences()?;
+                let mut in_range_seqs = vec![];
+                for seq in sequences {
+                    if address >= seq.start && address < seq.end {
+                        in_range_seqs.push(seq);
+                    }
+                }
+                //           println!("number of seqs: {:?}", in_range_seqs.len());
+                //           println!("pc: {:?}", address);
+                let mut result = vec![];
+                let mut all = 0;
+                for seq in in_range_seqs {
+                    let mut sm = program.resume_from(&seq);
+                    while let Some((header, row)) = sm.next_row()? {
+                        //                   println!(
+                        //                        "address: {:?}, line: {:?}, is_stmt: {:?}, valid: {:?}",
+                        //                       row.address(),
+                        //                       row.line(),
+                        //                       row.is_stmt(),
+                        //                       row.address() == address
+                        //                   );
+
+                        if row.address() <= address {
+                            let (file, directory) = match row.file(header) {
+                                Some(file_entry) => match file_entry.directory(header) {
+                                    Some(dir_av) => {
+                                        let mut dir_raw = dwarf
+                                            .attr_string(&unit, dir_av)?
+                                            .to_string()?
+                                            .to_string();
+                                        let file_raw = dwarf
+                                            .attr_string(&unit, file_entry.path_name())?
+                                            .to_string()?
+                                            .to_string();
+                                        let file =
+                                            file_raw.trim_start_matches(&dir_raw).to_string();
+
+                                        if !dir_raw.starts_with("/") {
+                                            dir_raw = format!("{}/{}", cwd, dir_raw);
+                                        }
+
+                                        (Some(file), Some(dir_raw))
+                                    }
+                                    None => (None, None),
+                                },
+                                None => (None, None),
+                            };
+
+                            let si = SourceInformation {
+                                directory,
+                                file,
+                                line: row.line(),
+                                column: match row.column() {
+                                    ColumnType::LeftEdge => Some(1),
+                                    ColumnType::Column(n) => Some(n),
+                                },
+                            };
+
+                            match nearest {
+                                Some((addr, _)) => {
+                                    if row.address() > addr {
+                                        nearest = Some((row.address(), si));
+                                    }
+                                }
+                                None => nearest = Some((row.address(), si)),
+                            };
+                        }
+                        if row.address() == address {
+                            result.push(row.line());
+                        }
+                        all += 1;
+                    }
+                }
+                println!("total line rows: {:?}", all);
+                //           println!("result line rows: {:?}", result.len());
+                return match nearest {
+                    Some((_, si)) => Ok(si),
+                    None => Err(anyhow!("Could not find source informaitno")),
+                };
+            }
+            None => Err(anyhow!("Unit has no line program")),
+        }
     }
 }
 
@@ -203,65 +296,4 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
             return Ok(Some(res.1));
         }
     };
-}
-
-pub fn get_line_number<R: Reader<Offset = usize>>(
-    dwarf: &Dwarf<R>,
-    address: u64,
-) -> Result<Option<u64>> {
-    let unit = get_current_unit(dwarf, address as u32)?;
-    let mut nearest = None;
-    match unit.line_program {
-        Some(line_program) => {
-            let (program, sequences) = line_program.sequences()?;
-            let mut in_range_seqs = vec![];
-            for seq in sequences {
-                if address >= seq.start && address < seq.end {
-                    in_range_seqs.push(seq);
-                }
-            }
-            //           println!("number of seqs: {:?}", in_range_seqs.len());
-            //           println!("pc: {:?}", address);
-            let mut result = vec![];
-            let mut all = 0;
-            for seq in in_range_seqs {
-                let mut sm = program.resume_from(&seq);
-                while let Some((_lph, row)) = sm.next_row()? {
-                    //                   println!(
-                    //                        "address: {:?}, line: {:?}, is_stmt: {:?}, valid: {:?}",
-                    //                       row.address(),
-                    //                       row.line(),
-                    //                       row.is_stmt(),
-                    //                       row.address() == address
-                    //                   );
-
-                    if row.address() <= address {
-                        match nearest {
-                            Some((addr, _)) => {
-                                if row.address() > addr {
-                                    nearest = Some((row.address(), row.line()));
-                                }
-                            }
-                            None => nearest = Some((row.address(), row.line())),
-                        };
-                    }
-                    if row.address() == address {
-                        result.push(row.line());
-                    }
-                    all += 1;
-                }
-            }
-            println!("total line rows: {:?}", all);
-            //           println!("result line rows: {:?}", result.len());
-            return Ok(match nearest {
-                Some((_, line)) => line,
-                None => None,
-            });
-            //if result.len() < 1 {
-            //    return Ok(None);
-            //}
-            //return Ok(result[0]);
-        }
-        None => Err(anyhow!("Unit has no line program")),
-    }
 }

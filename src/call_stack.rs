@@ -10,7 +10,6 @@ use crate::evaluate::evaluate::BaseTypeValue;
 use crate::evaluate::evaluate::EvaluatorValue;
 use crate::evaluate::evaluate::ValueInformation;
 use crate::registers::Registers;
-use crate::source_information::get_line_number;
 use crate::source_information::SourceInformation;
 use crate::utils::{die_in_range, get_current_unit};
 use crate::variable::{is_variable_die, Variable};
