@@ -121,7 +121,7 @@ pub fn new_stack_trace<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
         code_location,
         regs,
         &mut gimli::BaseAddresses::default(),
-        &mut gimli::UninitializedUnwindContext::new(),
+        &mut Box::new(gimli::UnwindContext::new()),
     )
 }
 
@@ -137,7 +137,7 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     code_location: Option<u64>,
     mut unwind_registers: [Option<u32>; 16],
     base: &mut gimli::BaseAddresses,
-    ctx: &mut gimli::UninitializedUnwindContext<R>,
+    ctx: &mut gimli::UnwindContext<R>,
 ) -> Result<Vec<StackFrame<R>>> {
     // Check current pc.
     let current_location = match code_location {
@@ -357,7 +357,7 @@ pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
         code_location,
         regs,
         &mut gimli::BaseAddresses::default(),
-        &mut gimli::UninitializedUnwindContext::new(),
+        &mut Box::new(gimli::UnwindContext::new()),
     )
 }
 
@@ -385,7 +385,7 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
     code_location: Option<u64>,
     mut unwind_registers: [Option<u32>; 16],
     base: &mut gimli::BaseAddresses,
-    ctx: &mut gimli::UninitializedUnwindContext<R>,
+    ctx: &mut gimli::UnwindContext<R>,
 ) -> Result<Vec<CallFrame>> {
     let current_location = match code_location {
         Some(val) => val,

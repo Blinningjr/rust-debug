@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use crate::utils::get_current_unit;
 
 use gimli::{ColumnType, DebuggingInformationEntry, Dwarf, Reader, Unit};
+use std::num::NonZeroU64;
 
 /// Contains all the information about where the code was declared in the source code.
 #[derive(Debug, Clone)]
@@ -14,10 +15,10 @@ pub struct SourceInformation {
     pub file: Option<String>,
 
     /// The source code line number where the debug information was declared.
-    pub line: Option<u64>,
+    pub line: Option<NonZeroU64>,
 
     /// The source code column number where the debug information was declared.
-    pub column: Option<u64>,
+    pub column: Option<NonZeroU64>,
 }
 
 impl SourceInformation {
@@ -81,13 +82,13 @@ impl SourceInformation {
         };
 
         let line = match die.attr_value(gimli::DW_AT_decl_line)? {
-            Some(gimli::AttributeValue::Udata(v)) => Some(v),
+            Some(gimli::AttributeValue::Udata(v)) => NonZeroU64::new(v),
             None => None,
             Some(v) => unimplemented!("{:?}", v),
         };
 
         let column = match die.attr_value(gimli::DW_AT_decl_column)? {
-            Some(gimli::AttributeValue::Udata(v)) => Some(v),
+            Some(gimli::AttributeValue::Udata(v)) => NonZeroU64::new(v),
             None => None,
             Some(v) => unimplemented!("{:?}", v),
         };
@@ -162,7 +163,7 @@ impl SourceInformation {
                                 file,
                                 line: row.line(),
                                 column: match row.column() {
-                                    ColumnType::LeftEdge => Some(1),
+                                    ColumnType::LeftEdge => NonZeroU64::new(1),
                                     ColumnType::Column(n) => Some(n),
                                 },
                             };
@@ -212,8 +213,8 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
     dwarf: &'a Dwarf<R>,
     cwd: &str,
     path: &str,
-    line: u64,
-    column: Option<u64>,
+    line: NonZeroU64,
+    column: Option<NonZeroU64>,
 ) -> Result<Option<u64>> {
     let mut locations = vec![];
 
