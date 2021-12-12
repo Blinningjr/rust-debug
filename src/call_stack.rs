@@ -13,12 +13,12 @@ use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::{die_in_range, get_current_unit};
 use crate::variable::{is_variable_die, Variable};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use gimli::AttributeValue::DebugInfoRef;
 use gimli::AttributeValue::UnitRef;
 use gimli::DebugFrame;
 use gimli::{RegisterRule::*, UnwindSection};
-use log::trace;
+use log::{error, trace};
 use std::convert::TryInto;
 
 use gimli::{
@@ -198,9 +198,21 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
                                 result.push(v);
                             }
 
-                            u32::from_le_bytes(result.as_slice().try_into().unwrap())
+                            u32::from_le_bytes(match result.as_slice().try_into() {
+                                Ok(val) => val,
+                                Err(err) => {
+                                    error!("{:?}", err);
+                                    return Err(anyhow!("{:?}", err));
+                                }
+                            })
                         }
-                        None => panic!("tait not working"),
+                        None => {
+                            error!("Could not read 4 bytes from address 0x{:x}", address);
+                            return Err(anyhow!(
+                                "Could not read 4 bytes from address 0x{:x}",
+                                address
+                            ));
+                        }
                     };
                     value
                 };
@@ -217,9 +229,18 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
                 Some(value)
             }
             Register(reg) => unwind_registers[reg.0 as usize],
-            Expression(_expr) => unimplemented!(),    // TODO
-            ValExpression(_expr) => unimplemented!(), // TODO
-            Architectural => unimplemented!(),        // TODO
+            Expression(_expr) => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented")); // TODO
+            }
+            ValExpression(_expr) => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented")); // TODO
+            }
+            Architectural => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented")); // TODO
+            }
         };
     }
 
@@ -256,14 +277,26 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     let unit = gimli::Unit::new(dwarf, header)?;
     let die = unit.entry(unit_offset)?;
     let next_code_location = match die.attr_value(gimli::DW_AT_inline)? {
-        Some(val) => panic!("attribute value: {:?}", val),
+        Some(val) => {
+            error!(
+                "Unexpected inlined function with attribute value: {:?}",
+                val
+            );
+            return Err(anyhow!(
+                "Unexpected inlined function with attribute value: {:?}",
+                val
+            ));
+        }
         None => {
             if die.tag() == gimli::DW_TAG_inlined_subroutine {
-                println!("here");
+                //println!("here");
                 //Some(unwind_info.start_address())
                 match die.attr_value(gimli::DW_AT_low_pc)? {
                     Some(gimli::AttributeValue::Addr(val)) => Some(val),
-                    Some(val) => panic!("{:?}", val),
+                    Some(val) => {
+                        error!("Unimplemented for {:?}", val);
+                        return Err(anyhow!("Unimplemented for {:?}", val));
+                    }
                     None => None,
                 }
             } else {
@@ -442,9 +475,21 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
                                 result.push(v);
                             }
 
-                            u32::from_le_bytes(result.as_slice().try_into().unwrap())
+                            u32::from_le_bytes(match result.as_slice().try_into() {
+                                Ok(val) => val,
+                                Err(err) => {
+                                    error!("{:?}", err);
+                                    return Err(anyhow!("{:?}", err));
+                                }
+                            })
                         }
-                        None => panic!("tait not working"),
+                        None => {
+                            error!("Can not read 4 bytes from address 0x{:x}", address);
+                            return Err(anyhow!(
+                                "Can not read 4 bytes from address 0x{:x}",
+                                address
+                            ));
+                        }
                     };
                     value
                 };
@@ -461,9 +506,18 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
                 Some(value)
             }
             Register(reg) => unwind_registers[reg.0 as usize],
-            Expression(_expr) => unimplemented!(),    // TODO
-            ValExpression(_expr) => unimplemented!(), // TODO
-            Architectural => unimplemented!(),        // TODO
+            Expression(_expr) => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented")); // TODO
+            }
+            ValExpression(_expr) => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented")); // TODO
+            }
+            Architectural => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented"));
+            }
         };
     }
 
@@ -521,7 +575,8 @@ fn unwind_cfa<R: Reader<Offset = usize>>(
             Ok(Some((i64::from(reg_val) + offset) as u32))
         }
         gimli::CfaRule::Expression(_expr) => {
-            unimplemented!(); // TODO
+            error!("Unimplemented");
+            return Err(anyhow!("Unimplemented")); // TODO
         }
     }
 }
@@ -643,9 +698,9 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
                     }
                     name
                 }
-                _ => {
-                    println!("offset: {:?}", offset);
-                    unimplemented!();
+                val => {
+                    error!("Unimplemented for {:?}", val);
+                    return Err(anyhow!("Unimplemented for {:?}", val));
                 }
             },
             None => "<unknown>".to_string(),
@@ -691,9 +746,15 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             })?;
     let fb_unit = gimli::Unit::new(dwarf, fb_header)?;
     let fb_die = fb_unit.entry(fb_unit_offset)?;
-    println!("name: {:?}, tag: {:?}", name, die.tag().static_string());
+    //println!("name: {:?}, tag: {:?}", name, die.tag().static_string());
     let frame_base =
-        evaluate_frame_base(dwarf, &unit, pc, &fb_die, &mut temporary_registers, mem).unwrap();
+        match evaluate_frame_base(dwarf, &unit, pc, &fb_die, &mut temporary_registers, mem) {
+            Ok(val) => val,
+            Err(err) => {
+                error!("{:?}", err);
+                return Err(anyhow!("{:?}", err));
+            }
+        };
 
     let mut variables = vec![];
     let mut arguments = vec![];
@@ -799,7 +860,8 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(
     }
 
     if dies.len() != 1 {
-        unreachable!();
+        error!("Unreachable");
+        return Err(anyhow!("Unreachable"));
     }
     return Ok((unit.header.offset(), dies[0].offset()));
 }
@@ -837,7 +899,9 @@ pub fn find_non_inlined_function_die<'a, R: Reader<Offset = usize>>(
             gimli::DW_TAG_subprogram => {
                 if let Some(true) = die_in_range(&dwarf, &unit, current, address) {
                     match current.attr_value(gimli::DW_AT_inline)? {
-                        Some(val) => panic!("inline attr val: {:?}", val),
+                        Some(val) => {
+                            error!("inline attr val: {:?}", val);
+                        }
                         None => (),
                     };
                     match res {
@@ -861,7 +925,8 @@ pub fn find_non_inlined_function_die<'a, R: Reader<Offset = usize>>(
     }
 
     if dies.len() != 1 {
-        unreachable!();
+        error!("Unreachable");
+        return Err(anyhow!("Unreachable"));
     }
     return Ok((unit.header.offset(), dies[0].offset()));
 }
@@ -974,11 +1039,13 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
             match value {
                 EvaluatorValue::Value(BaseTypeValue::Address32(v), _) => return Ok(v as u64),
                 _ => {
-                    unreachable!();
+                    error!("Unreachable");
+                    return Err(anyhow!("Unreachable"));
                 }
             };
         } else {
-            unimplemented!();
+            error!("Unimplemented");
+            return Err(anyhow!("Unimplemented"));
         }
     } else if let Some(offset) = die.attr_value(gimli::DW_AT_abstract_origin)? {
         match offset {
@@ -996,11 +1063,13 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
                         return evaluate_frame_base(dwarf, &unit, pc, &ndie, registers, mem);
                     }
                 }
-                unimplemented!();
+
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented"));
             }
-            _ => {
-                println!("offset: {:?}", offset);
-                unimplemented!();
+            val => {
+                error!("Unimplemented for {:?}", val);
+                return Err(anyhow!("Unimplemented for {:?}", val));
             }
         };
     } else {
@@ -1019,7 +1088,12 @@ fn is_argument<R: Reader<Offset = usize>>(
             .debug_info
             .header_from_offset(match section_offset.as_debug_info_offset() {
                 Some(val) => val,
-                None => bail!("Could not convert section offset into debug info offset"),
+                None => {
+                    error!("Could not convert section offset into debug info offset");
+                    return Err(anyhow!(
+                        "Could not convert section offset into debug info offset"
+                    ));
+                }
             })?;
     let unit = gimli::Unit::new(dwarf, header)?;
     let die = unit.entry(unit_offset)?;

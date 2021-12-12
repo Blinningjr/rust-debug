@@ -1,9 +1,7 @@
 use gimli::{
-    AttributeValue::{DebugStrRef, Exprloc, LocationListsRef, UnitRef, DebugInfoRef},
+    AttributeValue::{DebugInfoRef, DebugStrRef, Exprloc, LocationListsRef, UnitRef},
     DebuggingInformationEntry, Dwarf, Reader, Unit, UnitOffset, UnitSectionOffset,
 };
-
-use anyhow::{anyhow, bail, Result};
 
 use crate::call_stack::MemoryAccess;
 use crate::evaluate::attributes;
@@ -12,6 +10,8 @@ use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
+use anyhow::{anyhow, Result};
+use log::error;
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
@@ -71,7 +71,12 @@ impl<R: Reader<Offset = usize>> Variable<R> {
                 .debug_info
                 .header_from_offset(match section_offset.as_debug_info_offset() {
                     Some(val) => val,
-                    None => bail!("Could not convert section offset into debug info offset"),
+                    None => {
+                        error!("Could not convert section offset into debug info offset");
+                        return Err(anyhow!(
+                            "Could not convert section offset into debug info offset"
+                        ));
+                    }
                 })?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(unit_offset)?;
@@ -107,7 +112,12 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         let header = dwarf.debug_info.header_from_offset(
             match type_section_offset.as_debug_info_offset() {
                 Some(val) => val,
-                None => bail!("Could not convert the section offset into debug info offset"),
+                None => {
+                    error!("Could not convert section offset into debug info offset");
+                    return Err(anyhow!(
+                        "Could not convert section offset into debug info offset"
+                    ));
+                }
             },
         )?;
         let type_unit = gimli::Unit::new(dwarf, header)?;
@@ -194,9 +204,9 @@ pub fn get_var_name<R: Reader<Offset = usize>>(
                     }
                     return Ok(None);
                 }
-                _ => {
-                    println!("offset: {:?}", offset);
-                    unimplemented!();
+                val => {
+                    error!("Unimplemented for {:?}", val);
+                    return Err(anyhow!("Unimplemented for {:?}", val));
                 }
             };
         }
@@ -262,7 +272,8 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(
             }
             None => return Ok(VariableLocation::NoLocation),
             Some(v) => {
-                bail!("Unimplemented for {:?}", v);
+                error!("Unimplemented for {:?}", v);
+                return Err(anyhow!("Unimplemented for {:?}", v));
             }
         }
     } else {
@@ -310,8 +321,9 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(
                             }
                             return Err(anyhow!("Could not find this variables type die"));
                         }
-                        _ => {
-                            unimplemented!();
+                        val => {
+                            error!("Unimplemented for {:?}", val);
+                            return Err(anyhow!("Unimplemented for {:?}", val));
                         }
                     };
                 }
@@ -362,8 +374,9 @@ pub fn find_variable_source_information<R: Reader<Offset = usize>>(
                     }
                     return Err(anyhow!("Could not find this variables die"));
                 }
-                _ => {
-                    unimplemented!();
+                val => {
+                    error!("Unimplemented for {:?}", val);
+                    return Err(anyhow!("Unimplemented for {:?}", val));
                 }
             };
         } else {

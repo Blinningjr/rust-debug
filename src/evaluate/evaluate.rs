@@ -5,7 +5,8 @@ use std::convert::TryInto;
 
 use gimli::{DwAte, Location, Piece, Reader};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
+use log::error;
 
 use std::fmt;
 
@@ -228,7 +229,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 }
                 match result {
                     Some(val) => val,
-                    None => bail!("Could not find unit form offset"),
+                    None => {
+                        error!("Could not find unit from offset");
+                        return Err(anyhow!("Could not find unit from offset"));
+                    }
                 }
             }
         };
@@ -292,7 +296,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         let mut value_pieces = vec![];
         while all_bytes.len() < byte_size.try_into()? {
             if pieces.len() == 0 {
-                unreachable!();
+                error!("Unreachable");
+                return Err(anyhow!("Unreachable"));
                 //return Ok(EvaluatorValue::OptimizedOut);
             }
 
@@ -356,10 +361,17 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                     let bytes = match mem.get_address(&(address as u32), num_bytes) {
                         Some(val) => val,
-                        None => panic!(
-                            "can not read address: {:x} num_bytes: {:?}, Return error",
-                            address as u64, num_bytes
-                        ),
+                        None => {
+                            error!(
+                                "can not read address: {:x} num_bytes: {:?}, Return error",
+                                address as u64, num_bytes
+                            );
+                            return Err(anyhow!(
+                                "can not read address: {:x} num_bytes: {:?}, Return error",
+                                address as u64,
+                                num_bytes
+                            ));
+                        }
                     };
 
                     all_bytes.extend_from_slice(&bytes);
@@ -402,7 +414,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 Location::ImplicitPointer {
                     value: _,
                     byte_offset: _,
-                } => unimplemented!(),
+                } => {
+                    error!("Unimplemented");
+                    return Err(anyhow!("Unimplemented"));
+                }
             }
         }
 
@@ -441,21 +456,36 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_base_type.
                 match die.tag() {
                     gimli::DW_TAG_base_type => (),
-                    _ => bail!("Expected DW_TAG_base_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_base_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_base_type die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
 
                 // Get byte size and encoding from the die.
-                let byte_size = attributes::byte_size_attribute(die)
-                    .ok_or(anyhow!("Expected to have byte_size attribute"))?;
+                let byte_size = match attributes::byte_size_attribute(die)? {
+                    Some(val) => val,
+                    None => {
+                        error!("Missing required byte size attribute");
+                        return Err(anyhow!("Missing required byte size attribute"));
+                    }
+                };
 
                 if byte_size == 0 {
                     return Ok(EvaluatorValue::ZeroSize);
                 }
 
-                let encoding = attributes::encoding_attribute(die)
-                    .ok_or(anyhow!("Expected to habe encoding attribute"))?;
+                let encoding = match attributes::encoding_attribute(die)? {
+                    Some(val) => val,
+                    None => {
+                        error!("Missing required encoding attribute");
+                        return Err(anyhow!("Missing required encoding attribute"));
+                    }
+                };
 
                 // Evaluate the value.
                 EvaluatorValue::handle_eval_piece(
@@ -471,18 +501,28 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_pointer_type.
                 match die.tag() {
                     gimli::DW_TAG_pointer_type => (),
-                    _ => bail!("Expected DW_TAG_pointer_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_pointer_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_pointer_type die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
 
                 // Get the name of the pointer type.
-                let name = attributes::name_attribute(dwarf, die);
+                let name = attributes::name_attribute(dwarf, die)?;
 
                 // Evaluate the pointer type value.
-                let address_class = match attributes::address_class_attribute(die) {
+                let address_class = match attributes::address_class_attribute(die)? {
                     Some(val) => val,
-                    None => bail!("Die is missing required attribute DW_AT_address_class"),
+                    None => {
+                        error!("Die is missing required attribute DW_AT_address_class");
+                        return Err(anyhow!(
+                            "Die is missing required attribute DW_AT_address_class"
+                        ));
+                    }
                 };
 
                 // This vill evaluate the address
@@ -497,7 +537,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             pieces,
                         )?
                     }
-                    _ => bail!("Unimplemented DwAddr code"), // NOTE: The codes are architecture specific.
+                    _ => {
+                        error!("Unimplemented DwAddr code"); // NOTE: The codes are architecture specific.
+                        return Err(anyhow!("Unimplemented DwAddr code"));
+                    }
                 };
 
                 let value = match (attributes::type_attribute(dwarf, unit, die)?, &address) {
@@ -510,7 +553,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             match section_offset.as_debug_info_offset() {
                                 Some(val) => val,
                                 None => {
-                                    bail!("Could not convert section offset into debug info offset")
+                                    error!(
+                                        "Could not convert section offset into debug info offset"
+                                    );
+                                    return Err(anyhow!(
+                                        "Could not convert section offset into debug info offset"
+                                    ));
                                 }
                             },
                         )?;
@@ -551,7 +599,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_array_type.
                 match die.tag() {
                     gimli::DW_TAG_array_type => (),
-                    _ => bail!("Expected DW_TAG_array_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_array_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_array_type die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
@@ -571,7 +624,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 }
 
                 if children.len() != 1 {
-                    unreachable!();
+                    error!("Unreachable");
+                    return Err(anyhow!("Unreachable"));
                 }
 
                 let dimension_die = unit.entry(children[0])?;
@@ -586,13 +640,16 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     pieces,
                 )? {
                     EvaluatorValue::SubrangeTypeValue(subrange_type_value) => subrange_type_value,
-                    _ => unreachable!(),
+                    _ => {
+                        error!("Unreachable");
+                        return Err(anyhow!("Unreachable"));
+                    }
                 };
 
                 let mut values = vec![];
 
                 // Evaluate all the values in the array.
-                match subrange_type_value.get_count() {
+                match subrange_type_value.get_count()? {
                     Some(count) => {
                         // Get type attribute unit and die.
                         let (type_unit, die_offset) = get_type_info(dwarf, unit, die)?;
@@ -623,14 +680,24 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_structure_type.
                 match die.tag() {
                     gimli::DW_TAG_structure_type => (),
-                    _ => bail!("Expected DW_TAG_structure_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_structure_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_structure_type die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
 
-                let name = match attributes::name_attribute(dwarf, die) {
+                let name = match attributes::name_attribute(dwarf, die)? {
                     Some(val) => val,
-                    None => bail!("Expected the structure type die to have a name attribute"),
+                    None => {
+                        error!("Expected the structure type die to have a name attribute");
+                        return Err(anyhow!(
+                            "Expected the structure type die to have a name attribute"
+                        ));
+                    }
                 };
 
                 // Get all the DW_TAG_member dies.
@@ -659,11 +726,17 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         }
                         gimli::DW_TAG_member => {
                             let data_member_location =
-                                match attributes::data_member_location_attribute(&c_die) {
+                                match attributes::data_member_location_attribute(&c_die)? {
                                     Some(val) => val,
-                                    None => bail!(
+                                    None => {
+                                        error!(
                                 "Expected member die to have attribute DW_AT_data_member_location"
-                            ),
+                            );
+                                        return Err(
+                                            anyhow!(
+                                "Expected member die to have attribute DW_AT_data_member_location"),
+                                        );
+                                    }
                                 };
                             member_dies.push((data_member_location, c_die))
                         }
@@ -688,7 +761,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             data_offset,
                             pieces,
                         )?,
-                        _ => panic!("Unexpected die"),
+                        tag => {
+                            error!("Unexpected die tag: {:?}", tag);
+                            return Err(anyhow!("Unimplemented"));
+                        }
                     };
                     members.push(member);
                 }
@@ -702,14 +778,22 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_union_type.
                 match die.tag() {
                     gimli::DW_TAG_union_type => (),
-                    _ => bail!("Expected DW_TAG_union_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_union_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_union_type die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
 
-                let name = match attributes::name_attribute(dwarf, die) {
+                let name = match attributes::name_attribute(dwarf, die)? {
                     Some(val) => val,
-                    None => bail!("Expected union type die to have a name attribute"),
+                    None => {
+                        error!("Expected union type die to have a name attribute");
+                        return Err(anyhow!("Expected union type die to have a name attribute"));
+                    }
                 };
 
                 // Get all children of type DW_TAG_member.
@@ -720,11 +804,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     match c_die.tag() {
                         gimli::DW_TAG_member => {
                             let data_member_location =
-                                match attributes::data_member_location_attribute(&c_die) {
+                                match attributes::data_member_location_attribute(&c_die)? {
                                     Some(val) => val,
-                                    None => bail!(
-                                "Expected member die to have attribute DW_AT_data_member_location"
-                            ),
+                                    None => {
+                                        error!("Expected member die to have attribute DW_AT_data_member_location");
+                                        return Err(anyhow!("Expected member die to have attribute DW_AT_data_member_location"));
+                                    }
                                 };
                             member_dies.push((data_member_location, c_die))
                         }
@@ -749,7 +834,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             data_offset,
                             pieces,
                         )?,
-                        _ => panic!("Unexpected die"),
+                        tag => {
+                            error!("Unexpected die with tag {:?}", tag);
+                            return Err(anyhow!("Unimplemented"));
+                        }
                     };
                     members.push(member);
                 }
@@ -763,14 +851,19 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_member
                 match die.tag() {
                     gimli::DW_TAG_member => (),
-                    _ => bail!("Expected DW_TAG_member die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_member die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_member die, this should never happen"
+                        ));
+                    }
                 };
 
                 // Get the name of the member.
-                let name = attributes::name_attribute(dwarf, die);
+                let name = attributes::name_attribute(dwarf, die)?;
 
                 // Calculate the new data offset.
-                let new_data_offset = match attributes::data_member_location_attribute(die) {
+                let new_data_offset = match attributes::data_member_location_attribute(die)? {
                     // NOTE: Seams it can also be a location description and not an offset. Dwarf 5 page 118
                     Some(val) => data_offset + val,
                     None => data_offset,
@@ -802,7 +895,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_enumeration_type
                 match die.tag() {
                     gimli::DW_TAG_enumeration_type => (),
-                    _ => bail!("Expected DW_TAG_enumeration_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_enumeration_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_enumeration_type die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
@@ -830,27 +928,34 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     let c_die = unit.entry(c)?;
                     match c_die.tag() {
                         gimli::DW_TAG_enumerator => {
-                            let name = attributes::name_attribute(dwarf, &c_die);
+                            let name = attributes::name_attribute(dwarf, &c_die)?;
 
-                            let const_value = match attributes::const_value_attribute(&c_die) {
+                            let const_value = match attributes::const_value_attribute(&c_die)? {
                                 Some(val) => val,
-                                None => bail!(
-                                    "Expected enumeration type die to have attribute DW_AT_const_value"
-                                ),
+                                None => {
+                                    error!("Expected enumeration type die to have attribute DW_AT_const_value");
+                                    return Err(anyhow!("Expected enumeration type die to have attribute DW_AT_const_value"));
+                                }
                             };
 
                             enumerators.push(EnumeratorValue { name, const_value });
                         }
                         gimli::DW_TAG_subprogram => (),
-                        _ => unimplemented!(),
+                        tag => {
+                            error!("Unimplemented for tag: {:?}", tag);
+                            return Err(anyhow!("Unimplemented"));
+                        }
                     };
                 }
 
                 // Get the name of the enum type and the enum variant.
-                let name = match attributes::name_attribute(dwarf, die) {
+                let name = match attributes::name_attribute(dwarf, die)? {
                     Some(val) => val,
                     None => {
-                        bail!("Expected enumeration type die to have attribute DW_AT_name")
+                        error!("Expected enumeration type die to have attribute DW_AT_name");
+                        return Err(anyhow!(
+                            "Expected enumeration type die to have attribute DW_AT_name"
+                        ));
                     }
                 };
 
@@ -864,7 +969,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has tag DW_TAG_variant_part
                 match die.tag() {
                     gimli::DW_TAG_variant_part => (),
-                    _ => bail!("Expected DW_TAG_variant_part die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_variant_part die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_variant_part die, this should never happen"
+                        ));
+                    }
                 };
 
                 check_alignment(die, data_offset, pieces)?;
@@ -873,7 +983,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // TODO: If variant is optimised out then return optimised out and remove the pieces for
                 // this type if needed.
 
-                let variant: Option<MemberValue<R>> = match attributes::discr_attribute(die) {
+                let variant: Option<MemberValue<R>> = match attributes::discr_attribute(die)? {
                     Some(die_offset) => {
                         let member_die = &unit.entry(die_offset)?;
 
@@ -889,9 +999,15 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 pieces,
                             )? {
                                 EvaluatorValue::Member(member) => Some(*member),
-                                _ => unreachable!(),
+                                _ => {
+                                    error!("Unreachable");
+                                    return Err(anyhow!("Unreachable"));
+                                }
                             },
-                            _ => unreachable!(),
+                            _ => {
+                                error!("Unreachable");
+                                return Err(anyhow!("Unreachable"));
+                            }
                         }
                     }
                     None => None,
@@ -900,7 +1016,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // The value should be a unsigned int thus convert the value to a u64.
                 let variant_number = match variant.clone() {
                     Some(MemberValue { name: _name, value }) => match value.to_value() {
-                        Some(val) => Some(get_udata(val)),
+                        Some(val) => Some(get_udata(val)?),
                         None => None,
                     },
                     None => None,
@@ -926,7 +1042,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 &mut temp_pieces,
                             )? {
                                 EvaluatorValue::VariantValue(variant) => variant,
-                                _ => unreachable!(),
+                                _ => {
+                                    error!("Unreachable");
+                                    return Err(anyhow!("Unreachable"));
+                                }
                             };
 
                             match (variant.discr_value, variant_number) {
@@ -971,7 +1090,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 pieces,
                             )? {
                                 EvaluatorValue::Member(member) => member,
-                                _ => unreachable!(),
+                                _ => {
+                                    error!("Unreachable");
+                                    return Err(anyhow!("Unreachable"));
+                                }
                             };
 
                             members.push(member);
@@ -981,10 +1103,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 }
 
                 if members.len() != 1 {
-                    unreachable!(); // DW_TAG_variant should only have one member child.
+                    error!("Unreachable");
+                    return Err(anyhow!("Unreachable"));
+                    // DW_TAG_variant should only have one member child.
                 }
 
-                let discr_value = attributes::discr_value_attribute(die);
+                let discr_value = attributes::discr_value_attribute(die)?;
 
                 Ok(EvaluatorValue::VariantValue(Box::new(VariantValue {
                     discr_value,
@@ -995,13 +1119,18 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 // Make sure that the die has the tag DW_TAG_subrange_type
                 match die.tag() {
                     gimli::DW_TAG_subrange_type => (),
-                    _ => bail!("Expected DW_TAG_subrange_type die, this should never happen"),
+                    _ => {
+                        error!("Expected DW_TAG_subrange_type die, this should never happen");
+                        return Err(anyhow!(
+                            "Expected DW_TAG_subrange_type die, this should never happen"
+                        ));
+                    }
                 };
 
-                let lower_bound = attributes::lower_bound_attribute(die);
+                let lower_bound = attributes::lower_bound_attribute(die)?;
 
                 // If the die has a count attribute then that is the value.
-                match attributes::count_attribute(die) {
+                match attributes::count_attribute(die)? {
                     // NOTE: This could be replace with lower and upper bound
                     Some(count) => Ok(EvaluatorValue::SubrangeTypeValue(SubrangeTypeValue {
                         lower_bound,
@@ -1012,7 +1141,12 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         // Get the type unit and die.
                         let (type_unit, die_offset) = match get_type_info(dwarf, unit, die) {
                             Ok(val) => val,
-                            Err(_) => bail!("Expected subrange type die to have type information"),
+                            Err(_) => {
+                                error!("Expected subrange type die to have type information");
+                                return Err(anyhow!(
+                                    "Expected subrange type die to have type information"
+                                ));
+                            }
                         };
                         let type_die = &type_unit.entry(die_offset)?;
 
@@ -1029,7 +1163,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             EvaluatorValue::Value(base_type_value, value_information) => {
                                 Some((base_type_value, value_information))
                             }
-                            _ => unreachable!(),
+                            _ => {
+                                error!("Unreachable");
+                                return Err(anyhow!("Unreachable"));
+                            }
                         };
                         Ok(EvaluatorValue::SubrangeTypeValue(SubrangeTypeValue {
                             lower_bound,
@@ -1039,12 +1176,30 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     }
                 }
             }
-            gimli::DW_TAG_subroutine_type => unimplemented!(),
-            gimli::DW_TAG_subprogram => unimplemented!(),
-            gimli::DW_TAG_string_type => unimplemented!(),
-            gimli::DW_TAG_generic_subrange => unimplemented!(),
-            gimli::DW_TAG_template_type_parameter => unimplemented!(),
-            _ => unimplemented!(),
+            gimli::DW_TAG_subroutine_type => {
+                error!("Unimplemented");
+                Err(anyhow!("Unimplemented"))
+            }
+            gimli::DW_TAG_subprogram => {
+                error!("Unimplemented");
+                Err(anyhow!("Unimplemented"))
+            }
+            gimli::DW_TAG_string_type => {
+                error!("Unimplemented");
+                Err(anyhow!("Unimplemented"))
+            }
+            gimli::DW_TAG_generic_subrange => {
+                error!("Unimplemented");
+                Err(anyhow!("Unimplemented"))
+            }
+            gimli::DW_TAG_template_type_parameter => {
+                error!("Unimplemented");
+                Err(anyhow!("Unimplemented"))
+            }
+            tag => {
+                error!("Unimplemented for tag {:?}", tag);
+                Err(anyhow!("Unimplemented"))
+            }
         }
     }
 }
@@ -1054,14 +1209,17 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 /// Description:
 ///
 /// * `value` - The `BaseTypeValue` that will be turned into a `u64`.
-pub fn get_udata(value: BaseTypeValue) -> u64 {
+pub fn get_udata(value: BaseTypeValue) -> Result<u64> {
     match value {
-        BaseTypeValue::U8(v) => v as u64,
-        BaseTypeValue::U16(v) => v as u64,
-        BaseTypeValue::U32(v) => v as u64,
-        BaseTypeValue::U64(v) => v,
-        BaseTypeValue::Generic(v) => v,
-        _ => unimplemented!(),
+        BaseTypeValue::U8(v) => Ok(v as u64),
+        BaseTypeValue::U16(v) => Ok(v as u64),
+        BaseTypeValue::U32(v) => Ok(v as u64),
+        BaseTypeValue::U64(v) => Ok(v),
+        BaseTypeValue::Generic(v) => Ok(v),
+        _ => {
+            error!("Unimplemented");
+            Err(anyhow!("Unimplemented"))
+        }
     }
 }
 
@@ -1386,8 +1544,8 @@ pub struct SubrangeTypeValue {
 impl fmt::Display for SubrangeTypeValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         return match self.get_count() {
-            Some(count) => write!(f, "{}", count),
-            None => write!(f, ""),
+            Ok(Some(count)) => write!(f, "{}", count),
+            _ => write!(f, ""),
         };
     }
 }
@@ -1401,12 +1559,12 @@ impl SubrangeTypeValue {
         }
     }
 
-    pub fn get_count(&self) -> Option<u64> {
+    pub fn get_count(&self) -> Result<Option<u64>> {
         match self.count {
-            Some(val) => Some(val),
+            Some(val) => Ok(Some(val)),
             None => match &self.base_type_value {
-                Some((btv, _)) => Some(get_udata(btv.clone())),
-                None => None,
+                Some((btv, _)) => Ok(Some(get_udata(btv.clone())?)),
+                None => Ok(None),
             },
         }
     }
@@ -1497,33 +1655,118 @@ impl BaseTypeValue {
         // TODO: Fix so not any data size can be sent into this function.
         Ok(match (encoding, data.len()) {
             // Source: DWARF 4 page 168-169 and 77
-            (DwAte(1), 4) => BaseTypeValue::Address32(u32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_address = 1 // TODO: Different size addresses?
-            (DwAte(2), 1) => {
-                BaseTypeValue::Bool((u8::from_le_bytes(data.try_into().unwrap())) == 1)
-            } // DW_ATE_boolean = 2 // TODO: Use modulus?
-            (DwAte(2), 2) => {
-                BaseTypeValue::Bool((u16::from_le_bytes(data.try_into().unwrap())) == 1)
-            } // DW_ATE_boolean = 2 // TODO: Use modulus?
-            (DwAte(2), 4) => {
-                BaseTypeValue::Bool((u32::from_le_bytes(data.try_into().unwrap())) == 1)
-            } // DW_ATE_boolean = 2 // TODO: Use modulus?
+            (DwAte(1), 4) => BaseTypeValue::Address32(u32::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // DW_ATE_address = 1 // TODO: Different size addresses?
+            (DwAte(2), 1) => BaseTypeValue::Bool(
+                (u8::from_le_bytes(match data.try_into() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        error!("{:?}", err);
+                        return Err(anyhow!("{:?}", err));
+                    }
+                })) == 1,
+            ), // DW_ATE_boolean = 2 // TODO: Use modulus?
+            (DwAte(2), 2) => BaseTypeValue::Bool(
+                (u16::from_le_bytes(match data.try_into() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        error!("{:?}", err);
+                        return Err(anyhow!("{:?}", err));
+                    }
+                })) == 1,
+            ), // DW_ATE_boolean = 2 // TODO: Use modulus?
+            (DwAte(2), 4) => BaseTypeValue::Bool(
+                (u32::from_le_bytes(match data.try_into() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        error!("{:?}", err);
+                        return Err(anyhow!("{:?}", err));
+                    }
+                })) == 1,
+            ), // DW_ATE_boolean = 2 // TODO: Use modulus?
 
             //        (DwAte(3), _) => ,   // DW_ATE_complex_float = 3 // NOTE: Seems like a C++ thing
-            (DwAte(4), 4) => BaseTypeValue::F32(f32::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
-            (DwAte(4), 8) => BaseTypeValue::F64(f64::from_le_bytes(data.try_into().unwrap())), // DW_ATE_float = 4
+            (DwAte(4), 4) => BaseTypeValue::F32(f32::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // DW_ATE_float = 4
+            (DwAte(4), 8) => BaseTypeValue::F64(f64::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // DW_ATE_float = 4
 
-            (DwAte(5), 1) => BaseTypeValue::I8(i8::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 8)
-            (DwAte(5), 2) => BaseTypeValue::I16(i16::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 16)
-            (DwAte(5), 4) => BaseTypeValue::I32(i32::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 32)
-            (DwAte(5), 8) => BaseTypeValue::I64(i64::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_signed = 5, 64)
+            (DwAte(5), 1) => BaseTypeValue::I8(i8::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_signed = 5, 8)
+            (DwAte(5), 2) => BaseTypeValue::I16(i16::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_signed = 5, 16)
+            (DwAte(5), 4) => BaseTypeValue::I32(i32::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_signed = 5, 32)
+            (DwAte(5), 8) => BaseTypeValue::I64(i64::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_signed = 5, 64)
 
             //        (DwAte(6), _) => ,     // DW_ATE_signed_char = 6 // TODO: Add type
-            (DwAte(7), 1) => BaseTypeValue::U8(u8::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 8)
-            (DwAte(7), 2) => BaseTypeValue::U16(u16::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 16)
-            (DwAte(7), 4) => BaseTypeValue::U32(u32::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 32)
-            (DwAte(7), 8) => BaseTypeValue::U64(u64::from_le_bytes(data.try_into().unwrap())), // (DW_ATE_unsigned = 7, 64)
+            (DwAte(7), 1) => BaseTypeValue::U8(u8::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_unsigned = 7, 8)
+            (DwAte(7), 2) => BaseTypeValue::U16(u16::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_unsigned = 7, 16)
+            (DwAte(7), 4) => BaseTypeValue::U32(u32::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_unsigned = 7, 32)
+            (DwAte(7), 8) => BaseTypeValue::U64(u64::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            })), // (DW_ATE_unsigned = 7, 64)
             _ => {
-                unimplemented!("encoding {}, byte_size: {}", encoding, data.len());
+                error!("encoding {}, byte_size: {}", encoding, data.len());
+                return Err(anyhow!("encoding {}, byte_size: {}", encoding, data.len()));
             }
         })
     }
@@ -1611,7 +1854,12 @@ fn get_type_info<R: Reader<Offset = usize>>(
 ) -> Result<(gimli::Unit<R>, gimli::UnitOffset)> {
     let (unit_offset, die_offset) = match attributes::type_attribute(dwarf, unit, die)? {
         Some(val) => val,
-        None => bail!("Die doesn't have the required DW_AT_type attribute"),
+        None => {
+            error!("Die doesn't have the required DW_AT_type attribute");
+            return Err(anyhow!(
+                "Die doesn't have the required DW_AT_type attribute"
+            ));
+        }
     };
     let unit = match unit_offset {
         gimli::UnitSectionOffset::DebugInfoOffset(offset) => {
@@ -1629,7 +1877,10 @@ fn get_type_info<R: Reader<Offset = usize>>(
             }
             match result {
                 Some(val) => val,
-                None => bail!("Could not get unit from unit offset"),
+                None => {
+                    error!("Could not get unit from unit offset");
+                    return Err(anyhow!("Could not get unit from unit offset"));
+                }
             }
         }
     };
@@ -1649,7 +1900,7 @@ fn check_alignment<R: Reader<Offset = usize>>(
     mut data_offset: u64,
     pieces: &Vec<MyPiece<R>>,
 ) -> Result<()> {
-    match attributes::alignment_attribute(die) {
+    match attributes::alignment_attribute(die)? {
         Some(alignment) => {
             if pieces.len() == 0 {
                 return Ok(());
@@ -1665,7 +1916,8 @@ fn check_alignment<R: Reader<Offset = usize>>(
                     addr -= addr % 4; // TODO: Is this correct?
 
                     if addr % alignment != 0 {
-                        bail!("Address not aligned");
+                        error!("Address not aligned");
+                        return Err(anyhow!("Address not aligned"));
                     }
                 }
                 _ => (),
@@ -1722,7 +1974,8 @@ fn trim_piece_bytes<R: Reader<Offset = usize>>(
     let piece_byte_offset = match piece.bit_offset {
         Some(offset) => {
             //if offset % 8 == 0 {
-            //    panic!("Expected the offset to be in bytes, got {} bits", offset);
+            //    error!("Expected the offset to be in bytes, got {} bits", offset);
+            //    return Err(anyhow!("Expected the offset to be in bytes, got {} bits", offset));
             //}
             ((offset + 8 - 1) / 8) as usize
         }

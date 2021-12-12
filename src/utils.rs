@@ -1,4 +1,5 @@
 use gimli::{DebuggingInformationEntry, Dwarf, Error, Range, RangeIter, Reader, Unit};
+use log::error;
 
 /// Check if the given address is withing range of any of the given ranges.
 ///
@@ -97,7 +98,7 @@ where
     }
 
     if i > 1 {
-        panic!("Found more then one unit in range {}", i);
+        error!("Found more then one unit in range {}", i);
     }
 
     return match res {

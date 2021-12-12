@@ -6,7 +6,7 @@ pub mod evaluate;
 
 use crate::call_stack::MemoryAccess;
 use crate::registers::Registers;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use evaluate::{convert_to_gimli_value, BaseTypeValue, EvaluatorValue};
 use gimli::{
     AttributeValue::UnitRef,
@@ -18,6 +18,7 @@ use gimli::{
     },
     Expression, Reader, Unit, UnitOffset,
 };
+use log::error;
 use std::convert::TryInto;
 
 /// Will find the DIE representing the type can evaluate the variable.
@@ -81,9 +82,14 @@ pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
                         );
                     }
                 }
-                bail!("");
+
+                error!("Unreachable");
+                return Err(anyhow!("Unreachable"));
             }
-            _ => bail!(""),
+            attribute => {
+                error!("Unimplemented for attribute {:?}", attribute);
+                return Err(anyhow!("Unimplemented for attribute {:?}", attribute));
+            }
         };
     } else if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
         match die_offset {
@@ -93,11 +99,14 @@ pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
                 }
             }
             _ => {
-                unimplemented!();
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented"));
             }
         };
     }
-    bail!("");
+
+    error!("Unreachable");
+    return Err(anyhow!("Unreachable"));
 }
 
 /// Will evaluate the value of the given DWARF expression.
@@ -235,11 +244,17 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
             RequiresFrameBase => {
                 result = eval.resume_with_frame_base(match frame_base {
                     Some(val) => val,
-                    None => bail!("Requires frame base"), // TODO: Return Error instead
+                    None => {
+                        error!("Requires frame base");
+                        return Err(anyhow!("Requires frame base"));
+                    }
                 })?;
             }
 
-            RequiresTls(_tls) => unimplemented!(), // TODO
+            RequiresTls(_tls) => {
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented")); // TODO
+            }
 
             RequiresCallFrameCfa => {
                 result = eval.resume_with_call_frame_cfa(
@@ -290,7 +305,10 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                     .to_value()
                 {
                     Some(val) => val,
-                    None => bail!("Optimised Out"),
+                    None => {
+                        error!("Optimized Out");
+                        return Err(anyhow!("Optimized Out"));
+                    }
                 }))?;
             }
 
@@ -298,12 +316,18 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                 let die = unit.entry(unit_offset)?;
                 let call_value = match die.attr_value(gimli::DW_AT_call_value)? {
                     Some(val) => val,
-                    None => bail!("Could not find required paramter"),
+                    None => {
+                        error!("Could not find required paramter");
+                        return Err(anyhow!("Could not find required parameter"));
+                    }
                 };
 
                 let expr = match call_value.exprloc_value() {
                     Some(val) => val,
-                    None => bail!("Could not find required paramter"),
+                    None => {
+                        error!("Could not find required paramter");
+                        return Err(anyhow!("Could not find required parameter"));
+                    }
                 };
                 let value = evaluate(
                     dwarf,
@@ -320,12 +344,14 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                 if let EvaluatorValue::Value(BaseTypeValue::U64(val), _) = value {
                     result = eval.resume_with_parameter_ref(val)?;
                 } else {
-                    bail!("Could not find required paramter");
+                    error!("Could not find required paramter");
+                    return Err(anyhow!("Could not find required parameter"));
                 }
             }
 
             RequiresRelocatedAddress(_num) => {
-                unimplemented!();
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented"));
                 //                result = eval.resume_with_relocated_address(num)?; // TODO: Check and test if correct.
             }
 
@@ -334,18 +360,27 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
                 relocate: _,
             } => {
                 // TODO: Check and test if correct. Also handle relocate flag
-                unimplemented!();
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented"));
                 //                result = eval.resume_with_indexed_address(dwarf.address(unit, index)?)?;
             }
 
             RequiresBaseType(unit_offset) => {
                 let die = unit.entry(unit_offset)?;
                 let mut attrs = die.attrs();
-                while let Some(attr) = attrs.next().unwrap() {
+                while let Some(attr) = match attrs.next() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        error!("{:?}", err);
+                        return Err(anyhow!("{:?}", err));
+                    }
+                } {
                     println!("Attribute name = {:?}", attr.name());
                     println!("Attribute value = {:?}", attr.value());
                 }
-                unimplemented!();
+
+                error!("Unimplemented");
+                return Err(anyhow!("Unimplemented"));
             }
         };
     }
@@ -375,11 +410,38 @@ where
         // NOTE: length can't be more then one word
         let value = match data.len() {
             0 => 0,
-            1 => u8::from_le_bytes(data.try_into().unwrap()) as u64,
-            2 => u16::from_le_bytes(data.try_into().unwrap()) as u64,
-            4 => u32::from_le_bytes(data.try_into().unwrap()) as u64,
-            8 => u64::from_le_bytes(data.try_into().unwrap()),
-            _ => unreachable!(),
+            1 => u8::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            }) as u64,
+            2 => u16::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            }) as u64,
+            4 => u32::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            }) as u64,
+            8 => u64::from_le_bytes(match data.try_into() {
+                Ok(val) => val,
+                Err(err) => {
+                    error!("{:?}", err);
+                    return Err(anyhow!("{:?}", err));
+                }
+            }),
+            _ => {
+                error!("Unreachable");
+                return Err(anyhow!("Unreachable"));
+            }
         };
         return Ok(BaseTypeValue::Generic(value));
     }
@@ -387,12 +449,18 @@ where
 
     // I think that the die returned must be a base type tag.
     if die.tag() != gimli::DW_TAG_base_type {
-        bail!("Requires at the die has tag DW_TAG_base_type");
+        error!("Requires at the die has tag DW_TAG_base_type");
+        return Err(anyhow!("Requires at the die has tag DW_TAG_base_type"));
     }
 
     let encoding = match die.attr_value(gimli::DW_AT_encoding)? {
         Some(gimli::AttributeValue::Encoding(dwate)) => dwate,
-        _ => bail!("Expected base type die to have attribute DW_AT_encoding"),
+        _ => {
+            error!("Expected base type die to have attribute DW_AT_encoding");
+            return Err(anyhow!(
+                "Expected base type die to have attribute DW_AT_encoding"
+            ));
+        }
     };
 
     BaseTypeValue::parse_base_type(data, encoding)
@@ -431,7 +499,10 @@ where
     let die = unit.entry(unit_offset)?;
     let location = match die.attr_value(gimli::DW_AT_location)? {
         Some(val) => val,
-        None => bail!("Could not find location attribute"),
+        None => {
+            error!("Could not find location attribute");
+            return Err(anyhow!("Could not find location attribute"));
+        }
     };
     if let Some(expr) = location.exprloc_value() {
         let val = call_evaluate(dwarf, pc, expr, frame_base, &unit, &die, registers, mem)?;
@@ -440,9 +511,11 @@ where
             *result = eval.resume_with_at_location(b)?;
             return Ok(());
         } else {
-            bail!("Error expected bytes");
+            error!("Error expected bytes");
+            return Err(anyhow!("Error expected bytes"));
         }
     } else {
-        bail!("die has no at location");
+        error!("die has no at location");
+        return Err(anyhow!("die has no at location"));
     }
 }

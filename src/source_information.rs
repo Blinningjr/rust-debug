@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use log::error;
 
 use crate::utils::get_current_unit;
 
@@ -78,19 +79,28 @@ impl SourceInformation {
                 None => (None, None),
             },
             None => (None, None),
-            Some(v) => unimplemented!("{:?}", v),
+            Some(v) => {
+                error!("Unimplemented {:?}", v);
+                return Err(anyhow!("Unimplemented {:?}", v));
+            }
         };
 
         let line = match die.attr_value(gimli::DW_AT_decl_line)? {
             Some(gimli::AttributeValue::Udata(v)) => NonZeroU64::new(v),
             None => None,
-            Some(v) => unimplemented!("{:?}", v),
+            Some(v) => {
+                error!("Unimplemented {:?}", v);
+                return Err(anyhow!("Unimplemented {:?}", v));
+            }
         };
 
         let column = match die.attr_value(gimli::DW_AT_decl_column)? {
             Some(gimli::AttributeValue::Udata(v)) => NonZeroU64::new(v),
             None => None,
-            Some(v) => unimplemented!("{:?}", v),
+            Some(v) => {
+                error!("Unimplemented {:?}", v);
+                return Err(anyhow!("Unimplemented {:?}", v));
+            }
         };
 
         Ok(SourceInformation {
@@ -120,7 +130,7 @@ impl SourceInformation {
                 //           println!("number of seqs: {:?}", in_range_seqs.len());
                 //           println!("pc: {:?}", address);
                 let mut result = vec![];
-                let mut all = 0;
+                //let mut all = 0;
                 for seq in in_range_seqs {
                     let mut sm = program.resume_from(&seq);
                     while let Some((header, row)) = sm.next_row()? {
@@ -180,17 +190,23 @@ impl SourceInformation {
                         if row.address() == address {
                             result.push(row.line());
                         }
-                        all += 1;
+                        //                        all += 1;
                     }
                 }
-                println!("total line rows: {:?}", all);
+                //println!("total line rows: {:?}", all);
                 //           println!("result line rows: {:?}", result.len());
                 return match nearest {
                     Some((_, si)) => Ok(si),
-                    None => Err(anyhow!("Could not find source informaitno")),
+                    None => {
+                        error!("Could not find source informaitno");
+                        Err(anyhow!("Could not find source informaitno"))
+                    }
                 };
             }
-            None => Err(anyhow!("Unit has no line program")),
+            None => {
+                error!("Unit has no line program");
+                Err(anyhow!("Unit has no line program"))
+            }
         }
     }
 }
