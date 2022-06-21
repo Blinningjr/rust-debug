@@ -19,7 +19,7 @@ pub struct Variable<R: Reader<Offset = usize>> {
     /// The name of the variable.
     pub name: Option<String>,
 
-    /// A tree strucured like the variable type in DWARF, but it also contains the values
+    /// A tree structured like the variable type in DWARF, but it also contains the values
     pub value: EvaluatorValue<R>,
 
     /// The source code location where the variable was declared.
@@ -62,7 +62,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
                 ))? as u16),
             )
             .ok_or(anyhow!(
-                "Requies that the program counter registers has a value"
+                "Requires that the program counter registers has a value"
             ))?;
 
         // Get the variable die.
@@ -83,7 +83,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
 
         let name = get_var_name(dwarf, &unit, &die)?;
 
-        // Get the source code location the variable was decleard.
+        // Get the source code location the variable was declared.
         let source = match find_variable_source_information(dwarf, &unit, &die, cwd) {
             Ok(source) => Some(source),
             Err(_) => None,
