@@ -760,7 +760,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     let mut arguments = vec![];
 
     for variable_die in dies_to_check {
-        let vc = Variable::get_variable(
+        let vc = match Variable::get_variable(
             dwarf,
             &temporary_registers,
             mem,
@@ -768,7 +768,13 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             variable_die,
             Some(frame_base),
             cwd,
-        )?;
+        ) {
+            Ok(v) => v,
+            Err(err) => {
+                log::error!("Error: {:?}", err);
+                continue;
+            },
+        };
 
         if is_argument(dwarf, section_offset, variable_die)? {
             arguments.push(vc);

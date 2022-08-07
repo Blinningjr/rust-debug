@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use gimli::{DwAte, Location, Piece, Reader};
 
 use anyhow::{anyhow, Result};
-use log::error;
+use log::{info, error};
 
 use std::fmt;
 
@@ -209,6 +209,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         unit_offset: gimli::UnitSectionOffset,
         die_offset: gimli::UnitOffset,
     ) -> Result<EvaluatorValue<R>> {
+        log::info!("evaluate_variable_with_type");
         // Initialize the memory offset to 0.
         let data_offset: u64 = 0;
 
@@ -266,6 +267,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         mem: &mut M,
         pieces: &Vec<Piece<R>>,
     ) -> Result<EvaluatorValue<R>> {
+        log::info!("evaluate_variable");
         let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
         EvaluatorValue::handle_eval_piece(registers, mem, 4, 0, DwAte(1), &mut my_pieces)
     }
@@ -288,6 +290,8 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         encoding: DwAte,
         pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
+                info!("encoding: {:?}", encoding);
+                info!("byte_size: {:?}", byte_size);
         if pieces.len() == 0 {
             return Ok(EvaluatorValue::OptimizedOut);
         }
@@ -393,13 +397,43 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         pieces.remove(0);
                     }
 
-                    return Ok(EvaluatorValue::Value(
-                        convert_from_gimli_value(value),
-                        ValueInformation {
-                            raw: None,
-                            pieces: vec![ValuePiece::Dwarf { value: Some(value) }],
+                    let parsed_value = convert_from_gimli_value(value);
+                    return match parsed_value {
+                        BaseTypeValue::Generic(v) => {
+                            let correct_value = match (encoding, byte_size) {                                
+                                (DwAte(1), 4) => BaseTypeValue::Address32(v as u32),
+                                //(DwAte(1), 4) => BaseTypeValue::Reg32(v as u32),
+                                (DwAte(2), _) => BaseTypeValue::Bool(v != 0),
+                                (DwAte(7), 1) => BaseTypeValue::U8(v as u8),
+                                (DwAte(7), 2) => BaseTypeValue::U16(v as u16),
+                                (DwAte(7), 4) => BaseTypeValue::U32(v as u32),
+                                (DwAte(7), 8) => BaseTypeValue::U64(v as u64),
+                                (DwAte(5), 1) => BaseTypeValue::I8(v as i8),
+                                (DwAte(5), 2) => BaseTypeValue::I16(v as i16),
+                                (DwAte(5), 4) => BaseTypeValue::I32(v as i32),
+                                (DwAte(5), 8) => BaseTypeValue::I64(v as i64),
+                                (DwAte(4), 4) => BaseTypeValue::F32(v as f32),
+                                (DwAte(4), 8) => BaseTypeValue::F64(v as f64),
+                                _=> BaseTypeValue::Generic(v),
+                            };
+                                                                                          //
+                            Ok(EvaluatorValue::Value(
+                                correct_value,
+                                ValueInformation::new(None, vec![ValuePiece::Dwarf { value: Some(value) }]),
+                            ))
                         },
-                    ));
+                        _ =>  {
+
+                            Ok(EvaluatorValue::Value(
+                                parsed_value,
+                                ValueInformation {
+                                    raw: None,
+                                    pieces: vec![ValuePiece::Dwarf { value: Some(value) }],
+                                },
+                            ))
+                        },
+                    };
+
                 }
 
                 Location::Bytes { value } => {
@@ -451,6 +485,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         data_offset: u64,
         pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
+        info!("tag: {:?}", die.tag());
         match die.tag() {
             gimli::DW_TAG_base_type => {
                 // Make sure that the die has the tag DW_TAG_base_type.
