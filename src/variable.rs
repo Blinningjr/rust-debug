@@ -11,7 +11,7 @@ use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
 use anyhow::{anyhow, Result};
-use log::{info, error};
+use log::{debug, error};
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
@@ -83,15 +83,6 @@ impl<R: Reader<Offset = usize>> Variable<R> {
 
         let name = get_var_name(dwarf, &unit, &die)?;
 
-        //match name {
-        //    Some(ref v) => {
-        //        if v == "cx" {
-        //            return Err(anyhow!(""));
-        //        }
-        //    },
-        //    _=> (),
-        //};
-
         // Get the source code location the variable was declared.
         let source = match find_variable_source_information(dwarf, &unit, &die, cwd) {
             Ok(source) => Some(source),
@@ -132,7 +123,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         let type_unit = gimli::Unit::new(dwarf, header)?;
         let type_die = unit.entry(type_unit_offset)?;
 
-        info!("\nname: {:?}", name);
+        debug!("\nname: {:?}", name);
         let value = evaluate(
             dwarf,
             &unit,

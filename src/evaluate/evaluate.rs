@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use gimli::{DwAte, Location, Piece, Reader};
 
 use anyhow::{anyhow, Result};
-use log::{info, error};
+use log::{debug, error};
 
 use std::fmt;
 
@@ -209,7 +209,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         unit_offset: gimli::UnitSectionOffset,
         die_offset: gimli::UnitOffset,
     ) -> Result<EvaluatorValue<R>> {
-        log::info!("evaluate_variable_with_type");
+        log::debug!("evaluate_variable_with_type");
         // Initialize the memory offset to 0.
         let data_offset: u64 = 0;
 
@@ -267,7 +267,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         mem: &mut M,
         pieces: &Vec<Piece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-        log::info!("evaluate_variable");
+        log::debug!("evaluate_variable");
         let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
         EvaluatorValue::handle_eval_piece(registers, mem, 4, 0, DwAte(1), &mut my_pieces)
     }
@@ -290,8 +290,9 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         encoding: DwAte,
         pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-                info!("encoding: {:?}", encoding);
-                info!("byte_size: {:?}", byte_size);
+                debug!("encoding: {:?}", encoding);
+                debug!("byte_size: {:?}", byte_size);
+                debug!("pieces: {:?}", pieces);
         if pieces.len() == 0 {
             return Ok(EvaluatorValue::OptimizedOut);
         }
@@ -436,14 +437,29 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                 }
 
-                Location::Bytes { value } => {
+                Location::Bytes { mut value } => {
+                    let mut bytes = vec![];
+                    let mut loops = byte_size as usize - all_bytes.len();
+                    if value.len() < loops {
+                        loops = value.len();
+                    }
+                    for _i in 0..loops {
+                        bytes.push(value.read_u8()?);
+                    }
+
+                    value_pieces.extend_from_slice(&vec![ValuePiece::Bytes {
+                        bytes: bytes.clone(),
+                    }]);
+
+                    all_bytes.extend_from_slice(&bytes.into_boxed_slice());
+
                     // Remove piece if whole object is used.
                     let bit_size = 8 * (byte_size - all_bytes.len() as u64);
                     if pieces[0].should_remove(bit_size) {
                         pieces.remove(0);
                     }
 
-                    return Ok(EvaluatorValue::Bytes(value.clone()));
+                    //return Ok(EvaluatorValue::Bytes(value.clone()));
                 }
                 Location::ImplicitPointer {
                     value: _,
@@ -485,7 +501,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         data_offset: u64,
         pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-        info!("tag: {:?}", die.tag());
+        debug!("tag: {:?}", die.tag());
         match die.tag() {
             gimli::DW_TAG_base_type => {
                 // Make sure that the die has the tag DW_TAG_base_type.
@@ -2074,5 +2090,10 @@ pub enum ValuePiece {
         /// The value stored on the DWARF stack.
         /// If it is `None` then the value is optimized out.
         value: Option<gimli::Value>,
+    },
+
+    /// TODO
+    Bytes {
+        bytes: Vec<u8>,
     },
 }
