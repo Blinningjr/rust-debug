@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use gimli::{DwAte, Location, Piece, Reader};
 
 use anyhow::{anyhow, Result};
-use log::{debug, error};
+use log::{info, debug, error};
 
 use std::fmt;
 
@@ -209,7 +209,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         unit_offset: gimli::UnitSectionOffset,
         die_offset: gimli::UnitOffset,
     ) -> Result<EvaluatorValue<R>> {
-        log::debug!("evaluate_variable_with_type");
+        log::info!("evaluate_variable_with_type");
         // Initialize the memory offset to 0.
         let data_offset: u64 = 0;
 
@@ -237,9 +237,11 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 }
             }
         };
+        info!("Found unit");
 
         // Get the die of the current state.
         let die = &unit.entry(die_offset)?;
+        info!("Found die");
 
         let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
 

@@ -11,7 +11,7 @@ use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
 use anyhow::{anyhow, Result};
-use log::{debug, error};
+use log::{info, debug, error, trace};
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
@@ -82,17 +82,26 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         let die = unit.entry(unit_offset)?;
 
         let name = get_var_name(dwarf, &unit, &die)?;
+        info!("name: {:?}", name);
 
         // Get the source code location the variable was declared.
         let source = match find_variable_source_information(dwarf, &unit, &die, cwd) {
             Ok(source) => Some(source),
             Err(_) => None,
         };
+        info!("has source");
 
         let expression = match find_variable_location(dwarf, &unit, &die, pc)? {
-            VariableLocation::Expression(expr) => expr,
-            VariableLocation::LocationListEntry(llent) => llent.data,
+            VariableLocation::Expression(expr) => {
+                trace!("VariableLocation::Expression");
+                expr
+            },
+            VariableLocation::LocationListEntry(llent) => {
+                trace!("VariableLocation::LocationListEntry");
+                llent.data
+            },
             VariableLocation::LocationOutOfRange => {
+                trace!("VariableLocation::LocationOutOfRange");
                 return Ok(Variable {
                     name,
                     value: EvaluatorValue::LocationOutOfRange,
@@ -100,6 +109,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
                 });
             }
             VariableLocation::NoLocation => {
+                trace!("VariableLocation::NoLocation");
                 return Ok(Variable {
                     name,
                     value: EvaluatorValue::OptimizedOut,
@@ -107,8 +117,11 @@ impl<R: Reader<Offset = usize>> Variable<R> {
                 });
             }
         };
+        info!("has expression");
 
         let (type_section_offset, type_unit_offset) = find_variable_type_die(dwarf, &unit, &die)?;
+        info!("type sec offset: {:?}", type_section_offset);
+        info!("type unit offset: {:?}", type_unit_offset);
         let header = dwarf.debug_info.header_from_offset(
             match type_section_offset.as_debug_info_offset() {
                 Some(val) => val,
@@ -121,9 +134,10 @@ impl<R: Reader<Offset = usize>> Variable<R> {
             },
         )?;
         let type_unit = gimli::Unit::new(dwarf, header)?;
-        let type_die = unit.entry(type_unit_offset)?;
+        let type_die = type_unit.entry(type_unit_offset)?;
 
-        debug!("\nname: {:?}", name);
+        info!("has type");
+
         let value = evaluate(
             dwarf,
             &unit,

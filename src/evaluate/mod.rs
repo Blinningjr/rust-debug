@@ -18,7 +18,7 @@ use gimli::{
     },
     Expression, Reader, Unit, UnitOffset,
 };
-use log::{debug, error};
+use log::{info, debug, error};
 use std::convert::TryInto;
 
 /// Will find the DIE representing the type can evaluate the variable.
@@ -139,6 +139,7 @@ pub fn evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
     mem: &mut T,
 ) -> Result<EvaluatorValue<R>> {
     let pieces = evaluate_pieces(dwarf, unit, pc, expr, frame_base, registers, mem)?;
+    info!("Got pieces");
     evaluate_value(dwarf, pieces, type_unit, type_die, registers, mem)
 }
 
@@ -167,7 +168,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
     match type_unit {
         Some(unit) => match type_die {
             Some(die) => {
-                debug!("with type info");
+                info!("with type info");
                 return EvaluatorValue::evaluate_variable_with_type(
                     dwarf,
                     registers,
@@ -181,7 +182,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
         },
         None => (),
     };
-    debug!("without type info");
+    info!("without type info");
     return EvaluatorValue::evaluate_variable(registers, mem, &pieces);
 }
 

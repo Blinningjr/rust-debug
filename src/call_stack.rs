@@ -772,6 +772,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             Ok(v) => v,
             Err(err) => {
                 log::error!("Error: {:?}", err);
+                //panic!("here");
                 continue;
             },
         };
