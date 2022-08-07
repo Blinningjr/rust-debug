@@ -244,6 +244,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         info!("Found die");
 
         let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
+        info!("has pieces");
 
         // Continue evaluating the value of the current state.
         EvaluatorValue::eval_type(
@@ -503,7 +504,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         data_offset: u64,
         pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-        debug!("tag: {:?}", die.tag());
+        info!("tag: {:?}", die.tag());
         match die.tag() {
             gimli::DW_TAG_base_type => {
                 // Make sure that the die has the tag DW_TAG_base_type.
@@ -551,6 +552,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 )
             }
             gimli::DW_TAG_pointer_type => {
+                info!("DW_TAG_pointer_type");
                 // Make sure that the die has the tag DW_TAG_pointer_type.
                 match die.tag() {
                     gimli::DW_TAG_pointer_type => (),
@@ -601,6 +603,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         Some((section_offset, unit_offset)),
                         EvaluatorValue::Value(BaseTypeValue::Address32(address_value), _),
                     ) => {
+
                         // Get the variable die.
                         let header = dwarf.debug_info.header_from_offset(
                             match section_offset.as_debug_info_offset() {
@@ -617,7 +620,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         )?;
 
                         let type_unit = gimli::Unit::new(dwarf, header)?;
-                        let type_die = unit.entry(unit_offset)?;
+                        let type_die = type_unit.entry(unit_offset)?;
                         let mut new_pieces = vec![MyPiece::new(Piece {
                             size_in_bits: None,
                             bit_offset: None,
