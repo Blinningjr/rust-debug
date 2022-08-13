@@ -601,6 +601,9 @@ pub struct StackFrame<R: Reader<Offset = usize>> {
 
     /// The registers in this frame.
     pub registers: Vec<Variable<R>>,
+
+    /// The frame base address value.
+    pub frame_base: u64,
 }
 
 impl<R: Reader<Offset = usize>> StackFrame<R> {
@@ -810,6 +813,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
         variables,
         arguments,
         registers: regs,
+        frame_base,
     })
 }
 
