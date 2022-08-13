@@ -18,7 +18,7 @@ use gimli::{
     },
     Expression, Reader, Unit, UnitOffset,
 };
-use log::{info, debug, error};
+use log::{debug, error, info};
 use std::convert::TryInto;
 
 /// Will find the DIE representing the type can evaluate the variable.

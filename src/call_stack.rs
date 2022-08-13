@@ -776,7 +776,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             Err(err) => {
                 log::error!("Error: {:?}", err);
                 continue;
-            },
+            }
         };
 
         if is_argument(dwarf, section_offset, variable_die)? {

@@ -11,7 +11,7 @@ use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
 use anyhow::{anyhow, Result};
-use log::{info, debug, error, trace};
+use log::{debug, error, info, trace};
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
@@ -95,11 +95,11 @@ impl<R: Reader<Offset = usize>> Variable<R> {
             VariableLocation::Expression(expr) => {
                 trace!("VariableLocation::Expression");
                 expr
-            },
+            }
             VariableLocation::LocationListEntry(llent) => {
                 trace!("VariableLocation::LocationListEntry");
                 llent.data
-            },
+            }
             VariableLocation::LocationOutOfRange => {
                 trace!("VariableLocation::LocationOutOfRange");
                 return Ok(Variable {

@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use gimli::{DwAte, Location, Piece, Reader};
 
 use anyhow::{anyhow, Result};
-use log::{info, debug, error};
+use log::{debug, error, info};
 
 use std::fmt;
 
@@ -293,9 +293,9 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         encoding: DwAte,
         pieces: &mut Vec<MyPiece<R>>,
     ) -> Result<EvaluatorValue<R>> {
-                debug!("encoding: {:?}", encoding);
-                debug!("byte_size: {:?}", byte_size);
-                debug!("pieces: {:?}", pieces);
+        debug!("encoding: {:?}", encoding);
+        debug!("byte_size: {:?}", byte_size);
+        debug!("pieces: {:?}", pieces);
         if pieces.len() == 0 {
             return Ok(EvaluatorValue::OptimizedOut);
         }
@@ -404,7 +404,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     let parsed_value = convert_from_gimli_value(value);
                     return match parsed_value {
                         BaseTypeValue::Generic(v) => {
-                            let correct_value = match (encoding, byte_size) {                                
+                            let correct_value = match (encoding, byte_size) {
                                 (DwAte(1), 4) => BaseTypeValue::Address32(v as u32),
                                 //(DwAte(1), 4) => BaseTypeValue::Reg32(v as u32),
                                 (DwAte(2), _) => BaseTypeValue::Bool(v != 0),
@@ -418,26 +418,25 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                                 (DwAte(5), 8) => BaseTypeValue::I64(v as i64),
                                 (DwAte(4), 4) => BaseTypeValue::F32(v as f32),
                                 (DwAte(4), 8) => BaseTypeValue::F64(v as f64),
-                                _=> BaseTypeValue::Generic(v),
+                                _ => BaseTypeValue::Generic(v),
                             };
-                                                                                          //
+                            //
                             Ok(EvaluatorValue::Value(
                                 correct_value,
-                                ValueInformation::new(None, vec![ValuePiece::Dwarf { value: Some(value) }]),
+                                ValueInformation::new(
+                                    None,
+                                    vec![ValuePiece::Dwarf { value: Some(value) }],
+                                ),
                             ))
-                        },
-                        _ =>  {
-
-                            Ok(EvaluatorValue::Value(
-                                parsed_value,
-                                ValueInformation {
-                                    raw: None,
-                                    pieces: vec![ValuePiece::Dwarf { value: Some(value) }],
-                                },
-                            ))
-                        },
+                        }
+                        _ => Ok(EvaluatorValue::Value(
+                            parsed_value,
+                            ValueInformation {
+                                raw: None,
+                                pieces: vec![ValuePiece::Dwarf { value: Some(value) }],
+                            },
+                        )),
                     };
-
                 }
 
                 Location::Bytes { mut value } => {
@@ -603,7 +602,6 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         Some((section_offset, unit_offset)),
                         EvaluatorValue::Value(BaseTypeValue::Address32(address_value), _),
                     ) => {
-
                         // Get the variable die.
                         let header = dwarf.debug_info.header_from_offset(
                             match section_offset.as_debug_info_offset() {
@@ -2098,7 +2096,5 @@ pub enum ValuePiece {
     },
 
     /// TODO
-    Bytes {
-        bytes: Vec<u8>,
-    },
+    Bytes { bytes: Vec<u8> },
 }

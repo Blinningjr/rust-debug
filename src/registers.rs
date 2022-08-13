@@ -92,14 +92,18 @@ impl Registers {
         self.stashed_registers = None;
     }
 
-
     /// Get registers as a Vec of `Variables`
     ///
     /// Description:
     ///
     /// This is used to get the register as a Vec of Variables.
     pub fn get_registers_as_list(&self) -> Vec<(u16, u32)> {
-        let mut res: Vec<(u16, u32)> = self.registers.clone().into_iter().map(|(id, score)| (id, score)).collect();
+        let mut res: Vec<(u16, u32)> = self
+            .registers
+            .clone()
+            .into_iter()
+            .map(|(id, score)| (id, score))
+            .collect();
         res.sort_by(|a, b| b.0.cmp(&a.0));
         res
     }
