@@ -22,9 +22,9 @@ pub struct Registers {
     pub cfa: Option<u32>, // Canonical Frame Address
 }
 
-impl Registers {
+impl Default for Registers {
     /// Creates a empty `Registers` struct.
-    pub fn new() -> Registers {
+    fn default() -> Registers {
         Registers {
             registers: HashMap::new(),
             stashed_registers: None,
@@ -34,7 +34,8 @@ impl Registers {
             cfa: None,
         }
     }
-
+}
+impl Registers {
     /// Add a register value to the struct.
     ///
     /// Description:

@@ -18,7 +18,7 @@ use gimli::{
     },
     Expression, Reader, Unit, UnitOffset,
 };
-use log::{debug, error, info};
+use log::{error, info};
 use std::convert::TryInto;
 
 /// Will find the DIE representing the type can evaluate the variable.
@@ -106,7 +106,7 @@ pub fn call_evaluate<R: Reader<Offset = usize>, T: MemoryAccess>(
     }
 
     error!("Unreachable");
-    return Err(anyhow!("Unreachable"));
+    Err(anyhow!("Unreachable"))
 }
 
 /// Will evaluate the value of the given DWARF expression.
@@ -183,7 +183,7 @@ pub fn evaluate_value<R: Reader<Offset = usize>, T: MemoryAccess>(
         None => (),
     };
     info!("without type info");
-    return EvaluatorValue::evaluate_variable(registers, mem, &pieces);
+    EvaluatorValue::evaluate_variable(registers, mem, &pieces)
 }
 
 /// Evaluates a gimli-rs `Expression` into a `Vec` of `Piece`s.
@@ -261,7 +261,7 @@ pub fn evaluate_pieces<R: Reader<Offset = usize>, T: MemoryAccess>(
 
             RequiresCallFrameCfa => {
                 result = eval.resume_with_call_frame_cfa(
-                    registers.cfa.ok_or(anyhow!("Requires CFA"))? as u64,
+                    registers.cfa.ok_or_else(|| anyhow!("Requires CFA"))? as u64,
                 )?;
             }
 
@@ -508,17 +508,17 @@ where
         }
     };
     if let Some(expr) = location.exprloc_value() {
-        let val = call_evaluate(dwarf, pc, expr, frame_base, &unit, &die, registers, mem)?;
+        let val = call_evaluate(dwarf, pc, expr, frame_base, unit, &die, registers, mem)?;
 
         if let EvaluatorValue::Bytes(b) = val {
             *result = eval.resume_with_at_location(b)?;
-            return Ok(());
+            Ok(())
         } else {
             error!("Error expected bytes");
-            return Err(anyhow!("Error expected bytes"));
+            Err(anyhow!("Error expected bytes"))
         }
     } else {
         error!("die has no at location");
-        return Err(anyhow!("die has no at location"));
+        Err(anyhow!("die has no at location"))
     }
 }

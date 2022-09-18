@@ -27,7 +27,7 @@ where
     if no_range {
         return None;
     }
-    return Some(false);
+    Some(false)
 }
 
 /// Check if the given address is withing a range of addresses.
@@ -80,7 +80,7 @@ where
 ///
 /// This function will check if the given address is within range of all the compilation units in the `.debug_info` DWARF section.
 /// If there is only one unit in range it will return it, otherwise it will return a error.
-pub fn get_current_unit<'a, R>(dwarf: &'a Dwarf<R>, pc: u32) -> Result<Unit<R>, Error>
+pub fn get_current_unit<R>(dwarf: &'_ Dwarf<R>, pc: u32) -> Result<Unit<R>, Error>
 where
     R: Reader<Offset = usize>,
 {
@@ -101,8 +101,8 @@ where
         error!("Found more then one unit in range {}", i);
     }
 
-    return match res {
+    match res {
         Some(u) => Ok(u),
         None => Err(Error::MissingUnitDie),
-    };
+    }
 }

@@ -106,7 +106,7 @@ pub enum EvaluatorValue<R: Reader<Offset = usize>> {
 
 impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match self {
+        match self {
             EvaluatorValue::Value(val, _) => val.fmt(f),
             EvaluatorValue::PointerTypeValue(pt) => pt.fmt(f),
             EvaluatorValue::VariantValue(var) => var.fmt(f),
@@ -121,7 +121,7 @@ impl<R: Reader<Offset = usize>> fmt::Display for EvaluatorValue<R> {
             EvaluatorValue::OptimizedOut => write!(f, "< OptimizedOut >"),
             EvaluatorValue::LocationOutOfRange => write!(f, "< LocationOutOfRange >"),
             EvaluatorValue::ZeroSize => write!(f, "< ZeroSize >"),
-        };
+        }
     }
 }
 
@@ -205,7 +205,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         dwarf: &gimli::Dwarf<R>,
         registers: &Registers,
         mem: &mut M,
-        pieces: &Vec<Piece<R>>,
+        pieces: &[Piece<R>],
         unit_offset: gimli::UnitSectionOffset,
         die_offset: gimli::UnitOffset,
     ) -> Result<EvaluatorValue<R>> {
@@ -268,7 +268,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
     pub fn evaluate_variable<M: MemoryAccess>(
         registers: &Registers,
         mem: &mut M,
-        pieces: &Vec<Piece<R>>,
+        pieces: &[Piece<R>],
     ) -> Result<EvaluatorValue<R>> {
         log::debug!("evaluate_variable");
         let mut my_pieces = pieces.iter().map(|p| MyPiece::new(p.clone())).collect();
@@ -296,14 +296,14 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
         debug!("encoding: {:?}", encoding);
         debug!("byte_size: {:?}", byte_size);
         debug!("pieces: {:?}", pieces);
-        if pieces.len() == 0 {
+        if pieces.is_empty() {
             return Ok(EvaluatorValue::OptimizedOut);
         }
 
         let mut all_bytes = vec![];
         let mut value_pieces = vec![];
         while all_bytes.len() < byte_size.try_into()? {
-            if pieces.len() == 0 {
+            if pieces.is_empty() {
                 error!("Unreachable");
                 return Err(anyhow!("Unreachable"));
                 //return Ok(EvaluatorValue::OptimizedOut);
@@ -330,7 +330,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                             let bytes_len = bytes.len();
 
                             all_bytes.extend_from_slice(&bytes);
-                            value_pieces.extend_from_slice(&vec![ValuePiece::Register {
+                            value_pieces.extend_from_slice(&[ValuePiece::Register {
                                 register: register.0,
                                 byte_size: bytes_len,
                             }]);
@@ -383,7 +383,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     };
 
                     all_bytes.extend_from_slice(&bytes);
-                    value_pieces.extend_from_slice(&vec![ValuePiece::Memory {
+                    value_pieces.extend_from_slice(&[ValuePiece::Memory {
                         address: address as u32,
                         byte_size: num_bytes,
                     }]);
@@ -449,7 +449,7 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                         bytes.push(value.read_u8()?);
                     }
 
-                    value_pieces.extend_from_slice(&vec![ValuePiece::Bytes {
+                    value_pieces.extend_from_slice(&[ValuePiece::Bytes {
                         bytes: bytes.clone(),
                     }]);
 
@@ -639,13 +639,13 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     _ => EvaluatorValue::OptimizedOut,
                 };
 
-                return Ok(EvaluatorValue::PointerTypeValue(Box::new(
+                Ok(EvaluatorValue::PointerTypeValue(Box::new(
                     PointerTypeValue {
                         name,
                         address,
                         value,
                     },
-                )));
+                )))
 
                 // TODO: Use DW_AT_type and the evaluated address to evaluate the pointer.
             }
@@ -803,15 +803,14 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                 // Evaluate all the members.
                 let mut members = vec![];
-                for i in 0..member_dies.len() {
-                    let m_die = &member_dies[i].1;
-                    let member = match m_die.tag() {
+                for member_die in &member_dies {
+                    let member = match member_die.1.tag() {
                         gimli::DW_TAG_member => EvaluatorValue::eval_type(
                             registers,
                             mem,
                             dwarf,
                             unit,
-                            m_die,
+                            &member_die.1,
                             data_offset,
                             pieces,
                         )?,
@@ -823,10 +822,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     members.push(member);
                 }
 
-                return Ok(EvaluatorValue::Struct(Box::new(StructureTypeValue {
+                Ok(EvaluatorValue::Struct(Box::new(StructureTypeValue {
                     name,
                     members,
-                })));
+                })))
             }
             gimli::DW_TAG_union_type => {
                 // Make sure that the die has the tag DW_TAG_union_type.
@@ -876,15 +875,14 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
 
                 // Evaluate all the members.
                 let mut members = vec![];
-                for i in 0..member_dies.len() {
-                    let m_die = &member_dies[i].1;
-                    let member = match m_die.tag() {
+                for member_die in &member_dies {
+                    let member = match member_die.1.tag() {
                         gimli::DW_TAG_member => EvaluatorValue::eval_type(
                             registers,
                             mem,
                             dwarf,
                             unit,
-                            m_die,
+                            &member_die.1,
                             data_offset,
                             pieces,
                         )?,
@@ -896,10 +894,10 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                     members.push(member);
                 }
 
-                return Ok(EvaluatorValue::Union(Box::new(UnionTypeValue {
+                Ok(EvaluatorValue::Union(Box::new(UnionTypeValue {
                     name,
                     members,
-                })));
+                })))
             }
             gimli::DW_TAG_member => {
                 // Make sure that the die has the tag DW_TAG_member
@@ -1082,39 +1080,35 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 let children = get_children(unit, die)?;
                 for c in &children {
                     let c_die = unit.entry(*c)?;
-                    match c_die.tag() {
-                        gimli::DW_TAG_variant => {
-                            let mut temp_pieces = original_pieces.clone();
-                            // Evaluate the value of the variant.
-                            let variant = match EvaluatorValue::eval_type(
-                                registers,
-                                mem,
-                                dwarf,
-                                unit,
-                                &c_die,
-                                data_offset,
-                                &mut temp_pieces,
-                            )? {
-                                EvaluatorValue::VariantValue(variant) => variant,
-                                _ => {
-                                    error!("Unreachable");
-                                    return Err(anyhow!("Unreachable"));
-                                }
-                            };
+                    if c_die.tag() == gimli::DW_TAG_variant {
+                        let mut temp_pieces = original_pieces.clone();
+                        // Evaluate the value of the variant.
+                        let variant = match EvaluatorValue::eval_type(
+                            registers,
+                            mem,
+                            dwarf,
+                            unit,
+                            &c_die,
+                            data_offset,
+                            &mut temp_pieces,
+                        )? {
+                            EvaluatorValue::VariantValue(variant) => variant,
+                            _ => {
+                                error!("Unreachable");
+                                return Err(anyhow!("Unreachable"));
+                            }
+                        };
 
-                            match (variant.discr_value, variant_number) {
-                                (Some(discr_value), Some(variant_num)) => {
-                                    // If This is the variant then update the piece index.
-                                    if discr_value == variant_num {
-                                        *pieces = temp_pieces;
-                                    }
-                                }
-                                _ => (),
-                            };
+                        if let (Some(discr_value), Some(variant_num)) =
+                            (variant.discr_value, variant_number)
+                        {
+                            // If This is the variant then update the piece index.
+                            if discr_value == variant_num {
+                                *pieces = temp_pieces;
+                            }
+                        };
 
-                            variants.push(*variant);
-                        }
-                        _ => (),
+                        variants.push(*variant);
                     };
                 }
 
@@ -1131,28 +1125,25 @@ impl<R: Reader<Offset = usize>> EvaluatorValue<R> {
                 let children = get_children(unit, die)?;
                 for c in children {
                     let c_die = unit.entry(c)?;
-                    match c_die.tag() {
-                        gimli::DW_TAG_member => {
-                            // Evaluate the value of the member.
-                            let member = match EvaluatorValue::eval_type(
-                                registers,
-                                mem,
-                                dwarf,
-                                unit,
-                                &c_die,
-                                data_offset,
-                                pieces,
-                            )? {
-                                EvaluatorValue::Member(member) => member,
-                                _ => {
-                                    error!("Unreachable");
-                                    return Err(anyhow!("Unreachable"));
-                                }
-                            };
+                    if c_die.tag() == gimli::DW_TAG_member {
+                        // Evaluate the value of the member.
+                        let member = match EvaluatorValue::eval_type(
+                            registers,
+                            mem,
+                            dwarf,
+                            unit,
+                            &c_die,
+                            data_offset,
+                            pieces,
+                        )? {
+                            EvaluatorValue::Member(member) => member,
+                            _ => {
+                                error!("Unreachable");
+                                return Err(anyhow!("Unreachable"));
+                            }
+                        };
 
-                            members.push(member);
-                        }
-                        _ => (),
+                        members.push(member);
                     };
                 }
 
@@ -1291,10 +1282,10 @@ fn format_values<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> 
     }
 
     let mut res = format!("{}", values[0]);
-    for i in 1..len {
-        res = format!("{}, {}", res, values[i]);
+    for value in values.iter().take(len).skip(1) {
+        res = format!("{}, {}", res, value);
     }
-    return res;
+    res
 }
 
 /// Format a `Vec` of `EvaluatorValue`s into a `String` that describes the type.
@@ -1307,14 +1298,14 @@ fn format_types<R: Reader<Offset = usize>>(values: &Vec<EvaluatorValue<R>>) -> S
     if len == 0 {
         return "".to_string();
     } else if len == 1 {
-        return format!("{}", values[0].get_type());
+        return values[0].get_type();
     }
 
-    let mut res = format!("{}", values[0].get_type());
-    for i in 1..len {
-        res = format!("{}, {}", res, values[i].get_type());
+    let mut res = values[0].get_type();
+    for value in values.iter().take(len).skip(1) {
+        res = format!("{}, {}", res, value.get_type());
     }
-    return res;
+    res
 }
 
 /// Struct that represents a array type.
@@ -1424,10 +1415,10 @@ pub struct MemberValue<R: Reader<Offset = usize>> {
 
 impl<R: Reader<Offset = usize>> fmt::Display for MemberValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match &self.name {
+        match &self.name {
             Some(name) => write!(f, "{}::{}", name, self.value),
             None => write!(f, "{}", self.value),
-        };
+        }
     }
 }
 
@@ -1436,7 +1427,7 @@ impl<R: Reader<Offset = usize>> MemberValue<R> {
     pub fn get_type(&self) -> String {
         match &self.name {
             Some(name) => format!("{}::{}", name, self.value.get_type()),
-            None => format!("{}", self.value.get_type()),
+            None => self.value.get_type(),
         }
     }
 }
@@ -1460,10 +1451,10 @@ pub struct PointerTypeValue<R: Reader<Offset = usize>> {
 
 impl<R: Reader<Offset = usize>> fmt::Display for PointerTypeValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match &self.name {
+        match &self.name {
             Some(name) => write!(f, "{}::{}", name, self.value),
             None => write!(f, "{}", self.value),
-        };
+        }
     }
 }
 
@@ -1472,7 +1463,7 @@ impl<R: Reader<Offset = usize>> PointerTypeValue<R> {
     pub fn get_type(&self) -> String {
         match &self.name {
             Some(name) => format!("{}::{}", name, self.value.get_type()),
-            None => format!("{}", self.value.get_type()),
+            None => self.value.get_type(),
         }
     }
 }
@@ -1492,10 +1483,10 @@ pub struct EnumeratorValue {
 
 impl fmt::Display for EnumeratorValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match &self.name {
+        match &self.name {
             Some(name) => write!(f, "{}::{}", name, self.const_value),
             None => write!(f, "{}", self.const_value),
-        };
+        }
     }
 }
 
@@ -1521,10 +1512,10 @@ pub struct VariantValue<R: Reader<Offset = usize>> {
 
 impl<R: Reader<Offset = usize>> fmt::Display for VariantValue<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match &self.discr_value {
+        match &self.discr_value {
             Some(discr) => write!(f, "{}::{}", discr, self.child),
             None => write!(f, "{}", self.child),
-        };
+        }
     }
 }
 
@@ -1533,7 +1524,7 @@ impl<R: Reader<Offset = usize>> VariantValue<R> {
     pub fn get_type(&self) -> String {
         match &self.discr_value {
             Some(discr) => format!("{} {}", discr, self.child.get_type()),
-            None => format!("{}", self.child.get_type()),
+            None => self.child.get_type(),
         }
     }
 }
@@ -1559,11 +1550,11 @@ impl<R: Reader<Offset = usize>> fmt::Display for VariantPartValue<R> {
             variants = format!("{} {},", variants, v);
         }
         variants = format!("{} {}", variants, "}");
-        return match &self.variant {
+        match &self.variant {
             // TODO: Improve
             Some(variant) => write!(f, "< variant: {} >, {}", variant, variants),
             None => write!(f, "{}", variants),
-        };
+        }
     }
 }
 
@@ -1572,8 +1563,8 @@ impl<R: Reader<Offset = usize>> VariantPartValue<R> {
     pub fn get_type(&self) -> String {
         // TODO: Improve
         match &self.variant {
-            Some(variant) => format!("{}", variant),
-            None => format!("",),
+            Some(variant) => variant.to_string(),
+            None => "".to_owned(),
         }
     }
 }
@@ -1597,10 +1588,10 @@ pub struct SubrangeTypeValue {
 
 impl fmt::Display for SubrangeTypeValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match self.get_count() {
+        match self.get_count() {
             Ok(Some(count)) => write!(f, "{}", count),
             _ => write!(f, ""),
-        };
+        }
     }
 }
 
@@ -1608,8 +1599,8 @@ impl SubrangeTypeValue {
     /// Get the type of the subrange_type as a `String`.
     pub fn get_type(&self) -> String {
         match &self.base_type_value {
-            Some((val, _)) => format!("{}", val.get_type()),
-            None => format!("u64"),
+            Some((val, _)) => val.get_type(),
+            None => "u64".to_string(),
         }
     }
 
@@ -1672,7 +1663,7 @@ pub enum BaseTypeValue {
 
 impl fmt::Display for BaseTypeValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return match self {
+        match self {
             BaseTypeValue::Bool(val) => write!(f, "{}", val),
             BaseTypeValue::Generic(val) => write!(f, "{}", val),
             BaseTypeValue::I8(val) => write!(f, "{}", val),
@@ -1687,7 +1678,7 @@ impl fmt::Display for BaseTypeValue {
             BaseTypeValue::F64(val) => write!(f, "{}", val),
             BaseTypeValue::Address32(val) => write!(f, "'Address' {:#10x}", val),
             BaseTypeValue::Reg32(val) => write!(f, "0x{:x}", val),
-        };
+        }
     }
 }
 
@@ -1702,7 +1693,7 @@ impl BaseTypeValue {
     /// Will parse the given bytes into the encoding type.
     /// The size of the given `data` parameter will be used when parsing.
     pub fn parse_base_type(data: Vec<u8>, encoding: DwAte) -> Result<BaseTypeValue> {
-        if data.len() == 0 {
+        if data.is_empty() {
             return Err(anyhow!("Expected data to be larger then 0"));
         }
 
@@ -1956,25 +1947,22 @@ fn check_alignment<R: Reader<Offset = usize>>(
 ) -> Result<()> {
     match attributes::alignment_attribute(die)? {
         Some(alignment) => {
-            if pieces.len() == 0 {
+            if pieces.is_empty() {
                 return Ok(());
             }
 
-            if pieces.len() < 1 {
+            if pieces.is_empty() {
                 data_offset = 0;
             }
 
-            match pieces[0].piece.location {
-                Location::Address { address } => {
-                    let mut addr = address + (data_offset / 4) * 4;
-                    addr -= addr % 4; // TODO: Is this correct?
+            if let Location::Address { address } = pieces[0].piece.location {
+                let mut addr = address + (data_offset / 4) * 4;
+                addr -= addr % 4; // TODO: Is this correct?
 
-                    if addr % alignment != 0 {
-                        error!("Address not aligned");
-                        return Err(anyhow!("Address not aligned"));
-                    }
+                if addr % alignment != 0 {
+                    error!("Address not aligned");
+                    return Err(anyhow!("Address not aligned"));
                 }
-                _ => (),
             };
         }
         None => (),
@@ -2045,7 +2033,7 @@ fn trim_piece_bytes<R: Reader<Offset = usize>>(
         bytes.remove(0);
     }
 
-    return bytes;
+    bytes
 }
 
 /// Contains the unparsed value and the location of it.

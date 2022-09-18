@@ -49,14 +49,14 @@ impl SourceInformation {
                             let (file, directory) = match file_entry.directory(header) {
                                 Some(dir_av) => {
                                     let mut dir_raw =
-                                        dwarf.attr_string(&unit, dir_av)?.to_string()?.to_string();
+                                        dwarf.attr_string(unit, dir_av)?.to_string()?.to_string();
                                     let file_raw = dwarf
-                                        .attr_string(&unit, file_entry.path_name())?
+                                        .attr_string(unit, file_entry.path_name())?
                                         .to_string()?
                                         .to_string();
                                     let file = file_raw.trim_start_matches(&dir_raw).to_string();
 
-                                    if !dir_raw.starts_with("/") {
+                                    if !dir_raw.starts_with('/') {
                                         dir_raw = format!("{}/{}", cwd, dir_raw);
                                     }
 
@@ -64,7 +64,7 @@ impl SourceInformation {
                                 }
                                 None => (
                                     dwarf
-                                        .attr_string(&unit, file_entry.path_name())?
+                                        .attr_string(unit, file_entry.path_name())?
                                         .to_string()?
                                         .to_string(),
                                     None,
@@ -157,7 +157,7 @@ impl SourceInformation {
                                         let file =
                                             file_raw.trim_start_matches(&dir_raw).to_string();
 
-                                        if !dir_raw.starts_with("/") {
+                                        if !dir_raw.starts_with('/') {
                                             dir_raw = format!("{}/{}", cwd, dir_raw);
                                         }
 
@@ -195,13 +195,13 @@ impl SourceInformation {
                 }
                 //println!("total line rows: {:?}", all);
                 //           println!("result line rows: {:?}", result.len());
-                return match nearest {
+                match nearest {
                     Some((_, si)) => Ok(si),
                     None => {
                         error!("Could not find source informaitno");
                         Err(anyhow!("Could not find source informaitno"))
                     }
-                };
+                }
             }
             None => {
                 error!("Unit has no line program");
@@ -251,14 +251,14 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
                 };
 
                 let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?;
-                let mut file_path = format!("{}/{}", directory, file_raw.to_string()?.to_string());
+                let mut file_path = format!("{}/{}", directory, file_raw.to_string()?);
 
-                if !file_path.starts_with("/") {
+                if !file_path.starts_with('/') {
                     // TODO: Find a better solution
                     file_path = format!("{}/{}", cwd, file_path);
                 }
 
-                if path == &file_path {
+                if path == file_path {
                     let mut rows = line_program.clone().rows();
                     while let Some((header, row)) = rows.next_row()? {
                         let file_entry = match row.file(header) {
@@ -275,14 +275,13 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
                         };
 
                         let file_raw = dwarf.attr_string(&unit, file_entry.path_name())?;
-                        let mut file_path =
-                            format!("{}/{}", directory, file_raw.to_string()?.to_string());
-                        if !file_path.starts_with("/") {
+                        let mut file_path = format!("{}/{}", directory, file_raw.to_string()?);
+                        if !file_path.starts_with('/') {
                             // TODO: Find a better solution
                             file_path = format!("{}/{}", cwd, file_path);
                         }
 
-                        if path == &file_path {
+                        if path == file_path {
                             if let Some(l) = row.line() {
                                 if line == l {
                                     locations.push((row.column(), row.address()));
@@ -296,7 +295,7 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
     }
 
     match locations.len() {
-        0 => return Ok(None),
+        0 => Ok(None),
         len => {
             let search = match column {
                 Some(v) => gimli::ColumnType::Column(v),
@@ -304,13 +303,13 @@ pub fn find_breakpoint_location<'a, R: Reader<Offset = usize>>(
             };
 
             let mut res = locations[0];
-            for i in 1..len {
-                if locations[i].0 <= search && locations[i].0 > res.0 {
-                    res = locations[i];
+            for location in locations.iter().take(len).skip(1) {
+                if location.0 <= search && location.0 > res.0 {
+                    res = *location;
                 }
             }
 
-            return Ok(Some(res.1));
+            Ok(Some(res.1))
         }
-    };
+    }
 }

@@ -93,13 +93,13 @@ pub fn new_stack_trace<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
 ) -> Result<Vec<StackFrame<R>>> {
     let pc_reg = registers
         .program_counter_register
-        .ok_or(anyhow!("Requires pc register id"))?;
+        .ok_or_else(|| anyhow!("Requires pc register id"))?;
     let link_reg = registers
         .link_register
-        .ok_or(anyhow!("Requires pc register id"))?;
+        .ok_or_else(|| anyhow!("Requires pc register id"))?;
     let sp_reg = registers
         .stack_pointer_register
-        .ok_or(anyhow!("Requires pc register id"))?;
+        .ok_or_else(|| anyhow!("Requires pc register id"))?;
 
     let mut regs = [None; 16];
     for (reg, val) in &registers.registers {
@@ -150,7 +150,7 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
 
     // Get unwind info
     let unwind_info = match debug_frame.unwind_info_for_address(
-        &base,
+        base,
         ctx,
         current_location,
         gimli::DebugFrame::cie_from_offset,
@@ -163,11 +163,11 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
     };
 
     // Get CFA
-    let cfa = unwind_cfa(unwind_registers, &unwind_info)?;
+    let cfa = unwind_cfa(unwind_registers, unwind_info)?;
 
     // Unwind registers
     let mut new_registers = [None; 16];
-    for i in 0..16 as usize {
+    for i in 0..16_usize {
         let reg_rule = unwind_info.register(gimli::Register(i as u16));
 
         new_registers[i] = match reg_rule {
@@ -324,7 +324,7 @@ pub fn new_stack_trace_rec<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
         base,
         ctx,
     )?);
-    return Ok(stack_trace);
+    Ok(stack_trace)
 }
 
 /// Describes what a call frame contains.
@@ -358,20 +358,20 @@ pub struct CallFrame {
 /// * `debug_frame` - A reference to the DWARF section `.debug_frame`.
 ///
 /// This function will virtually unwind the call stack and return a `Vec` of `CallFrame`s.
-pub fn unwind_call_stack<'a, R: Reader<Offset = usize>, M: MemoryAccess>(
+pub fn unwind_call_stack<R: Reader<Offset = usize>, M: MemoryAccess>(
     registers: Registers,
     memory: &mut M,
-    debug_frame: &'a DebugFrame<R>,
+    debug_frame: &'_ DebugFrame<R>,
 ) -> Result<Vec<CallFrame>> {
     let pc_reg = registers
         .program_counter_register
-        .ok_or(anyhow!("Requires pc register id"))?;
+        .ok_or_else(|| anyhow!("Requires pc register id"))?;
     let link_reg = registers
         .link_register
-        .ok_or(anyhow!("Requires pc register id"))?;
+        .ok_or_else(|| anyhow!("Requires pc register id"))?;
     let sp_reg = registers
         .stack_pointer_register
-        .ok_or(anyhow!("Requires pc register id"))?;
+        .ok_or_else(|| anyhow!("Requires pc register id"))?;
 
     let mut regs = [None; 16];
     for (reg, val) in &registers.registers {
@@ -429,7 +429,7 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
     };
 
     let unwind_info = match debug_frame.unwind_info_for_address(
-        &base,
+        base,
         ctx,
         current_location,
         gimli::DebugFrame::cie_from_offset,
@@ -441,10 +441,10 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
         }
     };
 
-    let cfa = unwind_cfa(unwind_registers, &unwind_info)?;
+    let cfa = unwind_cfa(unwind_registers, unwind_info)?;
 
     let mut new_registers = [None; 16];
-    for i in 0..16 as usize {
+    for i in 0..16_usize {
         let reg_rule = unwind_info.register(gimli::Register(i as u16));
 
         new_registers[i] = match reg_rule {
@@ -551,7 +551,7 @@ fn unwind_call_stack_recursive<'a, M: MemoryAccess, R: Reader<Offset = usize>>(
         base,
         ctx,
     )?);
-    return Ok(call_stack);
+    Ok(call_stack)
 }
 
 /// A function for virtually unwind the Canonical Frame address.
@@ -576,7 +576,7 @@ fn unwind_cfa<R: Reader<Offset = usize>>(
         }
         gimli::CfaRule::Expression(_expr) => {
             error!("Unimplemented");
-            return Err(anyhow!("Unimplemented")); // TODO
+            Err(anyhow!("Unimplemented")) // TODO
         }
     }
 }
@@ -627,7 +627,7 @@ impl<R: Reader<Offset = usize>> StackFrame<R> {
             };
         }
 
-        return None;
+        None
     }
 }
 
@@ -711,7 +711,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     };
 
     // Get source information about the function
-    let source = SourceInformation::get_die_source_information(dwarf, &unit, &node.entry(), cwd)?;
+    let source = SourceInformation::get_die_source_information(dwarf, &unit, node.entry(), cwd)?;
 
     // Get all the variable dies to evaluate.
     let dies_to_check = get_functions_variables_die_offset(
@@ -722,7 +722,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     )?;
 
     // Get register values
-    let mut temporary_registers = Registers::new();
+    let mut temporary_registers = Registers::default();
     temporary_registers.program_counter_register = registers.program_counter_register;
     temporary_registers.link_register = registers.link_register;
     temporary_registers.stack_pointer_register = registers.stack_pointer_register;
@@ -788,21 +788,18 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
 
     let mut regs = vec![];
     for key in 0..call_frame.registers.len() {
-        match call_frame.registers[key] {
-            Some(value) => {
-                regs.push(Variable {
-                    name: Some(format!("R{}", key)),
-                    value: EvaluatorValue::Value(
-                        BaseTypeValue::Reg32(value),
-                        ValueInformation {
-                            raw: None,
-                            pieces: vec![],
-                        },
-                    ),
-                    source: None,
-                });
-            }
-            _ => (),
+        if let Some(value) = call_frame.registers[key] {
+            regs.push(Variable {
+                name: Some(format!("R{}", key)),
+                value: EvaluatorValue::Value(
+                    BaseTypeValue::Reg32(value),
+                    ValueInformation {
+                        raw: None,
+                        pieces: vec![],
+                    },
+                ),
+                source: None,
+            });
         };
     }
 
@@ -826,11 +823,11 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
 ///
 /// This function will search DWARF for the function that the given machine code address belongs
 /// too.
-pub fn find_function_die<'a, R: Reader<Offset = usize>>(
-    dwarf: &'a Dwarf<R>,
+pub fn find_function_die<R: Reader<Offset = usize>>(
+    dwarf: &'_ Dwarf<R>,
     address: u32,
 ) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)> {
-    let unit = get_current_unit(&dwarf, address)?;
+    let unit = get_current_unit(dwarf, address)?;
     let mut cursor = unit.entries();
 
     let mut depth = 0;
@@ -848,7 +845,7 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(
 
         match current.tag() {
             gimli::DW_TAG_subprogram | gimli::DW_TAG_inlined_subroutine => {
-                if let Some(true) = die_in_range(&dwarf, &unit, current, address) {
+                if let Some(true) = die_in_range(dwarf, &unit, current, address) {
                     match res {
                         Some(val) => {
                             if val < depth {
@@ -873,7 +870,7 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(
         error!("Unreachable");
         return Err(anyhow!("Unreachable"));
     }
-    return Ok((unit.header.offset(), dies[0].offset()));
+    Ok((unit.header.offset(), dies[0].offset()))
 }
 
 /// Will find the DIE representing the searched non inlined function
@@ -885,11 +882,11 @@ pub fn find_function_die<'a, R: Reader<Offset = usize>>(
 ///
 /// This function will search DWARF for the function that the given machine code address belongs
 /// too.
-pub fn find_non_inlined_function_die<'a, R: Reader<Offset = usize>>(
-    dwarf: &'a Dwarf<R>,
+pub fn find_non_inlined_function_die<R: Reader<Offset = usize>>(
+    dwarf: &'_ Dwarf<R>,
     address: u32,
 ) -> Result<(gimli::UnitSectionOffset, gimli::UnitOffset)> {
-    let unit = get_current_unit(&dwarf, address)?;
+    let unit = get_current_unit(dwarf, address)?;
     let mut cursor = unit.entries();
 
     let mut depth = 0;
@@ -905,32 +902,29 @@ pub fn find_non_inlined_function_die<'a, R: Reader<Offset = usize>>(
             break;
         }
 
-        match current.tag() {
-            gimli::DW_TAG_subprogram => {
-                if let Some(true) = die_in_range(&dwarf, &unit, current, address) {
-                    match current.attr_value(gimli::DW_AT_inline)? {
-                        Some(val) => {
-                            error!("inline attr val: {:?}", val);
-                        }
-                        None => (),
-                    };
-                    match res {
-                        Some(val) => {
-                            if val < depth {
-                                res = Some(depth);
-                                dies = vec![current.clone()];
-                            } else if val == depth {
-                                dies.push(current.clone());
-                            }
-                        }
-                        None => {
+        if current.tag() == gimli::DW_TAG_subprogram {
+            if let Some(true) = die_in_range(dwarf, &unit, current, address) {
+                match current.attr_value(gimli::DW_AT_inline)? {
+                    Some(val) => {
+                        error!("inline attr val: {:?}", val);
+                    }
+                    None => (),
+                };
+                match res {
+                    Some(val) => {
+                        if val < depth {
                             res = Some(depth);
+                            dies = vec![current.clone()];
+                        } else if val == depth {
                             dies.push(current.clone());
                         }
-                    };
-                }
+                    }
+                    None => {
+                        res = Some(depth);
+                        dies.push(current.clone());
+                    }
+                };
             }
-            _ => (),
         };
     }
 
@@ -938,7 +932,7 @@ pub fn find_non_inlined_function_die<'a, R: Reader<Offset = usize>>(
         error!("Unreachable");
         return Err(anyhow!("Unreachable"));
     }
-    return Ok((unit.header.offset(), dies[0].offset()));
+    Ok((unit.header.offset(), dies[0].offset()))
 }
 
 /// Will find all the in range variable DIEs in a subroutine.
@@ -968,12 +962,11 @@ pub fn get_functions_variables_die_offset<R: Reader<Offset = usize>>(
     ) -> Result<()> {
         let die = node.entry();
 
-        match die_in_range(dwarf, unit, die, pc) {
-            Some(false) => return Ok(()),
-            _ => (),
+        if let Some(false) = die_in_range(dwarf, unit, die, pc) {
+            return Ok(());
         };
 
-        if is_variable_die(&die) {
+        if is_variable_die(die) {
             list.push(die.offset());
         }
 
@@ -1034,34 +1027,24 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
 ) -> Result<u64> {
     if let Some(val) = die.attr_value(gimli::DW_AT_frame_base)? {
         if let Some(expr) = val.exprloc_value() {
-            let value = evaluate(
-                dwarf,
-                unit,
-                pc,
-                expr.clone(),
-                None,
-                None,
-                None,
-                registers,
-                mem,
-            )?;
+            let value = evaluate(dwarf, unit, pc, expr, None, None, None, registers, mem)?;
 
             match value {
-                EvaluatorValue::Value(BaseTypeValue::Address32(v), _) => return Ok(v as u64),
+                EvaluatorValue::Value(BaseTypeValue::Address32(v), _) => Ok(v as u64),
                 _ => {
                     error!("Unreachable");
-                    return Err(anyhow!("Unreachable"));
+                    Err(anyhow!("Unreachable"))
                 }
-            };
+            }
         } else {
             error!("Unimplemented");
-            return Err(anyhow!("Unimplemented"));
+            Err(anyhow!("Unimplemented"))
         }
     } else if let Some(offset) = die.attr_value(gimli::DW_AT_abstract_origin)? {
         match offset {
             UnitRef(o) => {
                 let ndie = unit.entry(o)?;
-                return evaluate_frame_base(dwarf, unit, pc, &ndie, registers, mem);
+                evaluate_frame_base(dwarf, unit, pc, &ndie, registers, mem)
             }
             DebugInfoRef(di_offset) => {
                 let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
@@ -1075,15 +1058,15 @@ pub fn evaluate_frame_base<R: Reader<Offset = usize>, T: MemoryAccess>(
                 }
 
                 error!("Unimplemented");
-                return Err(anyhow!("Unimplemented"));
+                Err(anyhow!("Unimplemented"))
             }
             val => {
                 error!("Unimplemented for {:?}", val);
-                return Err(anyhow!("Unimplemented for {:?}", val));
+                Err(anyhow!("Unimplemented for {:?}", val))
             }
-        };
+        }
     } else {
-        return Err(anyhow!("Die has no DW_AT_frame_base attribute"));
+        Err(anyhow!("Die has no DW_AT_frame_base attribute"))
     }
 }
 

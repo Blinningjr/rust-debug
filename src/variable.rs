@@ -11,7 +11,7 @@ use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
 use anyhow::{anyhow, Result};
-use log::{debug, error, info, trace};
+use log::{error, info, trace};
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
@@ -57,13 +57,12 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         // Get the program counter.
         let pc: u32 = *registers
             .get_register_value(
-                &(registers.program_counter_register.ok_or(anyhow!(
-                    "Requires that the program counter register is known"
-                ))? as u16),
+                &(registers
+                    .program_counter_register
+                    .ok_or_else(|| anyhow!("Requires that the program counter register is known"))?
+                    as u16),
             )
-            .ok_or(anyhow!(
-                "Requires that the program counter registers has a value"
-            ))?;
+            .ok_or_else(|| anyhow!("Requires that the program counter registers has a value"))?;
 
         // Get the variable die.
         let header =
@@ -171,9 +170,9 @@ impl<R: Reader<Offset = usize>> Variable<R> {
 /// If the DIE has one of the tags the function will return `true`, otherwise `false`.
 pub fn is_variable_die<R: Reader<Offset = usize>>(die: &DebuggingInformationEntry<R>) -> bool {
     // Check that it is a variable.
-    return die.tag() == gimli::DW_TAG_variable
+    die.tag() == gimli::DW_TAG_variable
         || die.tag() == gimli::DW_TAG_formal_parameter
-        || die.tag() == gimli::DW_TAG_constant;
+        || die.tag() == gimli::DW_TAG_constant
 }
 
 /// Will retrieve the name of a variable DIE.
@@ -226,9 +225,9 @@ pub fn get_var_name<R: Reader<Offset = usize>>(
             };
         }
 
-        return Ok(None);
+        Ok(None)
     } else {
-        return Err(anyhow!("This die is not a variable"));
+        Err(anyhow!("This die is not a variable"))
     }
 }
 
@@ -266,9 +265,7 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(
 ) -> Result<VariableLocation<R>> {
     if is_variable_die(die) {
         match die.attr_value(gimli::DW_AT_location)? {
-            Some(Exprloc(expr)) => {
-                return Ok(VariableLocation::Expression(expr));
-            }
+            Some(Exprloc(expr)) => Ok(VariableLocation::Expression(expr)),
             Some(LocationListsRef(offset)) => {
                 let mut locations = dwarf.locations(unit, offset)?;
                 let mut count = 0;
@@ -280,19 +277,19 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(
                 }
 
                 if count > 0 {
-                    return Ok(VariableLocation::LocationOutOfRange);
+                    Ok(VariableLocation::LocationOutOfRange)
                 } else {
-                    return Ok(VariableLocation::NoLocation);
+                    Ok(VariableLocation::NoLocation)
                 }
             }
-            None => return Ok(VariableLocation::NoLocation),
+            None => Ok(VariableLocation::NoLocation),
             Some(v) => {
                 error!("Unimplemented for {:?}", v);
-                return Err(anyhow!("Unimplemented for {:?}", v));
+                Err(anyhow!("Unimplemented for {:?}", v))
             }
         }
     } else {
-        return Err(anyhow!("This die is not a variable"));
+        Err(anyhow!("This die is not a variable"))
     }
 }
 
@@ -314,7 +311,7 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(
 ) -> Result<(UnitSectionOffset, UnitOffset)> {
     if is_variable_die(die) {
         match attributes::type_attribute(dwarf, unit, die)? {
-            Some(result) => return Ok(result),
+            Some(result) => Ok(result),
             None => {
                 if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
                     match die_offset {
@@ -343,11 +340,11 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(
                     };
                 }
 
-                return Err(anyhow!("Could not find this variables type die"));
+                Err(anyhow!("Could not find this variables type die"))
             }
         }
     } else {
-        return Err(anyhow!("This die is not a variable"));
+        Err(anyhow!("This die is not a variable"))
     }
 }
 
@@ -374,7 +371,7 @@ pub fn find_variable_source_information<R: Reader<Offset = usize>>(
             match die_offset {
                 UnitRef(offset) => {
                     let ao_die = unit.entry(offset)?;
-                    return find_variable_source_information(dwarf, unit, &ao_die, cwd);
+                    find_variable_source_information(dwarf, unit, &ao_die, cwd)
                 }
                 DebugInfoRef(di_offset) => {
                     let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
@@ -387,17 +384,17 @@ pub fn find_variable_source_information<R: Reader<Offset = usize>>(
                             }
                         }
                     }
-                    return Err(anyhow!("Could not find this variables die"));
+                    Err(anyhow!("Could not find this variables die"))
                 }
                 val => {
                     error!("Unimplemented for {:?}", val);
-                    return Err(anyhow!("Unimplemented for {:?}", val));
+                    Err(anyhow!("Unimplemented for {:?}", val))
                 }
-            };
+            }
         } else {
-            return SourceInformation::get_die_source_information(dwarf, unit, die, cwd);
+            SourceInformation::get_die_source_information(dwarf, unit, die, cwd)
         }
     } else {
-        return Err(anyhow!("This die is not a variable"));
+        Err(anyhow!("This die is not a variable"))
     }
 }

@@ -20,14 +20,14 @@ pub fn name_attribute<R: Reader<Offset = usize>>(
     dwarf: &gimli::Dwarf<R>,
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<String>> {
-    return match die.attr_value(gimli::DW_AT_name)? {
+    match die.attr_value(gimli::DW_AT_name)? {
         Some(DebugStrRef(offset)) => Ok(Some(dwarf.string(offset)?.to_string()?.to_string())),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
-            return Err(anyhow!("Unimplemented for {:?}", unknown));
+            Err(anyhow!("Unimplemented for {:?}", unknown))
         }
-        None => return Ok(None),
-    };
+        None => Ok(None),
+    }
 }
 
 /// This function will return the value of the byte_size attribute in the given DIE.
@@ -40,14 +40,14 @@ pub fn name_attribute<R: Reader<Offset = usize>>(
 pub fn byte_size_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return match die.attr_value(gimli::DW_AT_byte_size)? {
+    match die.attr_value(gimli::DW_AT_byte_size)? {
         Some(Udata(val)) => Ok(Some(val)),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
-            return Err(anyhow!("Unimplemented for {:?}", unknown));
+            Err(anyhow!("Unimplemented for {:?}", unknown))
         }
         _ => Ok(None),
-    };
+    }
 }
 
 /// This function will return the value of the alignment attribute in the given DIE.
@@ -60,14 +60,14 @@ pub fn byte_size_attribute<R: Reader<Offset = usize>>(
 pub fn alignment_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return match die.attr_value(gimli::DW_AT_alignment)? {
+    match die.attr_value(gimli::DW_AT_alignment)? {
         Some(Udata(val)) => Ok(Some(val)),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
-            return Err(anyhow!("Unimplemented for {:?}", unknown));
+            Err(anyhow!("Unimplemented for {:?}", unknown))
         }
         _ => Ok(None),
-    };
+    }
 }
 
 /// This function will return the value of the data_member_location attribute in the given DIE.
@@ -80,14 +80,14 @@ pub fn alignment_attribute<R: Reader<Offset = usize>>(
 pub fn data_member_location_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return match die.attr_value(gimli::DW_AT_data_member_location)? {
+    match die.attr_value(gimli::DW_AT_data_member_location)? {
         Some(Udata(val)) => Ok(Some(val)),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
-            return Err(anyhow!("Unimplemented for {:?}", unknown));
+            Err(anyhow!("Unimplemented for {:?}", unknown))
         }
         _ => Ok(None),
-    };
+    }
 }
 
 /// This function will return the value of the type attribute in the given DIE.
@@ -105,9 +105,7 @@ pub fn type_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<(gimli::UnitSectionOffset, gimli::UnitOffset)>> {
     match die.attr_value(gimli::DW_AT_type)? {
-        Some(gimli::AttributeValue::UnitRef(offset)) => {
-            return Ok(Some((unit.header.offset(), offset)));
-        }
+        Some(gimli::AttributeValue::UnitRef(offset)) => Ok(Some((unit.header.offset(), offset))),
         Some(gimli::AttributeValue::DebugInfoRef(di_offset)) => {
             let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
             let mut iter = dwarf.debug_info.units();
@@ -118,10 +116,10 @@ pub fn type_attribute<R: Reader<Offset = usize>>(
                 }
             }
             error!("Could not find type attribute value");
-            return Ok(None);
+            Ok(None)
         }
-        _ => return Ok(None),
-    };
+        _ => Ok(None),
+    }
 }
 
 /// This function will return the value of the address_class attribute in the given DIE.
@@ -134,14 +132,14 @@ pub fn type_attribute<R: Reader<Offset = usize>>(
 pub fn address_class_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<DwAddr>> {
-    return match die.attr_value(gimli::DW_AT_address_class)? {
+    match die.attr_value(gimli::DW_AT_address_class)? {
         Some(AddressClass(val)) => Ok(Some(val)),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
-            return Err(anyhow!("Unimplemented for {:?}", unknown));
+            Err(anyhow!("Unimplemented for {:?}", unknown))
         }
         _ => Ok(None),
-    };
+    }
 }
 
 /// This function will return the value of the const_value attribute in the given DIE.
@@ -154,7 +152,7 @@ pub fn address_class_attribute<R: Reader<Offset = usize>>(
 pub fn const_value_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return Ok(match die.attr_value(gimli::DW_AT_const_value)? {
+    Ok(match die.attr_value(gimli::DW_AT_const_value)? {
         Some(Udata(val)) => Some(val),
         Some(Sdata(val)) => Some(val as u64), // TODO: Should not be converted to unsigned
         Some(unknown) => {
@@ -162,7 +160,7 @@ pub fn const_value_attribute<R: Reader<Offset = usize>>(
             return Err(anyhow!("Unimplemented for {:?}", unknown));
         }
         _ => None,
-    });
+    })
 }
 
 /// This function will return the value of the count attribute in the given DIE.
@@ -175,7 +173,7 @@ pub fn const_value_attribute<R: Reader<Offset = usize>>(
 pub fn count_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return Ok(match die.attr_value(gimli::DW_AT_count)? {
+    Ok(match die.attr_value(gimli::DW_AT_count)? {
         Some(Udata(val)) => Some(val),
         Some(Data1(val)) => Some(val as u64),
         Some(Data2(val)) => Some(val as u64),
@@ -186,7 +184,7 @@ pub fn count_attribute<R: Reader<Offset = usize>>(
             return Err(anyhow!("Unimplemented for {:?}", unknown));
         }
         _ => None,
-    });
+    })
 }
 
 /// This function will return the value of the encoding attribute in the given DIE.
@@ -199,14 +197,14 @@ pub fn count_attribute<R: Reader<Offset = usize>>(
 pub fn encoding_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<DwAte>> {
-    return Ok(match die.attr_value(gimli::DW_AT_encoding)? {
+    Ok(match die.attr_value(gimli::DW_AT_encoding)? {
         Some(Encoding(val)) => Some(val),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
             return Err(anyhow!("Unimplemented for {:?}", unknown));
         }
         _ => None,
-    });
+    })
 }
 
 /// This function will return the value of the discr attribute in the given DIE.
@@ -219,14 +217,14 @@ pub fn encoding_attribute<R: Reader<Offset = usize>>(
 pub fn discr_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<gimli::UnitOffset>> {
-    return Ok(match die.attr_value(gimli::DW_AT_discr)? {
+    Ok(match die.attr_value(gimli::DW_AT_discr)? {
         Some(gimli::AttributeValue::UnitRef(offset)) => Some(offset),
         Some(unknown) => {
             error!("Unimplemented for {:?}", unknown);
             return Err(anyhow!("Unimplemented for {:?}", unknown));
         }
         _ => None,
-    });
+    })
 }
 
 /// This function will return the value of the discr_value attribute in the given DIE.
@@ -239,7 +237,7 @@ pub fn discr_attribute<R: Reader<Offset = usize>>(
 pub fn discr_value_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return Ok(match die.attr_value(gimli::DW_AT_discr_value)? {
+    Ok(match die.attr_value(gimli::DW_AT_discr_value)? {
         Some(Data1(val)) => Some(val as u64),
         Some(Udata(val)) => Some(val),
         Some(unknown) => {
@@ -247,7 +245,7 @@ pub fn discr_value_attribute<R: Reader<Offset = usize>>(
             return Err(anyhow!("Unimplemented for {:?}", unknown));
         }
         _ => None,
-    });
+    })
 }
 
 /// This function will return the value of the lower_bound attribute in the given DIE.
@@ -260,7 +258,7 @@ pub fn discr_value_attribute<R: Reader<Offset = usize>>(
 pub fn lower_bound_attribute<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<u64>> {
-    return Ok(match die.attr_value(gimli::DW_AT_lower_bound)? {
+    Ok(match die.attr_value(gimli::DW_AT_lower_bound)? {
         Some(Data1(val)) => Some(val as u64),
         Some(Udata(val)) => Some(val),
         Some(Sdata(val)) => Some(val as u64),
@@ -269,5 +267,5 @@ pub fn lower_bound_attribute<R: Reader<Offset = usize>>(
             return Err(anyhow!("Unimplemented for {:?}", unknown));
         }
         _ => None,
-    });
+    })
 }
