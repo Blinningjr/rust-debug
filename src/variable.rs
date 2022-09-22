@@ -3,7 +3,7 @@ use gimli::{
     DebuggingInformationEntry, Dwarf, Reader, Unit, UnitOffset, UnitSectionOffset,
 };
 
-use crate::call_stack::MemoryAccess;
+use crate::{call_stack::MemoryAccess, utils::DwarfOffset};
 use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
 use crate::registers::Registers;
@@ -49,8 +49,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         dwarf: &Dwarf<R>,
         registers: &Registers,
         memory: &mut M,
-        section_offset: UnitSectionOffset,
-        unit_offset: UnitOffset,
+        dwarf_offset: DwarfOffset,
         frame_base: Option<u64>,
         cwd: &str,
     ) -> Result<Variable<R>> {
@@ -68,7 +67,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         let header =
             dwarf
                 .debug_info
-                .header_from_offset(match section_offset.as_debug_info_offset() {
+                .header_from_offset(match dwarf_offset.section_offset.as_debug_info_offset() {
                     Some(val) => val,
                     None => {
                         error!("Could not convert section offset into debug info offset");
@@ -78,7 +77,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
                     }
                 })?;
         let unit = gimli::Unit::new(dwarf, header)?;
-        let die = unit.entry(unit_offset)?;
+        let die = unit.entry(dwarf_offset.unit_offset)?;
 
         let name = get_var_name(dwarf, &unit, &die)?;
         info!("name: {:?}", name);

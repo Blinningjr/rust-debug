@@ -11,7 +11,7 @@ use crate::evaluate::evaluate::EvaluatorValue;
 use crate::evaluate::evaluate::ValueInformation;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
-use crate::utils::{die_in_range, get_current_unit};
+use crate::utils::{die_in_range, get_current_unit, DwarfOffset};
 use crate::variable::{is_variable_die, Variable};
 use anyhow::{anyhow, Result};
 use gimli::AttributeValue::DebugInfoRef;
@@ -767,8 +767,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             dwarf,
             &temporary_registers,
             mem,
-            section_offset,
-            variable_die,
+            DwarfOffset{section_offset, unit_offset: variable_die},
             Some(frame_base),
             cwd,
         ) {
@@ -787,9 +786,7 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     }
 
     let mut regs = vec![];
-    for key in 0..call_frame.registers.len() {
-        if let Some(value) = call_frame.registers[key] {
-            regs.push(Variable {
+    for key in 0..call_frame.registers.len() { if let Some(value) = call_frame.registers[key] { regs.push(Variable {
                 name: Some(format!("R{}", key)),
                 value: EvaluatorValue::Value(
                     BaseTypeValue::Reg32(value),
@@ -848,12 +845,14 @@ pub fn find_function_die<R: Reader<Offset = usize>>(
                 if let Some(true) = die_in_range(dwarf, &unit, current, address) {
                     match res {
                         Some(val) => {
-                            if val < depth {
-                                res = Some(depth);
-                                dies = vec![current.clone()];
-                            } else if val == depth {
-                                dies.push(current.clone());
-                            }
+                            match val {
+                                x if x == depth => dies.push(current.clone()),
+                                x if x < depth => {
+                                    res = Some(depth);
+                                    dies = vec![current.clone()];
+                                },
+                                _ => (),
+                            };
                         }
                         None => {
                             res = Some(depth);
@@ -912,12 +911,14 @@ pub fn find_non_inlined_function_die<R: Reader<Offset = usize>>(
                 };
                 match res {
                     Some(val) => {
-                        if val < depth {
-                            res = Some(depth);
-                            dies = vec![current.clone()];
-                        } else if val == depth {
-                            dies.push(current.clone());
-                        }
+                        match val {
+                            x if x == depth => dies.push(current.clone()),
+                            x if x < depth => {
+                                res = Some(depth);
+                                dies = vec![current.clone()];
+                            },
+                            _ => (),
+                        };
                     }
                     None => {
                         res = Some(depth);
