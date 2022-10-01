@@ -767,7 +767,10 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
             dwarf,
             &temporary_registers,
             mem,
-            DwarfOffset{section_offset, unit_offset: variable_die},
+            DwarfOffset {
+                section_offset,
+                unit_offset: variable_die,
+            },
             Some(frame_base),
             cwd,
         ) {
@@ -786,7 +789,9 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
     }
 
     let mut regs = vec![];
-    for key in 0..call_frame.registers.len() { if let Some(value) = call_frame.registers[key] { regs.push(Variable {
+    for key in 0..call_frame.registers.len() {
+        if let Some(value) = call_frame.registers[key] {
+            regs.push(Variable {
                 name: Some(format!("R{}", key)),
                 value: EvaluatorValue::Value(
                     BaseTypeValue::Reg32(value),
@@ -850,7 +855,7 @@ pub fn find_function_die<R: Reader<Offset = usize>>(
                                 x if x < depth => {
                                     res = Some(depth);
                                     dies = vec![current.clone()];
-                                },
+                                }
                                 _ => (),
                             };
                         }
@@ -916,7 +921,7 @@ pub fn find_non_inlined_function_die<R: Reader<Offset = usize>>(
                             x if x < depth => {
                                 res = Some(depth);
                                 dies = vec![current.clone()];
-                            },
+                            }
                             _ => (),
                         };
                     }

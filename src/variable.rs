@@ -3,13 +3,13 @@ use gimli::{
     DebuggingInformationEntry, Dwarf, Reader, Unit, UnitOffset, UnitSectionOffset,
 };
 
-use crate::{call_stack::MemoryAccess, utils::DwarfOffset};
 use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
+use crate::{call_stack::MemoryAccess, utils::DwarfOffset};
 use anyhow::{anyhow, Result};
 use log::{error, info, trace};
 
@@ -64,18 +64,17 @@ impl<R: Reader<Offset = usize>> Variable<R> {
             .ok_or_else(|| anyhow!("Requires that the program counter registers has a value"))?;
 
         // Get the variable die.
-        let header =
-            dwarf
-                .debug_info
-                .header_from_offset(match dwarf_offset.section_offset.as_debug_info_offset() {
-                    Some(val) => val,
-                    None => {
-                        error!("Could not convert section offset into debug info offset");
-                        return Err(anyhow!(
-                            "Could not convert section offset into debug info offset"
-                        ));
-                    }
-                })?;
+        let header = dwarf.debug_info.header_from_offset(
+            match dwarf_offset.section_offset.as_debug_info_offset() {
+                Some(val) => val,
+                None => {
+                    error!("Could not convert section offset into debug info offset");
+                    return Err(anyhow!(
+                        "Could not convert section offset into debug info offset"
+                    ));
+                }
+            },
+        )?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(dwarf_offset.unit_offset)?;
 

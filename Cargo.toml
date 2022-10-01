@@ -15,7 +15,7 @@ keywords = ["debug", "debugging"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gimli			= "0.26.1"
+gimli			= "0.26"
 anyhow			= "1.0"
 log			= "0.4"
 
