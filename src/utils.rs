@@ -1,10 +1,12 @@
-use gimli::{DebuggingInformationEntry, Dwarf, Error, Range, RangeIter, Reader, Unit, UnitSectionOffset, UnitOffset};
+use gimli::{
+    DebuggingInformationEntry, Dwarf, Error, Range, RangeIter, Reader, Unit, UnitOffset,
+    UnitSectionOffset,
+};
 use log::error;
 
-
 pub struct DwarfOffset {
-   pub section_offset: UnitSectionOffset,
-   pub unit_offset: UnitOffset,
+    pub section_offset: UnitSectionOffset,
+    pub unit_offset: UnitOffset,
 }
 
 /// Check if the given address is withing range of any of the given ranges.
