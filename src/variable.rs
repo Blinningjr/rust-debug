@@ -68,7 +68,8 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         debug!("name: {:?}", name);
 
         // Get the source code location the variable was declared.
-        let source = find_variable_source_information(dwarf, &unit, &die, cwd).ok();
+        let source =
+            SourceInformation::find_variable_source_information(dwarf, &unit, &die, cwd).ok();
 
         let expression = match VariableLocation::find(dwarf, &unit, &die, pc)? {
             VariableLocation::Expression(expr) => {
@@ -355,55 +356,4 @@ fn find_abstract_origin_type_die<R: Reader<Offset = usize>>(
     };
 
     Err(anyhow!("Could not find this variables type die"))
-}
-
-/// Retrieve the variables source location where it was declared.
-///
-/// Description:
-///
-/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
-/// * `unit` - A reference to gimli-rs `Unit` struct, which the given DIE is located in.
-/// * `die` - A reference to DIE.
-/// * `cwd` - The work directory of the debugged program.
-///
-/// This function will retrieve the source code location where the variable was declared.
-/// The information is retrieved from the  attributes starting with `DW_AT_decl_` in the given DIE,
-/// or in the DIE found in the attribute `DW_AT_abstract_origin`.
-pub fn find_variable_source_information<R: Reader<Offset = usize>>(
-    dwarf: &Dwarf<R>,
-    unit: &Unit<R>,
-    die: &DebuggingInformationEntry<R>,
-    cwd: &str,
-) -> Result<SourceInformation> {
-    if is_variable_die(die) {
-        if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-            match die_offset {
-                UnitRef(offset) => {
-                    let ao_die = unit.entry(offset)?;
-                    find_variable_source_information(dwarf, unit, &ao_die, cwd)
-                }
-                DebugInfoRef(di_offset) => {
-                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-                    let mut iter = dwarf.debug_info.units();
-                    while let Ok(Some(header)) = iter.next() {
-                        let unit = dwarf.unit(header)?;
-                        if let Some(offset) = offset.to_unit_offset(&unit) {
-                            if let Ok(ndie) = unit.entry(offset) {
-                                return find_variable_source_information(dwarf, &unit, &ndie, cwd);
-                            }
-                        }
-                    }
-                    Err(anyhow!("Could not find this variables die"))
-                }
-                val => {
-                    error!("Unimplemented for {:?}", val);
-                    Err(anyhow!("Unimplemented for {:?}", val))
-                }
-            }
-        } else {
-            SourceInformation::get_die_source_information(dwarf, unit, die, cwd)
-        }
-    } else {
-        Err(anyhow!("This die is not a variable"))
-    }
 }

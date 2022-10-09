@@ -1,9 +1,13 @@
 use anyhow::{anyhow, Result};
 use log::error;
 
-use crate::utils::get_current_unit;
+use crate::{utils::get_current_unit, variable::is_variable_die};
 
-use gimli::{ColumnType, DebuggingInformationEntry, Dwarf, Reader, Unit};
+use gimli::{
+    AttributeValue::{DebugInfoRef, UnitRef},
+    ColumnType, DebuggingInformationEntry, Dwarf, Reader, Unit,
+};
+
 use std::num::NonZeroU64;
 
 /// Contains all the information about where the code was declared in the source code.
@@ -206,6 +210,66 @@ impl SourceInformation {
             None => {
                 error!("Unit has no line program");
                 Err(anyhow!("Unit has no line program"))
+            }
+        }
+    }
+
+    /// Retrieve the variables source location where it was declared.
+    ///
+    /// Description:
+    ///
+    /// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+    /// * `unit` - A reference to gimli-rs `Unit` struct, which the given DIE is located in.
+    /// * `die` - A reference to DIE.
+    /// * `cwd` - The work directory of the debugged program.
+    ///
+    /// This function will retrieve the source code location where the variable was declared.
+    /// The information is retrieved from the  attributes starting with `DW_AT_decl_` in the given DIE,
+    /// or in the DIE found in the attribute `DW_AT_abstract_origin`.
+    pub fn find_variable_source_information<R: Reader<Offset = usize>>(
+        dwarf: &Dwarf<R>,
+        unit: &Unit<R>,
+        die: &DebuggingInformationEntry<R>,
+        cwd: &str,
+    ) -> Result<SourceInformation> {
+        if is_variable_die(die) {
+            return Err(anyhow!("This die is not a variable"));
+        }
+
+        if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+            return Self::find_abstract_origin_source_information(dwarf, unit, cwd, attribute);
+        }
+
+        Self::get_die_source_information(dwarf, unit, die, cwd)
+    }
+
+    fn find_abstract_origin_source_information<R: Reader<Offset = usize>>(
+        dwarf: &Dwarf<R>,
+        unit: &Unit<R>,
+        cwd: &str,
+        attribute: gimli::AttributeValue<R>,
+    ) -> Result<SourceInformation> {
+        match attribute {
+            UnitRef(offset) => {
+                let die = unit.entry(offset)?;
+                Self::find_variable_source_information(dwarf, unit, &die, cwd)
+            }
+            DebugInfoRef(di_offset) => {
+                let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+                let mut iter = dwarf.debug_info.units();
+                while let Ok(Some(header)) = iter.next() {
+                    let unit = dwarf.unit(header)?;
+                    if let Some(offset) = offset.to_unit_offset(&unit) {
+                        if let Ok(die) = unit.entry(offset) {
+                            return Self::find_variable_source_information(dwarf, &unit, &die, cwd);
+                        }
+                    }
+                }
+                Err(anyhow!("Could not find this variables die"))
+            }
+            val => {
+                error!("Unimplemented for {:?}", val);
+                Err(anyhow!("Unimplemented for {:?}", val))
             }
         }
     }
