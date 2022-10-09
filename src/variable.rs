@@ -1,6 +1,7 @@
 use gimli::{
     AttributeValue::{DebugInfoRef, DebugStrRef, Exprloc, LocationListsRef, UnitRef},
-    DebuggingInformationEntry, Dwarf, Reader, Unit, UnitOffset, UnitSectionOffset,
+    DebugInfoOffset, DebuggingInformationEntry, Dwarf, Reader, Unit, UnitHeader, UnitOffset,
+    UnitSectionOffset,
 };
 
 use crate::evaluate::evaluate;
@@ -158,41 +159,65 @@ pub fn get_var_name<R: Reader<Offset = usize>>(
     unit: &Unit<R>,
     die: &DebuggingInformationEntry<R>,
 ) -> Result<Option<String>> {
-    if is_variable_die(die) {
-        // Get the name of the variable.
-        if let Ok(Some(DebugStrRef(offset))) = die.attr_value(gimli::DW_AT_name) {
-            return Ok(Some(dwarf.string(offset)?.to_string()?.to_string()));
-        } else if let Ok(Some(offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-            match offset {
-                UnitRef(o) => {
-                    if let Ok(ndie) = unit.entry(o) {
-                        return get_var_name(dwarf, unit, &ndie);
-                    }
-                }
-                DebugInfoRef(di_offset) => {
-                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-                    let mut iter = dwarf.debug_info.units();
-                    while let Ok(Some(header)) = iter.next() {
-                        let unit = dwarf.unit(header)?;
-                        if let Some(offset) = offset.to_unit_offset(&unit) {
-                            if let Ok(ndie) = unit.entry(offset) {
-                                return get_var_name(dwarf, &unit, &ndie);
-                            }
-                        }
-                    }
-                    return Ok(None);
-                }
-                val => {
-                    error!("Unimplemented for {:?}", val);
-                    return Err(anyhow!("Unimplemented for {:?}", val));
-                }
-            };
-        }
-
-        Ok(None)
-    } else {
-        Err(anyhow!("This die is not a variable"))
+    if !is_variable_die(die) {
+        return Err(anyhow!("This die is not a variable"));
     }
+
+    // Get the name of the variable.
+    if let Ok(Some(DebugStrRef(offset))) = die.attr_value(gimli::DW_AT_name) {
+        return Ok(Some(dwarf.string(offset)?.to_string()?.to_string()));
+    }
+
+    if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+        return get_abstract_origin_die_name(dwarf, unit, attribute);
+    }
+
+    Ok(None)
+}
+
+fn get_abstract_origin_die_name<R: Reader<Offset = usize>>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    attribute: gimli::AttributeValue<R>,
+) -> Result<Option<String>> {
+    match attribute {
+        UnitRef(o) => {
+            if let Ok(die) = unit.entry(o) {
+                return get_var_name(dwarf, unit, &die);
+            }
+            Ok(None)
+        }
+        DebugInfoRef(di_offset) => {
+            let (header, die_offset) = match find_debug_info_section_and_die(dwarf, di_offset) {
+                Ok(v) => v,
+                Err(_err) => return Ok(None),
+            };
+            let unit = gimli::Unit::new(dwarf, header)?;
+            let die = unit.entry(die_offset)?;
+            get_var_name(dwarf, &unit, &die)
+        }
+        val => {
+            error!("Unimplemented for {:?}", val);
+            Err(anyhow!("Unimplemented for {:?}", val))
+        }
+    }
+}
+
+fn find_debug_info_section_and_die<R: Reader<Offset = usize>>(
+    dwarf: &Dwarf<R>,
+    offset: DebugInfoOffset,
+) -> Result<(UnitHeader<R>, UnitOffset)> {
+    let offset = gimli::UnitSectionOffset::DebugInfoOffset(offset);
+    let mut iter = dwarf.debug_info.units();
+    while let Ok(Some(header)) = iter.next() {
+        let unit = dwarf.unit(header.clone())?;
+        if let Some(offset) = offset.to_unit_offset(&unit) {
+            if let Ok(die) = unit.entry(offset) {
+                return Ok((header, die.offset()));
+            }
+        }
+    }
+    Err(anyhow!("Could not find section and die"))
 }
 
 /// Holds the location of a variable.
