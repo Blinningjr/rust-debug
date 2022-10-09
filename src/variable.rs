@@ -310,42 +310,51 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(
     die: &DebuggingInformationEntry<R>,
 ) -> Result<(UnitSectionOffset, UnitOffset)> {
     if is_variable_die(die) {
-        match attributes::type_attribute(dwarf, unit, die)? {
-            Some(result) => Ok(result),
-            None => {
-                if let Ok(Some(die_offset)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-                    match die_offset {
-                        UnitRef(offset) => {
-                            if let Ok(ao_die) = unit.entry(offset) {
-                                return find_variable_type_die(dwarf, unit, &ao_die);
-                            }
-                        }
-                        DebugInfoRef(di_offset) => {
-                            let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-                            let mut iter = dwarf.debug_info.units();
-                            while let Ok(Some(header)) = iter.next() {
-                                let unit = dwarf.unit(header)?;
-                                if let Some(offset) = offset.to_unit_offset(&unit) {
-                                    if let Ok(ndie) = unit.entry(offset) {
-                                        return find_variable_type_die(dwarf, &unit, &ndie);
-                                    }
-                                }
-                            }
-                            return Err(anyhow!("Could not find this variables type die"));
-                        }
-                        val => {
-                            error!("Unimplemented for {:?}", val);
-                            return Err(anyhow!("Unimplemented for {:?}", val));
-                        }
-                    };
-                }
+        return Err(anyhow!("This die is not a variable"));
+    }
 
-                Err(anyhow!("Could not find this variables type die"))
+    if let Some(result) = attributes::type_attribute(dwarf, unit, die)? {
+        return Ok(result);
+    }
+
+    if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+        return find_abstract_origin_type_die(dwarf, unit, attribute);
+    }
+
+    Err(anyhow!("Could not find this variables type die"))
+}
+
+fn find_abstract_origin_type_die<R: Reader<Offset = usize>>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    attribute: gimli::AttributeValue<R>,
+) -> Result<(UnitSectionOffset, UnitOffset)> {
+    match attribute {
+        UnitRef(offset) => {
+            if let Ok(ao_die) = unit.entry(offset) {
+                return find_variable_type_die(dwarf, unit, &ao_die);
             }
         }
-    } else {
-        Err(anyhow!("This die is not a variable"))
-    }
+        DebugInfoRef(di_offset) => {
+            let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+            let mut iter = dwarf.debug_info.units();
+            while let Ok(Some(header)) = iter.next() {
+                let unit = dwarf.unit(header)?;
+                if let Some(offset) = offset.to_unit_offset(&unit) {
+                    if let Ok(ndie) = unit.entry(offset) {
+                        return find_variable_type_die(dwarf, &unit, &ndie);
+                    }
+                }
+            }
+            return Err(anyhow!("Could not find this variables type die"));
+        }
+        val => {
+            error!("Unimplemented for {:?}", val);
+            return Err(anyhow!("Unimplemented for {:?}", val));
+        }
+    };
+
+    Err(anyhow!("Could not find this variables type die"))
 }
 
 /// Retrieve the variables source location where it was declared.
