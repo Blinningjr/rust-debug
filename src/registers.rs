@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
 /// A struct to hold the register values and other register information.
@@ -107,5 +108,17 @@ impl Registers {
             .collect();
         res.sort_by(|a, b| b.0.cmp(&a.0));
         res
+    }
+
+    /// Get the `pc` register value.
+    ///
+    /// Description:
+    ///
+    /// This is the same as calling `get_register_value` with the pc register a as input.
+    pub fn get_pc_register(&self) -> Result<Option<&u32>> {
+        let pc_reg = self
+            .program_counter_register
+            .ok_or_else(|| anyhow!("Requires that the program counter register is known"))?;
+        Ok(self.get_register_value(&(pc_reg as u16)))
     }
 }

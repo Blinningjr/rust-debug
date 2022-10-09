@@ -1,6 +1,7 @@
+use anyhow::{anyhow, Result};
 use gimli::{
-    DebuggingInformationEntry, Dwarf, Error, Range, RangeIter, Reader, Unit, UnitOffset,
-    UnitSectionOffset,
+    DebuggingInformationEntry, Dwarf, Error, Range, RangeIter, Reader, Unit, UnitHeader,
+    UnitOffset, UnitSectionOffset,
 };
 use log::error;
 
@@ -112,5 +113,28 @@ where
     match res {
         Some(u) => Ok(u),
         None => Err(Error::MissingUnitDie),
+    }
+}
+
+pub fn get_debug_info_header<R>(
+    dwarf: &Dwarf<R>,
+    offset: &UnitSectionOffset,
+) -> Result<UnitHeader<R>>
+where
+    R: Reader<Offset = usize>,
+{
+    match dwarf
+        .debug_info
+        .header_from_offset(match offset.as_debug_info_offset() {
+            Some(val) => val,
+            None => {
+                error!("Could not convert section offset into debug info offset");
+                return Err(anyhow!(
+                    "Could not convert section offset into debug info offset"
+                ));
+            }
+        }) {
+        Ok(v) => Ok(v),
+        Err(err) => Err(anyhow!("{}", err)),
     }
 }

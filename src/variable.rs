@@ -3,15 +3,15 @@ use gimli::{
     DebuggingInformationEntry, Dwarf, Reader, Unit, UnitOffset, UnitSectionOffset,
 };
 
-use crate::evaluate::attributes;
 use crate::evaluate::evaluate;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
 use crate::utils::in_range;
 use crate::variable::evaluate::EvaluatorValue;
 use crate::{call_stack::MemoryAccess, utils::DwarfOffset};
+use crate::{evaluate::attributes, utils::get_debug_info_header};
 use anyhow::{anyhow, Result};
-use log::{error, info, trace};
+use log::{debug, error, trace};
 
 /// Defines what debug information a variable has.
 #[derive(Debug, Clone)]
@@ -55,38 +55,19 @@ impl<R: Reader<Offset = usize>> Variable<R> {
     ) -> Result<Variable<R>> {
         // Get the program counter.
         let pc: u32 = *registers
-            .get_register_value(
-                &(registers
-                    .program_counter_register
-                    .ok_or_else(|| anyhow!("Requires that the program counter register is known"))?
-                    as u16),
-            )
+            .get_pc_register()?
             .ok_or_else(|| anyhow!("Requires that the program counter registers has a value"))?;
 
         // Get the variable die.
-        let header = dwarf.debug_info.header_from_offset(
-            match dwarf_offset.section_offset.as_debug_info_offset() {
-                Some(val) => val,
-                None => {
-                    error!("Could not convert section offset into debug info offset");
-                    return Err(anyhow!(
-                        "Could not convert section offset into debug info offset"
-                    ));
-                }
-            },
-        )?;
+        let header = get_debug_info_header(dwarf, &dwarf_offset.section_offset)?;
         let unit = gimli::Unit::new(dwarf, header)?;
         let die = unit.entry(dwarf_offset.unit_offset)?;
 
         let name = get_var_name(dwarf, &unit, &die)?;
-        info!("name: {:?}", name);
+        debug!("name: {:?}", name);
 
         // Get the source code location the variable was declared.
-        let source = match find_variable_source_information(dwarf, &unit, &die, cwd) {
-            Ok(source) => Some(source),
-            Err(_) => None,
-        };
-        info!("has source");
+        let source = find_variable_source_information(dwarf, &unit, &die, cwd).ok();
 
         let expression = match find_variable_location(dwarf, &unit, &die, pc)? {
             VariableLocation::Expression(expr) => {
@@ -114,26 +95,11 @@ impl<R: Reader<Offset = usize>> Variable<R> {
                 });
             }
         };
-        info!("has expression");
 
         let (type_section_offset, type_unit_offset) = find_variable_type_die(dwarf, &unit, &die)?;
-        info!("type sec offset: {:?}", type_section_offset);
-        info!("type unit offset: {:?}", type_unit_offset);
-        let header = dwarf.debug_info.header_from_offset(
-            match type_section_offset.as_debug_info_offset() {
-                Some(val) => val,
-                None => {
-                    error!("Could not convert section offset into debug info offset");
-                    return Err(anyhow!(
-                        "Could not convert section offset into debug info offset"
-                    ));
-                }
-            },
-        )?;
+        let header = get_debug_info_header(dwarf, &type_section_offset)?;
         let type_unit = gimli::Unit::new(dwarf, header)?;
         let type_die = type_unit.entry(type_unit_offset)?;
-
-        info!("has type");
 
         let value = evaluate(
             dwarf,
