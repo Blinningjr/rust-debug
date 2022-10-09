@@ -1,9 +1,12 @@
 use anyhow::{anyhow, Result};
 use gimli::{
-    DebuggingInformationEntry, Dwarf, Error, Range, RangeIter, Reader, Unit, UnitHeader,
+    AttributeValue::{DebugInfoRef, UnitRef},
+    DebuggingInformationEntry, DwAt, Dwarf, Error, Range, RangeIter, Reader, Unit, UnitHeader,
     UnitOffset, UnitSectionOffset,
 };
 use log::error;
+
+use crate::variable::is_variable_die;
 
 pub struct DwarfOffset {
     pub section_offset: UnitSectionOffset,
@@ -136,5 +139,56 @@ where
         }) {
         Ok(v) => Ok(v),
         Err(err) => Err(anyhow!("{}", err)),
+    }
+}
+
+pub fn find_die_with_attribute<R: Reader<Offset = usize>>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    die: &DebuggingInformationEntry<R>,
+    attribute: DwAt, // TODO: Change this to a condition function.
+) -> Result<(UnitSectionOffset, UnitOffset)> {
+    if is_variable_die(die) {
+        return Err(anyhow!("This die is not a variable"));
+    }
+
+    if let Ok(Some(_)) = die.attr_value(attribute) {
+        return Ok((unit.header.offset(), die.offset()));
+    }
+
+    if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
+        return find_abstract_origin_with_attribute(dwarf, unit, attribute);
+    }
+
+    Err(anyhow!("Could not find this variables die"))
+}
+
+fn find_abstract_origin_with_attribute<R: Reader<Offset = usize>>(
+    dwarf: &Dwarf<R>,
+    unit: &Unit<R>,
+    attribute: gimli::AttributeValue<R>,
+) -> Result<(UnitSectionOffset, UnitOffset)> {
+    match attribute {
+        UnitRef(offset) => {
+            let die = unit.entry(offset)?;
+            Ok((unit.header.offset(), die.offset()))
+        }
+        DebugInfoRef(di_offset) => {
+            let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
+            let mut iter = dwarf.debug_info.units();
+            while let Ok(Some(header)) = iter.next() {
+                let unit = dwarf.unit(header)?;
+                if let Some(offset) = offset.to_unit_offset(&unit) {
+                    if let Ok(die) = unit.entry(offset) {
+                        return Ok((unit.header.offset(), die.offset()));
+                    }
+                }
+            }
+            Err(anyhow!("Could not find this variables die"))
+        }
+        val => {
+            error!("Unimplemented for {:?}", val);
+            Err(anyhow!("Unimplemented for {:?}", val))
+        }
     }
 }
