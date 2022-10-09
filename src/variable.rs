@@ -1,7 +1,7 @@
 use gimli::{
     AttributeValue::{DebugInfoRef, DebugStrRef, Exprloc, LocationListsRef, UnitRef},
-    DebugInfoOffset, DebuggingInformationEntry, Dwarf, Reader, Unit, UnitHeader, UnitOffset,
-    UnitSectionOffset,
+    DebugInfoOffset, DebuggingInformationEntry, Dwarf, LocationListsOffset, Reader, Unit,
+    UnitHeader, UnitOffset, UnitSectionOffset,
 };
 
 use crate::evaluate::evaluate;
@@ -70,7 +70,7 @@ impl<R: Reader<Offset = usize>> Variable<R> {
         // Get the source code location the variable was declared.
         let source = find_variable_source_information(dwarf, &unit, &die, cwd).ok();
 
-        let expression = match find_variable_location(dwarf, &unit, &die, pc)? {
+        let expression = match VariableLocation::find(dwarf, &unit, &die, pc)? {
             VariableLocation::Expression(expr) => {
                 trace!("VariableLocation::Expression");
                 expr
@@ -236,40 +236,31 @@ pub enum VariableLocation<R: Reader<Offset = usize>> {
     NoLocation,
 }
 
-/// Find the location of a variable.
-///
-/// Description:
-///
-/// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
-/// * `unit` - A reference to gimli-rs `Unit` struct which contains the given DIE.
-/// * `die` - A reference to the variables DIE that contains the location.
-/// * `address` - A address that will be used to find the location, this is most often the current machine code address.
-///
-/// Will get the location for the given address from the attribute `DW_AT_location` in the variable DIE.
-pub fn find_variable_location<R: Reader<Offset = usize>>(
-    dwarf: &Dwarf<R>,
-    unit: &Unit<R>,
-    die: &DebuggingInformationEntry<R>,
-    address: u32,
-) -> Result<VariableLocation<R>> {
-    if is_variable_die(die) {
+impl<R: Reader<Offset = usize>> VariableLocation<R> {
+    /// Find the location of a variable.
+    ///
+    /// Description:
+    ///
+    /// * `dwarf` - A reference to gimli-rs `Dwarf` struct.
+    /// * `unit` - A reference to gimli-rs `Unit` struct which contains the given DIE.
+    /// * `die` - A reference to the variables DIE that contains the location.
+    /// * `address` - A address that will be used to find the location, this is most often the current machine code address.
+    ///
+    /// Will get the location for the given address from the attribute `DW_AT_location` in the variable DIE.
+    pub fn find(
+        dwarf: &Dwarf<R>,
+        unit: &Unit<R>,
+        die: &DebuggingInformationEntry<R>,
+        address: u32,
+    ) -> Result<VariableLocation<R>> {
+        if !is_variable_die(die) {
+            return Err(anyhow!("This die is not a variable"));
+        }
+
         match die.attr_value(gimli::DW_AT_location)? {
             Some(Exprloc(expr)) => Ok(VariableLocation::Expression(expr)),
             Some(LocationListsRef(offset)) => {
-                let mut locations = dwarf.locations(unit, offset)?;
-                let mut count = 0;
-                while let Some(llent) = locations.next()? {
-                    if in_range(address, &llent.range) {
-                        return Ok(VariableLocation::LocationListEntry(llent));
-                    }
-                    count += 1;
-                }
-
-                if count > 0 {
-                    Ok(VariableLocation::LocationOutOfRange)
-                } else {
-                    Ok(VariableLocation::NoLocation)
-                }
+                Self::find_in_location_list(dwarf, unit, address, offset)
             }
             None => Ok(VariableLocation::NoLocation),
             Some(v) => {
@@ -277,8 +268,28 @@ pub fn find_variable_location<R: Reader<Offset = usize>>(
                 Err(anyhow!("Unimplemented for {:?}", v))
             }
         }
-    } else {
-        Err(anyhow!("This die is not a variable"))
+    }
+
+    fn find_in_location_list(
+        dwarf: &Dwarf<R>,
+        unit: &Unit<R>,
+        address: u32,
+        offset: LocationListsOffset,
+    ) -> Result<VariableLocation<R>> {
+        let mut locations = dwarf.locations(unit, offset)?;
+        let mut count = 0;
+        while let Some(location_list_entry) = locations.next()? {
+            if in_range(address, &location_list_entry.range) {
+                return Ok(VariableLocation::LocationListEntry(location_list_entry));
+            }
+            count += 1;
+        }
+
+        if count > 0 {
+            Ok(VariableLocation::LocationOutOfRange)
+        } else {
+            Ok(VariableLocation::NoLocation)
+        }
     }
 }
 
