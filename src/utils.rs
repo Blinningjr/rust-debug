@@ -161,15 +161,14 @@ pub fn get_unit_and_die_offset_from_debug_info_offset<R: Reader<Offset = usize>>
     dwarf: &Dwarf<R>,
     debug_info_offset: DebugInfoOffset,
 ) -> Result<(UnitSectionOffset, UnitOffset)> {
+    let header = dwarf.debug_info.header_from_offset(debug_info_offset)?;
+    let unit = dwarf.unit(header)?;
+
     let offset = gimli::UnitSectionOffset::DebugInfoOffset(debug_info_offset);
-    let mut iter = dwarf.debug_info.units();
-    while let Ok(Some(header)) = iter.next() {
-        let unit = dwarf.unit(header)?;
-        if let Some(offset) = offset.to_unit_offset(&unit) {
-            if let Ok(die) = unit.entry(offset) {
-                return Ok((unit.header.offset(), die.offset()));
-            }
-        }
+
+    if let Some(unit_offset) = offset.to_unit_offset(&unit) {
+        return Ok((unit.header.offset(), unit_offset));
     }
+
     Err(anyhow!("Could not find this variables die"))
 }

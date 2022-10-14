@@ -11,7 +11,10 @@ use crate::evaluate::evaluate::EvaluatorValue;
 use crate::evaluate::evaluate::ValueInformation;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
-use crate::utils::{die_in_range, get_current_unit, DwarfOffset};
+use crate::utils::{
+    die_in_range, get_current_unit, get_debug_info_header,
+    get_unit_and_die_offset_from_debug_info_offset, DwarfOffset,
+};
 use crate::variable::{is_variable_die, Variable};
 use anyhow::{anyhow, Result};
 use gimli::AttributeValue::DebugInfoRef;
@@ -681,25 +684,22 @@ pub fn create_stack_frame<M: MemoryAccess, R: Reader<Offset = usize>>(
                         _ => "<unknown>".to_string(),
                     }
                 }
-                DebugInfoRef(di_offset) => {
-                    let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-                    let mut iter = dwarf.debug_info.units();
-                    let mut name = "<unknown>".to_string();
-                    while let Ok(Some(header)) = iter.next() {
-                        let unit = dwarf.unit(header)?;
-                        if let Some(offset) = offset.to_unit_offset(&unit) {
-                            let ndie = unit.entry(offset)?;
-                            name = match ndie.attr_value(gimli::DW_AT_name)? {
+                DebugInfoRef(debug_info_offset) => {
+                    match get_unit_and_die_offset_from_debug_info_offset(dwarf, debug_info_offset) {
+                        Ok((section_offset, unit_offset)) => {
+                            let header = get_debug_info_header(dwarf, &section_offset)?;
+                            let abstract_unit = gimli::Unit::new(dwarf, header)?;
+                            let abstract_die = abstract_unit.entry(unit_offset)?;
+
+                            match abstract_die.attr_value(gimli::DW_AT_name)? {
                                 Some(DebugStrRef(offset)) => {
                                     format!("{:?}", dwarf.string(offset)?.to_string()?)
                                 }
                                 _ => "<unknown>".to_string(),
-                            };
-
-                            break;
+                            }
                         }
+                        Err(_err) => "<unknown>".to_string(),
                     }
-                    name
                 }
                 val => {
                     error!("Unimplemented for {:?}", val);
