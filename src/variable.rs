@@ -1,13 +1,13 @@
 use gimli::{
-    AttributeValue::{DebugInfoRef, DebugStrRef, Exprloc, LocationListsRef, UnitRef},
-    DebugInfoOffset, DebuggingInformationEntry, Dwarf, LocationListsOffset, Reader, Unit,
-    UnitHeader, UnitOffset, UnitSectionOffset,
+    AttributeValue::{DebugStrRef, Exprloc, LocationListsRef},
+    DebuggingInformationEntry, Dwarf, LocationListsOffset, Reader, Unit, UnitOffset,
+    UnitSectionOffset,
 };
 
 use crate::evaluate::evaluate;
 use crate::registers::Registers;
 use crate::source_information::SourceInformation;
-use crate::utils::in_range;
+use crate::utils::{get_unit_and_die_offset_from_attribute, in_range};
 use crate::variable::evaluate::EvaluatorValue;
 use crate::{call_stack::MemoryAccess, utils::DwarfOffset};
 use crate::{evaluate::attributes, utils::get_debug_info_header};
@@ -170,55 +170,17 @@ pub fn get_var_name<R: Reader<Offset = usize>>(
     }
 
     if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-        return get_abstract_origin_die_name(dwarf, unit, attribute);
+        let (section_offset, unit_offset) =
+            get_unit_and_die_offset_from_attribute(dwarf, unit, attribute)?;
+
+        let header = get_debug_info_header(dwarf, &section_offset)?;
+        let abstract_unit = gimli::Unit::new(dwarf, header)?;
+        let abstract_die = unit.entry(unit_offset)?;
+
+        return get_var_name(dwarf, &abstract_unit, &abstract_die);
     }
 
     Ok(None)
-}
-
-fn get_abstract_origin_die_name<R: Reader<Offset = usize>>(
-    dwarf: &Dwarf<R>,
-    unit: &Unit<R>,
-    attribute: gimli::AttributeValue<R>,
-) -> Result<Option<String>> {
-    match attribute {
-        UnitRef(o) => {
-            if let Ok(die) = unit.entry(o) {
-                return get_var_name(dwarf, unit, &die);
-            }
-            Ok(None)
-        }
-        DebugInfoRef(di_offset) => {
-            let (header, die_offset) = match find_debug_info_section_and_die(dwarf, di_offset) {
-                Ok(v) => v,
-                Err(_err) => return Ok(None),
-            };
-            let unit = gimli::Unit::new(dwarf, header)?;
-            let die = unit.entry(die_offset)?;
-            get_var_name(dwarf, &unit, &die)
-        }
-        val => {
-            error!("Unimplemented for {:?}", val);
-            Err(anyhow!("Unimplemented for {:?}", val))
-        }
-    }
-}
-
-fn find_debug_info_section_and_die<R: Reader<Offset = usize>>(
-    dwarf: &Dwarf<R>,
-    offset: DebugInfoOffset,
-) -> Result<(UnitHeader<R>, UnitOffset)> {
-    let offset = gimli::UnitSectionOffset::DebugInfoOffset(offset);
-    let mut iter = dwarf.debug_info.units();
-    while let Ok(Some(header)) = iter.next() {
-        let unit = dwarf.unit(header.clone())?;
-        if let Some(offset) = offset.to_unit_offset(&unit) {
-            if let Ok(die) = unit.entry(offset) {
-                return Ok((header, die.offset()));
-            }
-        }
-    }
-    Err(anyhow!("Could not find section and die"))
 }
 
 /// Holds the location of a variable.
@@ -319,41 +281,14 @@ pub fn find_variable_type_die<R: Reader<Offset = usize>>(
     }
 
     if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-        return find_abstract_origin_type_die(dwarf, unit, attribute);
+        let (section_offset, unit_offset) =
+            get_unit_and_die_offset_from_attribute(dwarf, unit, attribute)?;
+
+        let header = get_debug_info_header(dwarf, &section_offset)?;
+        let abstract_unit = gimli::Unit::new(dwarf, header)?;
+        let abstract_die = unit.entry(unit_offset)?;
+        return find_variable_type_die(dwarf, &abstract_unit, &abstract_die);
     }
-
-    Err(anyhow!("Could not find this variables type die"))
-}
-
-fn find_abstract_origin_type_die<R: Reader<Offset = usize>>(
-    dwarf: &Dwarf<R>,
-    unit: &Unit<R>,
-    attribute: gimli::AttributeValue<R>,
-) -> Result<(UnitSectionOffset, UnitOffset)> {
-    match attribute {
-        UnitRef(offset) => {
-            if let Ok(ao_die) = unit.entry(offset) {
-                return find_variable_type_die(dwarf, unit, &ao_die);
-            }
-        }
-        DebugInfoRef(di_offset) => {
-            let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-            let mut iter = dwarf.debug_info.units();
-            while let Ok(Some(header)) = iter.next() {
-                let unit = dwarf.unit(header)?;
-                if let Some(offset) = offset.to_unit_offset(&unit) {
-                    if let Ok(ndie) = unit.entry(offset) {
-                        return find_variable_type_die(dwarf, &unit, &ndie);
-                    }
-                }
-            }
-            return Err(anyhow!("Could not find this variables type die"));
-        }
-        val => {
-            error!("Unimplemented for {:?}", val);
-            return Err(anyhow!("Unimplemented for {:?}", val));
-        }
-    };
 
     Err(anyhow!("Could not find this variables type die"))
 }

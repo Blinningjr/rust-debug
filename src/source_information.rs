@@ -1,11 +1,12 @@
 use anyhow::{anyhow, Result};
 use log::error;
 
-use crate::{utils::get_current_unit, variable::is_variable_die};
+use crate::variable::is_variable_die;
 
-use gimli::{
-    AttributeValue::{DebugInfoRef, UnitRef},
-    ColumnType, DebuggingInformationEntry, Dwarf, Reader, Unit,
+use gimli::{ColumnType, DebuggingInformationEntry, Dwarf, Reader, Unit};
+
+use crate::utils::{
+    get_current_unit, get_debug_info_header, get_unit_and_die_offset_from_attribute,
 };
 
 use std::num::NonZeroU64;
@@ -237,41 +238,22 @@ impl SourceInformation {
         }
 
         if let Ok(Some(attribute)) = die.attr_value(gimli::DW_AT_abstract_origin) {
-            return Self::find_abstract_origin_source_information(dwarf, unit, cwd, attribute);
+            let (section_offset, unit_offset) =
+                get_unit_and_die_offset_from_attribute(dwarf, unit, attribute)?;
+
+            let header = get_debug_info_header(dwarf, &section_offset)?;
+            let abstract_unit = gimli::Unit::new(dwarf, header)?;
+            let abstract_die = unit.entry(unit_offset)?;
+
+            return Self::find_variable_source_information(
+                dwarf,
+                &abstract_unit,
+                &abstract_die,
+                cwd,
+            );
         }
 
         Self::get_die_source_information(dwarf, unit, die, cwd)
-    }
-
-    fn find_abstract_origin_source_information<R: Reader<Offset = usize>>(
-        dwarf: &Dwarf<R>,
-        unit: &Unit<R>,
-        cwd: &str,
-        attribute: gimli::AttributeValue<R>,
-    ) -> Result<SourceInformation> {
-        match attribute {
-            UnitRef(offset) => {
-                let die = unit.entry(offset)?;
-                Self::find_variable_source_information(dwarf, unit, &die, cwd)
-            }
-            DebugInfoRef(di_offset) => {
-                let offset = gimli::UnitSectionOffset::DebugInfoOffset(di_offset);
-                let mut iter = dwarf.debug_info.units();
-                while let Ok(Some(header)) = iter.next() {
-                    let unit = dwarf.unit(header)?;
-                    if let Some(offset) = offset.to_unit_offset(&unit) {
-                        if let Ok(die) = unit.entry(offset) {
-                            return Self::find_variable_source_information(dwarf, &unit, &die, cwd);
-                        }
-                    }
-                }
-                Err(anyhow!("Could not find this variables die"))
-            }
-            val => {
-                error!("Unimplemented for {:?}", val);
-                Err(anyhow!("Unimplemented for {:?}", val))
-            }
-        }
     }
 }
 
